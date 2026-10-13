@@ -123,6 +123,10 @@ class EventEnvelope(ContractModel):
         if self.type in terminal and self.phase != terminal[self.type]:
             raise ValueError("terminal event phase does not match type")
         payload_model = _PAYLOAD_MODELS.get(self.type)
+        if self.type in {"run.gate_opened", "run.failed"}:
+            from .runs import FailureInfo, Gate
+
+            payload_model = Gate if self.type == "run.gate_opened" else FailureInfo
         if payload_model:
             payload_model.model_validate(self.payload)
         return self
