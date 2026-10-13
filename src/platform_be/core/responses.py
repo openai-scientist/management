@@ -8,6 +8,7 @@ from pydantic import BaseModel
 # Set once per request by the request-context middleware so handlers can build
 # the envelope without threading the request through every call.
 request_id_context: ContextVar[str | None] = ContextVar("request_id", default=None)
+traceparent_context: ContextVar[str | None] = ContextVar("traceparent", default=None)
 
 
 class Pagination(BaseModel):

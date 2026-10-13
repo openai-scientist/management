@@ -61,6 +61,7 @@ class Harness:
         self.app = app
         self.factory = factory
         self.settings = settings
+        self.engines = app.state.engines
         self.popper = FakePopperClient()
         app.state.popper_client = self.popper
         self.emails = FakeEmailSender()

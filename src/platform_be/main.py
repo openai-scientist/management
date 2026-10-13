@@ -18,12 +18,13 @@ from platform_be.core.config import Settings, get_settings
 from platform_be.core.errors import APIError
 from platform_be.core.logging import configure_logging
 from platform_be.core.middleware import RequestProtectionMiddleware
-from platform_be.core.responses import error_response, request_id_context
+from platform_be.core.responses import error_response, request_id_context, traceparent_context
 from platform_be.db.session import get_db
 from platform_be.services.connectors import build_connector_executor, build_connector_factory
 from platform_be.services.connectors.gate import ConnectionGate
 from platform_be.services.default_admin import ensure_default_admin
 from platform_be.services.email_sender import build_email_sender
+from platform_be.services.engines.registry import build_engine_registry
 from platform_be.services.file_store import build_file_store
 from platform_be.services.google_drive_oauth import build_google_drive_oauth
 from platform_be.services.google_oauth import build_google_oauth
@@ -120,6 +121,7 @@ def create_app(
     app.state.get_db = get_db
     app.state.file_store = build_file_store(settings)
     app.state.popper_client = build_popper_client(settings)
+    app.state.engines = build_engine_registry(settings)
     app.state.email_sender = build_email_sender(settings)
     app.state.google_oauth = build_google_oauth(settings)
     app.state.google_drive_oauth = build_google_drive_oauth(settings)
@@ -157,6 +159,7 @@ def create_app(
                 request_id = str(uuid.uuid4())
         request.state.request_id = request_id
         request_id_context.set(request_id)
+        traceparent_context.set(request.headers.get("traceparent"))
         started = time.perf_counter()
         try:
             response = await call_next(request)
