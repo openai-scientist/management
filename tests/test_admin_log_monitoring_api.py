@@ -4,8 +4,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import func, select
 
+from management.audit.models import AuditEvent
 from management.identity.bootstrap_admin import bootstrap_admin
-from management.models.audit import AuditEvent
 from management.models.monitoring import MonitoringAlert, MonitoringEvent, MonitoringWorkerState
 from tests.conftest import Harness, login, mutation_headers
 

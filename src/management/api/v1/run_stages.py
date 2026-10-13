@@ -7,22 +7,22 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.api.v1.runs import RUN_ERRORS, CurrentStage, current_stage_item
-from management.auth.sessions import (
-    Principal,
-    require_active_csrf,
-    require_active_principal,
-)
-from management.contracts import Finding, GateAnswer
-from management.core.errors import APIError
-from management.core.responses import ApiResponse, ok
-from management.db.session import get_db
-from management.models import StageDecision, StageRun
-from management.services.access import (
+from management.access.service import (
     ensure_writable_project,
     lock_project_scope,
     require_project_access,
 )
+from management.api.v1.runs import RUN_ERRORS, CurrentStage, current_stage_item
+from management.contracts import Finding, GateAnswer
+from management.core.errors import APIError
+from management.core.responses import ApiResponse, ok
+from management.core.sessions import (
+    Principal,
+    require_active_csrf,
+    require_active_principal,
+)
+from management.db.session import get_db
+from management.models import StageDecision, StageRun
 from management.services.engines.client import EngineRejected, EngineUnavailable
 from management.services.orchestrator import accept_stage, validate_selection
 from management.services.runs import get_run

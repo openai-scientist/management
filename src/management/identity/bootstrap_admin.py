@@ -3,12 +3,12 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from management.auth.sessions import normalize_email
+from management.audit.service import record_audit
 from management.core.config import Settings, get_settings
 from management.core.errors import APIError
 from management.core.roles import PlatformRole
-from management.models.identity import User, UserPlatformRole, UserStatus
-from management.services.audit import record_audit
+from management.core.sessions import normalize_email
+from management.identity.models import User, UserPlatformRole, UserStatus
 
 
 async def bootstrap_admin(

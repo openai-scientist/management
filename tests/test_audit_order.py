@@ -2,8 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from management.models.audit import AuditEvent
-from management.services.audit import record_audit
+from management.audit.models import AuditEvent
+from management.audit.service import record_audit
 
 
 async def test_events_recorded_at_same_clock_tick_retain_call_order(harness, monkeypatch):
@@ -14,8 +14,8 @@ async def test_events_recorded_at_same_clock_tick_retain_call_order(harness, mon
         def now(tz):
             return instant
 
-    monkeypatch.setattr("management.models.audit.datetime", Clock)
-    monkeypatch.setattr("management.services.audit.datetime", Clock, raising=False)
+    monkeypatch.setattr("management.audit.models.datetime", Clock)
+    monkeypatch.setattr("management.audit.service.datetime", Clock, raising=False)
     async with harness.factory() as db:
         for action in ("first", "second"):
             record_audit(

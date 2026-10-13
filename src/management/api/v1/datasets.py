@@ -10,6 +10,11 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from management.access.service import (
+    ensure_writable_project,
+    lock_project_scope,
+    require_project_access,
+)
 from management.api.v1.connections import (
     READ_ERRORS,
     SavedConnection,
@@ -18,18 +23,20 @@ from management.api.v1.connections import (
     saved_connection,
     source_audit_details,
 )
-from management.auth.sessions import Principal, require_active_csrf, require_active_principal
+from management.audit.service import record_audit
 from management.core.errors import APIError
 from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
 from management.core.search import SearchTerm, matches
+from management.core.sessions import Principal, require_active_csrf, require_active_principal
 from management.db.session import get_db
-from management.models.dataset import Dataset, DatasetVersion
-from management.services.access import (
-    ensure_writable_project,
-    lock_project_scope,
-    require_project_access,
+from management.infra.file_store import (
+    FileStore,
+    attachment_headers,
+    get_file_store,
+    safe_filename,
 )
-from management.services.audit import record_audit
+from management.infra.secret_box import SecretBox, get_secret_box
+from management.models.dataset import Dataset, DatasetVersion
 from management.services.connectors import ConnectorFactory, get_connector_factory
 from management.services.connectors.base import (
     ConnectorError,
@@ -55,13 +62,6 @@ from management.services.dataset_ingest import (
     storage_key,
     store_csv,
 )
-from management.services.file_store import (
-    FileStore,
-    attachment_headers,
-    get_file_store,
-    safe_filename,
-)
-from management.services.secret_box import SecretBox, get_secret_box
 
 router = APIRouter(prefix="/projects/{project_id}/datasets", tags=["datasets"])
 

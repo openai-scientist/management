@@ -6,8 +6,8 @@ from moto import mock_aws
 from pydantic import ValidationError
 
 from management.core.config import Settings
-from management.services.file_store import LocalFileStore, build_file_store, put_json, read_json
-from management.services.r2_file_store import R2FileStore
+from management.infra.file_store import LocalFileStore, build_file_store, put_json, read_json
+from management.infra.r2_file_store import R2FileStore
 
 ENDPOINT = "https://test-account.r2.cloudflarestorage.com"
 BUCKET = "platform-files"

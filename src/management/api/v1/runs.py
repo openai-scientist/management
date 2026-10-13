@@ -11,18 +11,25 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import (
+from management.access.service import (
+    ensure_writable_project,
+    lock_project_scope,
+    require_project_access,
+)
+from management.audit.service import record_audit
+from management.contracts import InteractionMode
+from management.core.config import Settings
+from management.core.errors import APIError
+from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
+from management.core.sessions import (
     Principal,
     get_principal,
     require_active_csrf,
     require_active_principal,
     require_origin,
 )
-from management.contracts import InteractionMode
-from management.core.config import Settings
-from management.core.errors import APIError
-from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
 from management.db.session import get_db
+from management.infra.file_store import FileStore, get_file_store
 from management.models.dataset import DatasetVersion
 from management.models.research import (
     ACTIVE_RUN_STATUSES,
@@ -33,13 +40,6 @@ from management.models.research import (
     RunGate,
     StageRun,
 )
-from management.services.access import (
-    ensure_writable_project,
-    lock_project_scope,
-    require_project_access,
-)
-from management.services.audit import record_audit
-from management.services.file_store import FileStore, get_file_store
 from management.services.orchestrator import start_research_run
 from management.services.popper_client import (
     PopperClient,

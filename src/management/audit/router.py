@@ -6,13 +6,13 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import Principal, require_active_principal
+from management.audit.models import AuditEvent
 from management.core.errors import APIError
 from management.core.responses import ApiResponse, paginated
 from management.core.roles import ProjectRole
+from management.core.sessions import Principal, require_active_principal
 from management.db.session import get_db
-from management.models.audit import AuditEvent
-from management.models.identity import UserPlatformRole
+from management.identity.models import UserPlatformRole
 from management.models.project import ProjectMembership
 
 router = APIRouter(prefix="/audit", tags=["audit"])

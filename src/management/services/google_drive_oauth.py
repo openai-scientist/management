@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 import httpx
 
 from management.core.config import Settings
-from management.services.google_oauth import (
+from management.identity.google_oauth import (
     AUTHORIZATION_URL,
     GoogleOAuthError,
     id_token_claims,

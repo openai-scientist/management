@@ -12,24 +12,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import (
-    Principal,
-    get_principal,
-    normalize_email,
-    require_active_csrf,
-    require_active_principal,
-    require_origin,
-)
-from management.core.config import Settings
-from management.core.errors import APIError
-from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
-from management.core.roles import ProjectRole
-from management.core.search import SearchTerm, matches
-from management.db.session import get_db
-from management.models.identity import User, UserPlatformRole, UserStatus
-from management.models.project import Project, ProjectMembership
-from management.models.research import ResearchRun, active_run_filter
-from management.services.access import (
+from management.access.service import (
     active_manager_count,
     ensure_writable_project,
     invite_expired,
@@ -38,10 +21,27 @@ from management.services.access import (
     lock_user,
     require_project_access,
 )
-from management.services.audit import record_audit
-from management.services.avatars import api_prefix, avatar_url
-from management.services.email_sender import EmailSender, get_email_sender
-from management.services.invite_emails import project_invite
+from management.audit.service import record_audit
+from management.core.config import Settings
+from management.core.errors import APIError
+from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
+from management.core.roles import ProjectRole
+from management.core.search import SearchTerm, matches
+from management.core.sessions import (
+    Principal,
+    get_principal,
+    normalize_email,
+    require_active_csrf,
+    require_active_principal,
+    require_origin,
+)
+from management.core.urls import api_prefix, avatar_url
+from management.db.session import get_db
+from management.identity.models import User, UserPlatformRole, UserStatus
+from management.infra.email_sender import EmailSender, get_email_sender
+from management.infra.email_templates import project_invite
+from management.models.project import Project, ProjectMembership
+from management.models.research import ResearchRun, active_run_filter
 from management.services.notification_stream import notifications_changed
 from management.services.notifications import (
     drop_invitation_notices,

@@ -6,7 +6,7 @@ from sqlalchemy import event, inspect
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.orm import Session
 
-from management.models.identity import User, UserPlatformRole
+from management.identity.models import User, UserPlatformRole
 from management.models.project import Project, ProjectMembership
 from management.services.notification_stream import NotificationHub, stream_changed
 

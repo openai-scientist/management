@@ -9,7 +9,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.models.audit import AuditEvent
+from management.audit.models import AuditEvent
 from management.models.dataset import Dataset, DatasetVersion
 from management.services import dataset_ingest
 from management.services.connectors.base import Column, ConnectorError
@@ -645,7 +645,7 @@ def test_the_stored_csv_is_what_a_csv_reader_expects() -> None:
 
 @pytest.mark.asyncio
 async def test_a_file_whose_storing_is_interrupted_is_taken_back_out(tmp_path) -> None:
-    from management.services.file_store import LocalFileStore
+    from management.infra.file_store import LocalFileStore
 
     class Interrupted(LocalFileStore):
         async def put(self, key, chunks):

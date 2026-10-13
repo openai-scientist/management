@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from management.identity.bootstrap_admin import bootstrap_admin
-from management.models.identity import User
+from management.identity.models import User
 from management.models.project import Project
 from management.models.research import FrameReview, ResearchRun
 from tests.conftest import Harness, login

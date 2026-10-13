@@ -4,7 +4,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.models.audit import AuditEvent
+from management.audit.models import AuditEvent
 
 
 def record_audit(

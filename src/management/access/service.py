@@ -4,10 +4,10 @@ from uuid import UUID
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import Principal
 from management.core.errors import APIError
 from management.core.roles import ProjectRole
-from management.models.identity import User, UserPlatformRole, UserStatus
+from management.core.sessions import Principal
+from management.identity.models import User, UserPlatformRole, UserStatus
 from management.models.project import Project, ProjectMembership
 
 

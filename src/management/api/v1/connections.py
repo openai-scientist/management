@@ -20,19 +20,21 @@ from pydantic import (
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import Principal, require_active_csrf, require_active_principal
-from management.core.errors import APIError
-from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
-from management.core.search import SearchTerm, matches
-from management.db.session import get_db
-from management.models.data_connection import DataConnection
-from management.models.google_connection_grant import GoogleConnectionGrant
-from management.services.access import (
+from management.access.service import (
     ensure_writable_project,
     lock_project_scope,
     require_project_access,
 )
-from management.services.audit import record_audit
+from management.audit.service import record_audit
+from management.core.errors import APIError
+from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
+from management.core.search import SearchTerm, matches
+from management.core.sessions import Principal, require_active_csrf, require_active_principal
+from management.db.session import get_db
+from management.identity.google_oauth import GoogleOAuthError
+from management.infra.secret_box import SecretBox, SecretBoxError, get_secret_box
+from management.models.data_connection import DataConnection
+from management.models.google_connection_grant import GoogleConnectionGrant
 from management.services.connectors import (
     Connector,
     ConnectorError,
@@ -69,8 +71,6 @@ from management.services.connectors.network_guard import is_host
 from management.services.connectors.timeseries import LiveWindow, live_source
 from management.services.connectors.values import approximate_size, to_text
 from management.services.google_drive_oauth import GoogleAccessRevoked
-from management.services.google_oauth import GoogleOAuthError
-from management.services.secret_box import SecretBox, SecretBoxError, get_secret_box
 
 router = APIRouter(prefix="/projects/{project_id}/connections", tags=["data connections"])
 logger = logging.getLogger("management.connectors")

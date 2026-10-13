@@ -7,10 +7,10 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from management.models.audit import AuditEvent
+from management.audit.models import AuditEvent
+from management.infra.secret_box import SecretBox
 from management.models.data_connection import DataConnection
 from management.services.connectors import build_connector_factory
-from management.services.secret_box import SecretBox
 from tests.conftest import CONNECTION_KEY, Harness, login, mutation_headers
 from tests.fakes import FakePrometheus
 from tests.test_connection_browse_api import failure, preview

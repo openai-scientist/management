@@ -11,12 +11,19 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from management.api.v1.auth import (
-    ProfileUpdate,
-    display_name_or_local_part,
-    record_profile_update,
+from management.access.service import (
+    ensure_user_suspension_keeps_project_managers,
+    lock_user,
+    lock_user_project_scopes,
 )
-from management.auth.sessions import (
+from management.audit.service import record_audit
+from management.core.config import Settings
+from management.core.errors import APIError
+from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
+from management.core.roles import PlatformRole, platform_role_from_code
+from management.core.search import SearchTerm, matches
+from management.core.security import hash_password
+from management.core.sessions import (
     Principal,
     as_utc,
     email_local_part,
@@ -26,33 +33,25 @@ from management.auth.sessions import (
     require_platform_admin,
     require_user_id,
 )
-from management.core.config import Settings
-from management.core.errors import APIError
-from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
-from management.core.roles import PlatformRole, platform_role_from_code
-from management.core.search import SearchTerm, matches
-from management.core.security import hash_password
+from management.core.urls import api_prefix, avatar_url
 from management.db.session import get_db
-from management.models.identity import AuthSession, User, UserPlatformRole, UserStatus
-from management.services.access import (
-    ensure_user_suspension_keeps_project_managers,
-    lock_user,
-    lock_user_project_scopes,
-)
-from management.services.audit import record_audit
-from management.services.avatars import (
+from management.identity.avatars import (
     AVATAR_TYPES,
     AVATAR_UPLOAD_ERRORS,
-    api_prefix,
-    avatar_url,
     remove_avatar,
     replace_avatar,
     serve_avatar,
 )
-from management.services.email_sender import EmailSender, get_email_sender
-from management.services.file_store import FileStore, get_file_store
-from management.services.invite_emails import account_invite
-from management.services.one_time_codes import OtpPurpose, clear_code
+from management.identity.models import AuthSession, User, UserPlatformRole, UserStatus
+from management.identity.one_time_codes import OtpPurpose, clear_code
+from management.identity.router.auth import (
+    ProfileUpdate,
+    display_name_or_local_part,
+    record_profile_update,
+)
+from management.infra.email_sender import EmailSender, get_email_sender
+from management.infra.email_templates import account_invite
+from management.infra.file_store import FileStore, get_file_store
 
 router = APIRouter(prefix="/users", tags=["users"])
 

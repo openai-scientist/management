@@ -12,10 +12,10 @@ from enum import StrEnum
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import as_utc
 from management.core.config import Settings
 from management.core.security import new_otp_code, new_session_secret, otp_digest, token_digest
-from management.models.identity import EmailOtp, User
+from management.core.sessions import as_utc
+from management.identity.models import EmailOtp, User
 
 SEND_WINDOW = timedelta(hours=1)
 

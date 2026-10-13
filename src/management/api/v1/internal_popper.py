@@ -10,11 +10,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from management.access.service import lock_project_scope
 from management.core.config import Settings
 from management.core.errors import APIError
 from management.core.responses import ApiResponse, ErrorResponse, ok
 from management.core.security import service_key_matches
 from management.db.session import get_db
+from management.infra.file_store import FileStore, get_file_store, iter_file, safe_filename
 from management.models.research import (
     FINISHED_RUN_STATUSES,
     ResearchRun,
@@ -22,8 +24,6 @@ from management.models.research import (
     RunEvent,
     RunGate,
 )
-from management.services.access import lock_project_scope
-from management.services.file_store import FileStore, get_file_store, iter_file, safe_filename
 from management.services.run_event_stream import run_events_changed
 from management.services.runs import (
     engine_event_is_repeat,

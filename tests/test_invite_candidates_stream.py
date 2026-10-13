@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import event
 
 from management.identity.bootstrap_admin import bootstrap_admin
-from management.models.identity import User
+from management.identity.models import User
 from management.models.project import ProjectMembership
 from tests.conftest import Harness, login, mutation_headers
 from tests.test_notification_stream import open_stream

@@ -1,10 +1,10 @@
 import pytest
 from sqlalchemy import select
 
+from management.audit.models import AuditEvent
 from management.identity.bootstrap_admin import bootstrap_admin
-from management.models.audit import AuditEvent
-from management.models.identity import User
-from management.services.invite_emails import account_invite
+from management.identity.models import User
+from management.infra.email_templates import account_invite
 from tests.conftest import ORIGIN, PASSWORD, Harness, login, mutation_headers, sign_in
 
 USERS = "/api/v1/users"
@@ -193,8 +193,8 @@ async def test_a_development_stack_starts_with_an_admin(harness: Harness) -> Non
     from sqlalchemy import func, select
 
     from management.core.config import Settings
-    from management.models.identity import User
-    from management.services.default_admin import ensure_default_admin
+    from management.identity.default_admin import ensure_default_admin
+    from management.identity.models import User
 
     settings = harness.settings.model_copy(
         update={

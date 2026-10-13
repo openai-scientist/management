@@ -7,12 +7,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from management.auth.sessions import normalize_email
+from management.audit.service import record_audit
 from management.core.config import Settings
 from management.core.roles import PlatformRole
 from management.core.security import hash_password
-from management.models.identity import User, UserPlatformRole, UserStatus
-from management.services.audit import record_audit
+from management.core.sessions import normalize_email
+from management.identity.models import User, UserPlatformRole, UserStatus
 
 logger = logging.getLogger("management.default_admin")
 

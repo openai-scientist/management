@@ -6,10 +6,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import Principal, require_platform_admin
 from management.core.errors import APIError
 from management.core.responses import ApiResponse, paginated
 from management.core.search import SearchTerm, matches
+from management.core.sessions import Principal, require_platform_admin
 from management.db.session import get_db
 from management.models.project import Project
 from management.models.research import ResearchRun

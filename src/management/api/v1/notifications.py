@@ -12,20 +12,20 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from management.auth.sessions import (
+from management.core.errors import APIError
+from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
+from management.core.sessions import (
     Principal,
     get_principal,
     require_active_csrf,
     require_active_principal,
     require_origin,
 )
-from management.core.errors import APIError
-from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
+from management.core.urls import api_prefix, avatar_url
 from management.db.session import get_db
+from management.identity.models import User
 from management.models.collaboration import Notification
-from management.models.identity import User
 from management.models.project import Project, ProjectMembership
-from management.services.avatars import api_prefix, avatar_url
 from management.services.notification_stream import notifications_changed
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])

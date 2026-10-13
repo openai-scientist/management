@@ -3,8 +3,8 @@ from uuid import UUID
 import httpx
 
 from management.contracts import CONTRACT_VERSION, RunCreateRequest
+from management.core.engine_settings import EngineSettings
 from management.services.engines.registry import EngineRegistry
-from management.services.engines.settings import EngineSettings
 from tests.fakes.fake_engine import FakeEngine
 
 

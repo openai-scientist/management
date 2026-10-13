@@ -6,21 +6,21 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import Principal, require_active_csrf, require_active_principal
-from management.core.errors import APIError
-from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
-from management.core.roles import ProjectRole
-from management.db.session import get_db
-from management.models.collaboration import Comment
-from management.models.identity import User
-from management.models.research import RunArtifact
-from management.services.access import (
+from management.access.service import (
     ensure_writable_project,
     is_platform_admin,
     require_project_access,
 )
-from management.services.audit import record_audit
-from management.services.avatars import api_prefix, avatar_url
+from management.audit.service import record_audit
+from management.core.errors import APIError
+from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
+from management.core.roles import ProjectRole
+from management.core.sessions import Principal, require_active_csrf, require_active_principal
+from management.core.urls import api_prefix, avatar_url
+from management.db.session import get_db
+from management.identity.models import User
+from management.models.collaboration import Comment
+from management.models.research import RunArtifact
 from management.services.notifications import notify_project_members
 from management.services.runs import get_run
 

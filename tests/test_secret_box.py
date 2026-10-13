@@ -3,7 +3,7 @@ from cryptography.fernet import Fernet
 from pydantic import ValidationError
 
 from management.core.config import Settings
-from management.services.secret_box import SecretBox, SecretBoxError
+from management.infra.secret_box import SecretBox, SecretBoxError
 from tests.conftest import CONNECTION_KEY
 
 

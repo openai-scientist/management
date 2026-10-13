@@ -2,7 +2,6 @@
 
 import logging
 from collections.abc import AsyncIterator
-from pathlib import PurePosixPath
 from uuid import UUID, uuid4
 
 from fastapi import Request, UploadFile
@@ -11,12 +10,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from management.access.service import lock_user
+from management.audit.service import record_audit
 from management.core.errors import APIError
 from management.core.responses import ErrorResponse
-from management.models.identity import User
-from management.services.access import lock_user
-from management.services.audit import record_audit
-from management.services.file_store import FileStore, iter_file
+from management.core.urls import avatar_version
+from management.identity.models import User
+from management.infra.file_store import FileStore, iter_file
 
 logger = logging.getLogger("management.avatars")
 
@@ -39,24 +39,6 @@ def sniff_image(head: bytes) -> str | None:
     if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
         return ".webp"
     return None
-
-
-def api_prefix(request: Request) -> str:
-    return request.app.state.settings.api_prefix.rstrip("/")
-
-
-def avatar_url(prefix: str, user_id: UUID | str, storage_key: str | None) -> str | None:
-    """Where the user's avatar is served, or None without one.
-
-    The ``v`` value changes with every upload so a browser never shows a replaced picture.
-    """
-    if not storage_key:
-        return None
-    return f"{prefix}/users/{user_id}/avatar?v={_version(storage_key)}"
-
-
-def _version(storage_key: str) -> str:
-    return PurePosixPath(storage_key).stem[:8]
 
 
 async def _discard(store: FileStore, storage_key: str | None) -> None:
@@ -203,7 +185,7 @@ async def serve_avatar(
             # good. Any other URL for this user must be checked again every time.
             "Cache-Control": (
                 "private, max-age=31536000, immutable"
-                if version == _version(row[0])
+                if version == avatar_version(row[0])
                 else "private, no-cache"
             ),
         },

@@ -1,6 +1,7 @@
 import httpx
 import pytest
 
+from management.core.engine_settings import EngineSettings
 from management.core.responses import request_id_context
 from management.services.engines.client import (
     EngineClient,
@@ -8,7 +9,6 @@ from management.services.engines.client import (
     EngineRejected,
     EngineUnavailable,
 )
-from management.services.engines.settings import EngineSettings
 from tests.engine_fakes import make_request
 from tests.fakes.fake_engine import FakeEngine
 

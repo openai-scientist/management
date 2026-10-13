@@ -5,7 +5,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from management.models.audit import AuditEvent
+from management.audit.models import AuditEvent
 from management.models.dataset import DatasetVersion
 from management.services.connectors import build_connector_factory, google_drive
 from management.services.connectors.google_drive import CSV, SPREADSHEET, XLSX

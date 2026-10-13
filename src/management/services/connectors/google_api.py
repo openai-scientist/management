@@ -5,9 +5,9 @@ from typing import Any
 
 import httpx
 
+from management.identity.google_oauth import GoogleOAuthError
 from management.services.connectors.base import ConnectorError
 from management.services.google_drive_oauth import GoogleAccessRevoked, GoogleDriveOAuth
-from management.services.google_oauth import GoogleOAuthError
 
 logger = logging.getLogger("management.connectors")
 

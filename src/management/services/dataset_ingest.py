@@ -10,17 +10,17 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import Principal
-from management.core.errors import APIError
-from management.models.dataset import Dataset, DatasetVersion
-from management.services.access import (
+from management.access.service import (
     ensure_writable_project,
     lock_project_scope,
     require_project_access,
 )
-from management.services.audit import record_audit
+from management.audit.service import record_audit
+from management.core.errors import APIError
+from management.core.sessions import Principal
+from management.infra.file_store import FileStore, StoredFile, iter_file
+from management.models.dataset import Dataset, DatasetVersion
 from management.services.csv_inspection import CsvSummary, InvalidCsv, inspect_csv
-from management.services.file_store import FileStore, StoredFile, iter_file
 from management.services.project_status import refresh_project_status
 
 logger = logging.getLogger("management.datasets")

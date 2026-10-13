@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 
 from management.identity.bootstrap_admin import bootstrap_admin
-from management.models.identity import User, UserPlatformRole, UserStatus
+from management.identity.models import User, UserPlatformRole, UserStatus
 from management.models.project import ProjectMembership
 from tests.conftest import Harness, login, mutation_headers
 from tests.test_project_invitations import MISSING, code, remove

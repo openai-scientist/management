@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import Principal, require_platform_admin
 from management.core.responses import ApiResponse, ErrorResponse, ok
+from management.core.sessions import Principal, require_platform_admin
 from management.db.session import get_db
 from management.services.admin_overview import (
     OverviewSection,

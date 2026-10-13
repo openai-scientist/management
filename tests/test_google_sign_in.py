@@ -9,11 +9,10 @@ import httpx
 import pytest
 from sqlalchemy import func, select, update
 
+from management.audit.models import AuditEvent
 from management.core.config import Settings
 from management.identity.bootstrap_admin import bootstrap_admin
-from management.models.audit import AuditEvent
-from management.models.identity import User, UserStatus
-from management.services.google_oauth import (
+from management.identity.google_oauth import (
     AUTHORIZATION_URL,
     TOKEN_URL,
     GoogleIdentity,
@@ -21,6 +20,7 @@ from management.services.google_oauth import (
     GoogleOAuthError,
     build_google_oauth,
 )
+from management.identity.models import User, UserStatus
 from tests.conftest import (
     APP_URL,
     GOOGLE_CLIENT_ID,

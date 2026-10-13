@@ -7,7 +7,7 @@ A code is in the body only, never in the subject, which shows in notifications.
 
 from datetime import datetime
 
-from management.services.invite_emails import PRODUCT, _Message, _render, local_time
+from management.infra.email_templates import PRODUCT, _Message, _render, local_time
 
 DO_NOT_SHARE = f"Do not share this code with anyone. The {PRODUCT} never asks for it."
 

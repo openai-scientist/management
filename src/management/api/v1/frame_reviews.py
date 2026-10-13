@@ -7,17 +7,17 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import Principal, require_active_csrf, require_active_principal
-from management.core.errors import APIError
-from management.core.responses import ApiResponse, ErrorResponse, ok
-from management.db.session import get_db
-from management.models.research import FrameReview
-from management.services.access import (
+from management.access.service import (
     ensure_writable_project,
     lock_project_scope,
     require_project_access,
 )
-from management.services.file_store import FileStore, get_file_store, put_json, read_json
+from management.core.errors import APIError
+from management.core.responses import ApiResponse, ErrorResponse, ok
+from management.core.sessions import Principal, require_active_csrf, require_active_principal
+from management.db.session import get_db
+from management.infra.file_store import FileStore, get_file_store, put_json, read_json
+from management.models.research import FrameReview
 from management.services.popper_client import (
     PopperClient,
     PopperNotFound,

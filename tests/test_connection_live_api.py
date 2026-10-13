@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.api.v1 import connections as connections_api
-from management.models.audit import AuditEvent
+from management.audit.models import AuditEvent
 from management.models.dataset import Dataset
 from management.services.connectors.gate import LIVE_VIEW_AUDIT_SECONDS, ConnectionGate
 from management.services.connectors.timeseries import BUCKET_SECONDS, time_text

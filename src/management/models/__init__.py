@@ -1,11 +1,11 @@
 """SQLAlchemy models, imported by Alembic and application services."""
 
-from management.models.audit import AuditEvent
+from management.audit.models import AuditEvent
+from management.identity.models import AuthSession, EmailOtp, User, UserPlatformRole
 from management.models.collaboration import Comment, Notification
 from management.models.data_connection import DataConnection
 from management.models.dataset import Dataset, DatasetVersion
 from management.models.google_connection_grant import GoogleConnectionGrant
-from management.models.identity import AuthSession, EmailOtp, User, UserPlatformRole
 from management.models.model_config import IntegrationSecret, ModelProfile
 from management.models.monitoring import (
     MonitoringAlert,

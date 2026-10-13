@@ -11,7 +11,7 @@ from httpx import AsyncClient
 from sqlalchemy import event, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from management.models.identity import AuthSession, User
+from management.identity.models import AuthSession, User
 from management.services.notification_stream import notifications_changed
 from management.services.popper_client import PopperUnavailable
 from tests.conftest import ORIGIN, Harness, login, mutation_headers

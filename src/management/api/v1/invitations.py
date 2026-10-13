@@ -9,23 +9,23 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from management.auth.sessions import Principal, require_active_csrf, require_active_principal
-from management.core.errors import APIError
-from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
-from management.core.roles import ProjectRole
-from management.core.search import SearchTerm, matches
-from management.db.session import get_db
-from management.models.identity import User, UserStatus
-from management.models.project import Project, ProjectMembership
-from management.services.access import (
+from management.access.service import (
     ensure_writable_project,
     get_project,
     invite_expired,
     lock_project_scope,
     lock_user,
 )
-from management.services.audit import record_audit
-from management.services.avatars import api_prefix, avatar_url
+from management.audit.service import record_audit
+from management.core.errors import APIError
+from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
+from management.core.roles import ProjectRole
+from management.core.search import SearchTerm, matches
+from management.core.sessions import Principal, require_active_csrf, require_active_principal
+from management.core.urls import api_prefix, avatar_url
+from management.db.session import get_db
+from management.identity.models import User, UserStatus
+from management.models.project import Project, ProjectMembership
 from management.services.notifications import drop_invitation_notices, notify_project_members
 
 router = APIRouter(prefix="/invitations", tags=["invitations"])

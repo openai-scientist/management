@@ -11,25 +11,25 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import Principal, require_active_csrf, require_active_principal
-from management.core.errors import APIError
-from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
-from management.core.search import SearchTerm, matches
-from management.db.session import get_db
-from management.models.project_file import ProjectFile
-from management.services.access import (
+from management.access.service import (
     ensure_writable_project,
     lock_project_scope,
     require_project_access,
 )
-from management.services.audit import record_audit
-from management.services.file_store import (
+from management.audit.service import record_audit
+from management.core.errors import APIError
+from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
+from management.core.search import SearchTerm, matches
+from management.core.sessions import Principal, require_active_csrf, require_active_principal
+from management.db.session import get_db
+from management.infra.file_store import (
     FileStore,
     attachment_headers,
     get_file_store,
     iter_file,
     safe_filename,
 )
+from management.models.project_file import ProjectFile
 
 logger = logging.getLogger("management.project_files")
 

@@ -8,8 +8,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from management.audit.service import record_audit
 from management.core.errors import APIError
 from management.core.roles import ProjectRole
+from management.infra.file_store import FileStore, put_json
 from management.models.project import Project
 from management.models.research import (
     FINISHED_RUN_STATUSES,
@@ -17,8 +19,6 @@ from management.models.research import (
     ResearchRun,
     RunGate,
 )
-from management.services.audit import record_audit
-from management.services.file_store import FileStore, put_json
 from management.services.notifications import notify_project_members
 from management.services.project_status import refresh_project_status
 

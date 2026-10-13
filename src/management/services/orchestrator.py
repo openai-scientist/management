@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 
+from management.access.service import ensure_writable_project, lock_project_scope
 from management.contracts import (
     CONTRACT_VERSION,
     SELECTION_HYPOTHESIS_IDS,
@@ -27,7 +28,6 @@ from management.models import (
     StageRun,
 )
 from management.models.research import active_run_filter
-from management.services.access import ensure_writable_project, lock_project_scope
 from management.services.engines.client import EngineContractMismatch, EngineUnavailable
 from management.services.model_profiles import load_integrations, load_models
 from management.services.project_status import refresh_project_status

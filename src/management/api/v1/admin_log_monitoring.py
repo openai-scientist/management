@@ -11,7 +11,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.auth.sessions import (
+from management.audit.service import record_audit
+from management.core.errors import APIError
+from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
+from management.core.sessions import (
     Principal,
     get_principal,
     get_principal_without_touch,
@@ -19,12 +22,9 @@ from management.auth.sessions import (
     require_origin,
     require_platform_admin,
 )
-from management.core.errors import APIError
-from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
 from management.db.session import get_db
-from management.models.identity import UserPlatformRole
+from management.identity.models import UserPlatformRole
 from management.models.monitoring import MonitoringAlert, MonitoringEvent, MonitoringWorkerState
-from management.services.audit import record_audit
 from management.services.monitoring_queries import (
     P95_MIN_SAMPLES,
     SERVICE_CODE,

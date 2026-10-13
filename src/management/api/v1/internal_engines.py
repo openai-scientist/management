@@ -9,8 +9,8 @@ from management.contracts import ArtifactMeta, EventBatch
 from management.core.errors import APIError
 from management.core.security import service_key_matches
 from management.db.session import get_db
+from management.infra.file_store import attachment_headers, safe_filename
 from management.models import ResearchRun, RunArtifact, StageRun
-from management.services.file_store import attachment_headers, safe_filename
 from management.services.orchestrator import apply_engine_event
 from management.services.stage_runs import append_run_event
 

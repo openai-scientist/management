@@ -92,7 +92,7 @@ class LocalFileStore:
 def build_file_store(settings: Settings) -> FileStore:
     if settings.storage_backend == "r2":
         # Imported here so the local store never needs the R2 client library loaded.
-        from management.services.r2_file_store import R2FileStore
+        from management.infra.r2_file_store import R2FileStore
 
         return R2FileStore(
             bucket=settings.r2_bucket,

@@ -16,8 +16,8 @@ from management.contracts import (
     is_compatible,
     paths,
 )
+from management.core.engine_settings import EngineSettings
 from management.core.responses import request_id_context, traceparent_context
-from management.services.engines.settings import EngineSettings
 
 
 class EngineError(Exception):

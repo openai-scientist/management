@@ -5,9 +5,9 @@ import json
 import pytest
 from httpx import AsyncClient
 
+from management.infra.secret_box import SecretBox
 from management.services.connectors.base import Column, ConnectorError
 from management.services.connectors.gate import ConnectionGate
-from management.services.secret_box import SecretBox
 from tests.conftest import Harness, login, mutation_headers
 from tests.fakes import FakeTable
 from tests.test_connections_api import SECRET, audit_events, create_connection, wait_until

@@ -10,13 +10,13 @@ import pytest_asyncio
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from management.audit.models import AuditEvent
 from management.core.config import Settings
 from management.db.base import Base
 from management.identity.bootstrap_admin import bootstrap_admin
+from management.identity.models import AuthSession, EmailOtp, User, UserStatus
 from management.main import create_app
-from management.models.audit import AuditEvent
 from management.models.collaboration import Notification
-from management.models.identity import AuthSession, EmailOtp, User, UserStatus
 from management.models.project import ProjectMembership
 from management.services.connectors.base import Column
 from management.services.notifications import notify_user
@@ -925,9 +925,9 @@ async def test_a_real_table_is_imported_and_a_run_starts_from_it(
 async def test_two_returns_from_google_with_one_state_store_one_refresh_token(
     postgres_harness: Harness,
 ) -> None:
+    from management.infra.secret_box import SecretBox
     from management.models.google_connection_grant import GoogleConnectionGrant
     from management.services.google_drive_oauth import GoogleGrant
-    from management.services.secret_box import SecretBox
     from tests.test_google_connection_grant import CALLBACK, STATE_COOKIE, start
 
     harness = postgres_harness

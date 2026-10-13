@@ -2,9 +2,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from management.audit.models import AuditEvent
+from management.identity import avatars
 from management.identity.bootstrap_admin import bootstrap_admin
-from management.models.audit import AuditEvent
-from management.services import avatars
 from tests.conftest import ORIGIN, Harness, login, mutation_headers
 from tests.test_comments_and_notifications_api import NOTIFICATIONS, team
 from tests.test_projects_api import PROJECTS

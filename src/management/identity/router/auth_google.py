@@ -8,20 +8,20 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.api.v1.auth import display_name_or_local_part, start_session
-from management.auth.sessions import normalize_email
+from management.access.service import lock_user
+from management.audit.service import record_audit
 from management.core.config import Settings
 from management.core.errors import APIError
 from management.core.responses import ErrorResponse
+from management.core.sessions import normalize_email
 from management.db.session import get_db
-from management.models.identity import AuthSession, User, UserStatus
-from management.services import auth_emails
-from management.services.access import lock_user
-from management.services.audit import record_audit
-from management.services.avatars import adopt_avatar
-from management.services.email_sender import EmailSender, get_email_sender
-from management.services.file_store import FileStore, get_file_store
-from management.services.google_oauth import GoogleOAuth, GoogleOAuthError
+from management.identity import auth_emails
+from management.identity.avatars import adopt_avatar
+from management.identity.google_oauth import GoogleOAuth, GoogleOAuthError
+from management.identity.models import AuthSession, User, UserStatus
+from management.identity.router.auth import display_name_or_local_part, start_session
+from management.infra.email_sender import EmailSender, get_email_sender
+from management.infra.file_store import FileStore, get_file_store
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 logger = logging.getLogger("management.auth_google")

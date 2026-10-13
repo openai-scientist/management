@@ -8,17 +8,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from management.auth.sessions import (
-    Principal,
-    clear_session_cookie,
-    csrf_for_principal,
-    email_local_part,
-    get_principal,
-    normalize_email,
-    require_csrf,
-    require_origin,
-    set_session_cookie,
-)
+from management.access.service import lock_user
+from management.audit.service import record_audit
 from management.core.config import Settings
 from management.core.errors import APIError
 from management.core.responses import ApiResponse, ErrorResponse, ok
@@ -29,22 +20,27 @@ from management.core.security import (
     token_digest,
     verify_password,
 )
+from management.core.sessions import (
+    Principal,
+    clear_session_cookie,
+    csrf_for_principal,
+    email_local_part,
+    get_principal,
+    normalize_email,
+    require_csrf,
+    require_origin,
+    set_session_cookie,
+)
+from management.core.urls import api_prefix, avatar_url
 from management.db.session import get_db
-from management.models.identity import AuthSession, User, UserPlatformRole, UserStatus
-from management.models.project import Project, ProjectMembership
-from management.services import auth_emails
-from management.services.access import lock_user
-from management.services.audit import record_audit
-from management.services.avatars import (
+from management.identity import auth_emails
+from management.identity.avatars import (
     AVATAR_UPLOAD_ERRORS,
-    api_prefix,
-    avatar_url,
     remove_avatar,
     replace_avatar,
 )
-from management.services.email_sender import EmailSender, get_email_sender
-from management.services.file_store import FileStore, get_file_store
-from management.services.one_time_codes import (
+from management.identity.models import AuthSession, User, UserPlatformRole, UserStatus
+from management.identity.one_time_codes import (
     OtpPurpose,
     check_code,
     clear_code,
@@ -52,6 +48,9 @@ from management.services.one_time_codes import (
     issue_code,
     verify_reset_code,
 )
+from management.infra.email_sender import EmailSender, get_email_sender
+from management.infra.file_store import FileStore, get_file_store
+from management.models.project import Project, ProjectMembership
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 

@@ -9,7 +9,7 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from management.services.file_store import CHUNK_BYTES, StoredFile, key_parts
+from management.infra.file_store import CHUNK_BYTES, StoredFile, key_parts
 
 # An upload is held in memory up to this size while it is hashed, then on disk.
 SPOOL_BYTES = 8 * 1024 * 1024

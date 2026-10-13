@@ -4,8 +4,8 @@ import httpx
 import pytest
 from httpx import AsyncClient
 
+from management.infra.secret_box import SecretBox
 from management.services.connectors import build_connector_factory
-from management.services.secret_box import SecretBox
 from tests.conftest import CONNECTION_KEY, Harness, login, mutation_headers
 from tests.fakes import FakeInfluxDB
 from tests.test_connection_browse_api import failure, preview

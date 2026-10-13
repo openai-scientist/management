@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from management.core.config import Settings
-from management.services.email_sender import (
+from management.infra.email_sender import (
     RESEND_URL,
     LogEmailSender,
     ResendEmailSender,

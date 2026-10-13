@@ -13,21 +13,22 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from management.api.v1.router import router as v1_router
-from management.auth.sessions import clear_session_cookie
 from management.core.config import Settings, get_settings
 from management.core.errors import APIError
 from management.core.logging import configure_logging
 from management.core.middleware import RequestProtectionMiddleware
 from management.core.responses import error_response, request_id_context, traceparent_context
+from management.core.sessions import clear_session_cookie
 from management.db.session import get_db
+from management.identity.default_admin import ensure_default_admin
+from management.identity.google_oauth import build_google_oauth
+from management.infra.email_sender import build_email_sender
+from management.infra.file_store import build_file_store
+from management.infra.secret_box import SecretBox
 from management.services.connectors import build_connector_executor, build_connector_factory
 from management.services.connectors.gate import ConnectionGate
-from management.services.default_admin import ensure_default_admin
-from management.services.email_sender import build_email_sender
 from management.services.engines.registry import build_engine_registry
-from management.services.file_store import build_file_store
 from management.services.google_drive_oauth import build_google_drive_oauth
-from management.services.google_oauth import build_google_oauth
 from management.services.invite_candidates_stream import InviteCandidatesHub
 from management.services.monitoring_alerts import MonitoringAlertEvaluator
 from management.services.monitoring_events import MonitoringTelemetry
@@ -35,7 +36,6 @@ from management.services.monitoring_stream import MonitoringHub
 from management.services.notification_stream import NotificationHub
 from management.services.popper_client import build_popper_client
 from management.services.run_event_stream import RunEventHub
-from management.services.secret_box import SecretBox
 
 logger = logging.getLogger("management.http")
 

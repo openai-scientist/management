@@ -10,7 +10,7 @@ from management.core.config import Settings
 from management.core.errors import APIError
 from management.core.security import csrf_matches, csrf_token, token_digest
 from management.db.session import get_db
-from management.models.identity import AuthSession, User, UserPlatformRole, UserStatus
+from management.identity.models import AuthSession, User, UserPlatformRole, UserStatus
 
 
 @dataclass(slots=True)
