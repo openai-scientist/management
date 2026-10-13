@@ -1,9 +1,6 @@
 from fastapi import APIRouter
 
-from management.api.v1.admin_log_monitoring import router as admin_log_monitoring_router
 from management.api.v1.admin_models import router as admin_models_router
-from management.api.v1.admin_overview import router as admin_overview_router
-from management.api.v1.admin_usage import router as admin_usage_router
 from management.api.v1.frame_reviews import router as frame_reviews_router
 from management.api.v1.internal_engines import router as internal_engines_router
 from management.api.v1.internal_popper import router as internal_popper_router
@@ -19,6 +16,9 @@ from management.datasets.router import router as datasets_router
 from management.identity.router.auth import router as auth_router
 from management.identity.router.auth_google import router as auth_google_router
 from management.identity.router.users import router as users_router
+from management.monitoring.router.admin_log_monitoring import router as admin_log_monitoring_router
+from management.monitoring.router.admin_overview import router as admin_overview_router
+from management.monitoring.router.admin_usage import router as admin_usage_router
 from management.notifications.router import router as notifications_router
 from management.projects.router.comments import router as comments_router
 from management.projects.router.invitations import router as invitations_router

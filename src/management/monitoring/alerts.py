@@ -4,8 +4,8 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from management.models.monitoring import MonitoringAlert
-from management.services.monitoring_queries import (
+from management.monitoring.models import MonitoringAlert
+from management.monitoring.queries import (
     MAX_EVENT_ROWS,
     SERVICE_CODE,
     aggregate_requests,
@@ -13,7 +13,7 @@ from management.services.monitoring_queries import (
     monitoring_service_id,
     request_events,
 )
-from management.services.monitoring_stream import MonitoringHub, monitoring_changed
+from management.monitoring.stream import MonitoringHub, monitoring_changed
 
 logger = logging.getLogger("management.monitoring.alerts")
 ALERT_EVALUATOR_LOCK_ID = 7_481_026_232

@@ -7,7 +7,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.core.search import contains_text
-from management.models.monitoring import (
+from management.monitoring.models import (
     MonitoringAlert,
     MonitoringCaptureGap,
     MonitoringEvent,

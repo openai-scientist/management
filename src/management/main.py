@@ -28,12 +28,12 @@ from management.identity.google_oauth import build_google_oauth
 from management.infra.email_sender import build_email_sender
 from management.infra.file_store import build_file_store
 from management.infra.secret_box import SecretBox
+from management.monitoring.alerts import MonitoringAlertEvaluator
+from management.monitoring.events import MonitoringTelemetry
+from management.monitoring.stream import MonitoringHub
 from management.notifications.notification_stream import NotificationHub
 from management.projects.invite_candidates_stream import InviteCandidatesHub
 from management.services.engines.registry import build_engine_registry
-from management.services.monitoring_alerts import MonitoringAlertEvaluator
-from management.services.monitoring_events import MonitoringTelemetry
-from management.services.monitoring_stream import MonitoringHub
 from management.services.popper_client import build_popper_client
 from management.services.run_event_stream import RunEventHub
 

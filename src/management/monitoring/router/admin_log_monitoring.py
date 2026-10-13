@@ -24,8 +24,8 @@ from management.core.sessions import (
 )
 from management.db.session import get_db
 from management.identity.models import UserPlatformRole
-from management.models.monitoring import MonitoringAlert, MonitoringEvent, MonitoringWorkerState
-from management.services.monitoring_queries import (
+from management.monitoring.models import MonitoringAlert, MonitoringEvent, MonitoringWorkerState
+from management.monitoring.queries import (
     P95_MIN_SAMPLES,
     SERVICE_CODE,
     SERVICE_METRICS_WINDOW_SECONDS,
@@ -38,7 +38,7 @@ from management.services.monitoring_queries import (
     request_bucket_points,
     request_events,
 )
-from management.services.monitoring_stream import MonitoringHub, monitoring_changed
+from management.monitoring.stream import MonitoringHub, monitoring_changed
 
 router = APIRouter(prefix="/admin/log-monitoring", tags=["admin-log-monitoring"])
 RETENTION_MAX_DAYS = 14

@@ -4,13 +4,13 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import func, select
 
-from management.models.monitoring import (
+from management.monitoring.alerts import MonitoringAlertEvaluator
+from management.monitoring.models import (
     MonitoringAlert,
     MonitoringCaptureGap,
     MonitoringEvent,
     MonitoringWorkerState,
 )
-from management.services.monitoring_alerts import MonitoringAlertEvaluator
 from tests.conftest import Harness
 
 

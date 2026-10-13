@@ -4,7 +4,7 @@ from management.audit.models import AuditEvent
 from management.connections.models import DataConnection, GoogleConnectionGrant
 from management.datasets.models import Dataset, DatasetVersion
 from management.identity.models import AuthSession, EmailOtp, User, UserPlatformRole
-from management.models.monitoring import (
+from management.monitoring.models import (
     MonitoringAlert,
     MonitoringCaptureGap,
     MonitoringEvent,

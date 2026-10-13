@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from management.core.responses import ApiResponse, ErrorResponse, ok
 from management.core.sessions import Principal, require_platform_admin
 from management.db.session import get_db
-from management.services.admin_overview import (
+from management.monitoring.admin_overview import (
     OverviewSection,
     build_admin_overview,
     effective_window,

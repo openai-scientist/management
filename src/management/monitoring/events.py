@@ -12,12 +12,12 @@ from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
-from management.models.monitoring import (
+from management.monitoring.models import (
     MonitoringCaptureGap,
     MonitoringEvent,
     MonitoringWorkerState,
 )
-from management.services.monitoring_stream import MonitoringHub, monitoring_changed
+from management.monitoring.stream import MonitoringHub, monitoring_changed
 
 logger = logging.getLogger("management.monitoring")
 WORKER_ACTIVE_STATUSES = ("starting", "ready", "degraded")

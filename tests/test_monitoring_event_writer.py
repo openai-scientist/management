@@ -5,12 +5,12 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
-from management.models.monitoring import (
+from management.monitoring.events import MonitoringTelemetry
+from management.monitoring.models import (
     MonitoringCaptureGap,
     MonitoringEvent,
     MonitoringWorkerState,
 )
-from management.services.monitoring_events import MonitoringTelemetry
 from tests.conftest import open_harness
 
 
