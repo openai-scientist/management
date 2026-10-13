@@ -4,18 +4,19 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from fastapi import Request
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.access.service import (
     ensure_writable_project,
     require_project_access,
 )
+from management.audit.service import record_audit
 from management.connections.connectors import (
     Connector,
     ConnectorError,
@@ -28,7 +29,9 @@ from management.connections.connectors.base import (
     ensure_source_supported,
 )
 from management.connections.connectors.gate import ConnectionGate
-from management.connections.models import DataConnection
+from management.connections.connectors.values import to_text
+from management.connections.models import DataConnection, GoogleConnectionGrant
+from management.connections.schemas.connections import PREVIEW_CELL_CHARS, ConnectionItem
 from management.core.errors import APIError
 from management.core.responses import ErrorResponse
 from management.core.sessions import Principal
@@ -220,3 +223,175 @@ def source_audit_details(source: AnySource) -> dict[str, Any]:
             "sql_sha256": hashlib.sha256(source.sql.encode()).hexdigest(),
         }
     return {"source_type": "table", "schema": source.schema_name, "name": source.name}
+
+
+def _item(row: DataConnection) -> ConnectionItem:
+    return ConnectionItem(
+        id=str(row.id),
+        project_id=str(row.project_id),
+        name=row.name,
+        kind=row.kind,
+        config=row.config,
+        last_tested_at=row.last_tested_at,
+        last_error_code=row.last_error_code,
+        created_by_user_id=str(row.created_by_user_id),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+async def _name_taken(
+    db: AsyncSession, project_id: UUID, name: str, *, except_id: UUID | None = None
+) -> bool:
+    query = select(DataConnection.id).where(
+        DataConnection.project_id == project_id, func.lower(DataConnection.name) == name.lower()
+    )
+    if except_id is not None:
+        query = query.where(DataConnection.id != except_id)
+    return await db.scalar(query) is not None
+
+
+def _preview_cell(value: Any) -> str | None:
+    text = to_text(value)
+    if text is not None and len(text) > PREVIEW_CELL_CHARS:
+        return text[:PREVIEW_CELL_CHARS] + "…"
+    return text
+
+
+def _name_exists() -> APIError:
+    return APIError(
+        409, "CONNECTION_NAME_EXISTS", "The project already has a connection by that name"
+    )
+
+
+async def _probe(
+    gate: ConnectionGate,
+    factory: ConnectorFactory,
+    project_id: UUID,
+    user_id: UUID,
+    kind: str,
+    config: dict[str, Any],
+    secret: dict[str, Any],
+) -> tuple[Connector | None, ConnectorError | None]:
+    """Connect for real: the connector that answered, or what went wrong.
+
+    Holds a slot, never the Platform's database session: the caller commits first.
+    """
+    async with gate.slot(project_id, user_id):
+        try:
+            connector = await factory(kind, config, secret)
+            await connector.test()
+        except ConnectorError as exc:
+            return None, exc
+    return connector, None
+
+
+def _audit_target(config: dict[str, Any]) -> dict[str, Any]:
+    """Where a connection points, for an audit event: a server, a BigQuery project, a
+    spreadsheet or a Drive folder. Never the Google account: its address is personal data."""
+    if "host" in config:
+        return {"host": config["host"], "port": config["port"]}
+    if "spreadsheet_id" in config:
+        return {"spreadsheet_id": config["spreadsheet_id"]}
+    if "folder_id" in config:
+        return {"folder_id": config["folder_id"]}
+    return {"project_id": config["project_id"]}
+
+
+def _grant_invalid() -> APIError:
+    return APIError(
+        422,
+        "GOOGLE_GRANT_INVALID",
+        "The Google access has expired or was already used. Connect the Google account again.",
+    )
+
+
+def _usable_grant(grant_id: UUID, principal: Principal, project_id: UUID) -> list[Any]:
+    """What makes a grant usable here: it is this user's, for this project, holds Google's
+    answer and has not expired."""
+    return [
+        GoogleConnectionGrant.id == grant_id,
+        GoogleConnectionGrant.user_id == principal.user.id,
+        GoogleConnectionGrant.project_id == project_id,
+        GoogleConnectionGrant.secret_ciphertext.is_not(None),
+        GoogleConnectionGrant.expires_at > datetime.now(UTC),
+    ]
+
+
+@dataclass(frozen=True, slots=True)
+class _GoogleAccess:
+    subject: str
+    email: str
+    # The refresh token. Kept out of the repr, like the secret of a saved connection.
+    secret: dict[str, Any] = field(repr=False)
+
+
+async def _google_access(
+    request: Request,
+    db: AsyncSession,
+    box: SecretBox,
+    principal: Principal,
+    project_id: UUID,
+    grant_id: UUID,
+) -> _GoogleAccess:
+    """Read what a grant holds without using it up: the connection has yet to be tried.
+
+    Grants that expired go away here as well as when a new one is started, so a refresh
+    token nobody used does not outlive its 10 minutes for long.
+    """
+    if request.app.state.google_drive_oauth is None:
+        raise APIError(
+            503, "CONNECTIONS_NOT_CONFIGURED", "Google connections are not configured here"
+        )
+    await db.execute(
+        delete(GoogleConnectionGrant).where(GoogleConnectionGrant.expires_at <= datetime.now(UTC))
+    )
+    grant = await db.scalar(
+        select(GoogleConnectionGrant).where(*_usable_grant(grant_id, principal, project_id))
+    )
+    try:
+        if grant is None:
+            raise _grant_invalid()
+        return _GoogleAccess(
+            grant.google_subject, grant.account_email, box.open(grant.secret_ciphertext)
+        )
+    except (APIError, SecretBoxError):
+        # Committed first: the rollback that follows an error would bring the expired back.
+        await db.commit()
+        raise _grant_invalid() from None
+
+
+async def _use_grant(
+    db: AsyncSession, principal: Principal, project_id: UUID, grant_id: UUID
+) -> None:
+    """Spend a grant in the caller's transaction, or refuse: it is good for one connection.
+
+    One statement, so of two requests with the same grant only one finds it.
+    """
+    used = await db.execute(
+        delete(GoogleConnectionGrant).where(*_usable_grant(grant_id, principal, project_id))
+    )
+    if used.rowcount != 1:
+        raise _grant_invalid()
+
+
+def _audit_failed_test(
+    db: AsyncSession,
+    request: Request,
+    principal: Principal,
+    project_id: UUID,
+    connection_id: UUID,
+    kind: str,
+    config: dict[str, Any],
+    error: ConnectorError,
+) -> None:
+    record_audit(
+        db,
+        actor_user_id=principal.user.id,
+        action="connection.test_failed",
+        resource_type="data_connection",
+        resource_id=connection_id,
+        project_id=project_id,
+        request_id=getattr(request.state, "request_id", None),
+        details={"kind": kind, **_audit_target(config), "reason": error.reason},
+    )

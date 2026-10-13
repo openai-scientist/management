@@ -1,19 +1,10 @@
 import logging
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from pydantic import (
-    BaseModel,
-    Field,
-    StringConstraints,
-    computed_field,
-    field_validator,
-    model_validator,
-)
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.access.service import (
@@ -23,42 +14,53 @@ from management.access.service import (
 )
 from management.audit.service import record_audit
 from management.connections.connectors import (
-    Connector,
-    ConnectorError,
     ConnectorFactory,
     get_connector_factory,
 )
 from management.connections.connectors.base import (
-    Aggregate,
-    Column,
-    FieldNames,
     Identifier,
-    Source,
-    TagNames,
-    check_series_names,
-)
-from management.connections.connectors.bigquery import (
-    LOCATION_PATTERN,
-    PROJECT_ID_PATTERN,
-    SERVICE_ACCOUNT_MAX_CHARS,
-    parse_service_account,
 )
 from management.connections.connectors.gate import ConnectionGate, get_connection_gate
-from management.connections.connectors.google_drive import GoogleDriveConnector, parse_folder_id
+from management.connections.connectors.google_drive import GoogleDriveConnector
 from management.connections.connectors.google_sheets import (
     GoogleSheetsConnector,
-    parse_spreadsheet_id,
 )
-from management.connections.connectors.http_source import parse_server_url
-from management.connections.connectors.network_guard import is_host
-from management.connections.connectors.timeseries import LiveWindow, live_source
+from management.connections.connectors.timeseries import live_source
 from management.connections.connectors.values import approximate_size, to_text
 from management.connections.google_drive_oauth import GoogleAccessRevoked
-from management.connections.models import DataConnection, GoogleConnectionGrant
+from management.connections.models import DataConnection
+from management.connections.schemas.connections import (
+    LIVE_MAX_ROWS,
+    ColumnItem,
+    ConnectionItem,
+    CreateConnection,
+    CreateGoogleDriveConnection,
+    CreateGoogleSheetsConnection,
+    GooglePickerCredentials,
+    GooglePickerRequest,
+    InfluxSecret,
+    LiveData,
+    LiveRequest,
+    PreviewData,
+    PreviewRequest,
+    ReauthorizeConnection,
+    RenameConnection,
+    TableItem,
+)
 from management.connections.service import (
     CONNECTION_ERRORS,
     PROBE_ERRORS,
     READ_ERRORS,
+    _audit_failed_test,
+    _audit_target,
+    _google_access,
+    _grant_invalid,
+    _item,
+    _name_exists,
+    _name_taken,
+    _preview_cell,
+    _probe,
+    _use_grant,
     find_connection,
     open_secret,
     reading,
@@ -73,563 +75,19 @@ from management.core.search import SearchTerm, matches
 from management.core.sessions import Principal, require_active_csrf, require_active_principal
 from management.db.session import get_db
 from management.identity.google_oauth import GoogleOAuthError
-from management.infra.secret_box import SecretBox, SecretBoxError, get_secret_box
+from management.infra.secret_box import SecretBox, get_secret_box
 
 router = APIRouter(prefix="/projects/{project_id}/connections", tags=["data connections"])
+
+
 logger = logging.getLogger("management.connectors")
 
+
 MAX_TABLES = 500
-PREVIEW_CELL_CHARS = 500
+
+
 # A preview of very wide rows stops early, however few rows that leaves.
 PREVIEW_SIZE = 2 * 1024 * 1024
-# A live view is at most 96 points a series: this many rows is some twenty series.
-LIVE_MAX_ROWS = 2000
-
-# A NUL byte is not valid in a PostgreSQL parameter and would make the driver raise.
-ConfigText = Annotated[str, StringConstraints(min_length=1, max_length=253, pattern=r"^[^\x00]+$")]
-ConnectionName = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=2, max_length=120, pattern=r"^[^\x00]+$"),
-]
-
-
-class _ServerConfig(BaseModel, extra="forbid"):
-    host: ConfigText = Field(description="A DNS name or an IP address, without port or scheme.")
-    database: ConfigText
-    username: ConfigText
-    ssl: Literal["disable", "require", "verify-full"] = Field(
-        default="require",
-        description=(
-            "`require` encrypts the connection but does not check the server certificate. "
-            "`verify-full` also checks it against public certificate authorities and the "
-            "host name; servers with a private CA need `require`."
-        ),
-    )
-
-    @field_validator("host")
-    @classmethod
-    def validate_host(cls, value: str) -> str:
-        # Refused here, before anything is audited: text pasted into this field by mistake
-        # (a full connection URL, say) can carry a password.
-        value = value.strip()
-        if not is_host(value):
-            raise ValueError("host must be a DNS name or an IP address")
-        return value
-
-
-class PostgresConfig(_ServerConfig):
-    port: int = Field(default=5432, ge=1, le=65535)
-
-
-class MysqlConfig(_ServerConfig):
-    port: int = Field(default=3306, ge=1, le=65535)
-
-
-class PasswordSecret(BaseModel, extra="forbid"):
-    password: Annotated[str, StringConstraints(max_length=1024, pattern=r"^[^\x00]*$")] = ""
-
-
-class CreatePostgresConnection(BaseModel, extra="forbid"):
-    name: ConnectionName
-    kind: Literal["postgres"]
-    config: PostgresConfig
-    secret: PasswordSecret
-
-
-class CreateMysqlConnection(BaseModel, extra="forbid"):
-    """MySQL or MariaDB. The database is the only schema the connection browses."""
-
-    name: ConnectionName
-    kind: Literal["mysql"]
-    config: MysqlConfig
-    secret: PasswordSecret
-
-
-class BigQueryConfig(BaseModel, extra="forbid"):
-    project_id: Annotated[str, StringConstraints(pattern=PROJECT_ID_PATTERN)] | None = Field(
-        default=None,
-        description=(
-            "The project whose datasets are browsed and which is billed for queries. "
-            "Left out, it is the project of the service account."
-        ),
-    )
-    location: Annotated[str, StringConstraints(pattern=LOCATION_PATTERN)] | None = Field(
-        default=None,
-        description="Where queries run, such as `US` or `asia-southeast1`. Usually not needed.",
-    )
-
-
-class ServiceAccountSecret(BaseModel, extra="forbid"):
-    service_account_json: Annotated[
-        str, StringConstraints(min_length=1, max_length=SERVICE_ACCOUNT_MAX_CHARS)
-    ] = Field(description="The content of the JSON key file of a Google service account.")
-
-    @field_validator("service_account_json")
-    @classmethod
-    def validate_key_file(cls, value: str) -> str:
-        parse_service_account(value)
-        return value
-
-
-class CreateBigQueryConnection(BaseModel, extra="forbid"):
-    """BigQuery, as a service account. A dataset is what the other kinds call a schema."""
-
-    name: ConnectionName
-    kind: Literal["bigquery"]
-    config: BigQueryConfig = Field(default_factory=BigQueryConfig)
-    secret: ServiceAccountSecret
-
-    @model_validator(mode="after")
-    def default_project(self) -> "CreateBigQueryConnection":
-        if self.config.project_id is None:
-            account = parse_service_account(self.secret.service_account_json)
-            self.config.project_id = account["project_id"]
-        return self
-
-
-class GoogleSheetsConfig(BaseModel, extra="forbid"):
-    spreadsheet: Annotated[str, StringConstraints(min_length=1, max_length=2048)] = Field(
-        description=(
-            "The address of the spreadsheet as the browser shows it "
-            "(`https://docs.google.com/spreadsheets/d/<id>/...`), or the ID alone."
-        )
-    )
-
-    @field_validator("spreadsheet")
-    @classmethod
-    def validate_spreadsheet(cls, value: str) -> str:
-        return parse_spreadsheet_id(value)
-
-
-class CreateGoogleSheetsConnection(BaseModel, extra="forbid"):
-    """One Google spreadsheet, read as the Google account that gave access.
-
-    The spreadsheet is the only schema and each tab is a table whose first row names the
-    columns. The saved `config` holds `spreadsheet_id`, `title`, `account_email` and
-    `google_subject`.
-    """
-
-    name: ConnectionName
-    kind: Literal["google_sheets"]
-    config: GoogleSheetsConfig
-    grant_id: UUID = Field(
-        description=(
-            "The `google_grant` the browser came back from Google with. It works once, for "
-            "the user who started and in that project, within 10 minutes."
-        )
-    )
-
-
-class GoogleDriveConfig(BaseModel, extra="forbid"):
-    folder: Annotated[str, StringConstraints(min_length=1, max_length=2048)] = Field(
-        description=(
-            "The address of the folder as the browser shows it "
-            "(`https://drive.google.com/drive/folders/<id>`), or the ID alone."
-        )
-    )
-
-    @field_validator("folder")
-    @classmethod
-    def validate_folder(cls, value: str) -> str:
-        return parse_folder_id(value)
-
-
-class CreateGoogleDriveConnection(BaseModel, extra="forbid"):
-    """One Google Drive folder, read as the Google account that gave access.
-
-    Each CSV file, Google spreadsheet and Excel workbook (`.xlsx`) directly in the folder is
-    a schema, named like the file, and each of its tabs is a table whose first row names the
-    columns; a CSV file has one table, named like the file. Folders inside the folder are
-    not read. The saved `config` holds `folder_id`, `folder_name`, `account_email` and
-    `google_subject`.
-    """
-
-    name: ConnectionName
-    kind: Literal["google_drive"]
-    config: GoogleDriveConfig
-    grant_id: UUID = Field(
-        description=(
-            "The `google_grant` the browser came back from Google with. It works once, for "
-            "the user and the project it was given to."
-        )
-    )
-
-
-class _HttpServerConfig(BaseModel, extra="forbid"):
-    """A server spoken to over HTTP, by the address of its API."""
-
-    url: Annotated[str, StringConstraints(min_length=1, max_length=2048)] = Field(
-        description=(
-            "`http(s)://host[:port][/base-path]`: the address in front of the path of the "
-            "API (`/api/v1` for Prometheus, `/query` for InfluxDB). Without a user name, a "
-            "password, a query or a fragment."
-        )
-    )
-
-    @field_validator("url")
-    @classmethod
-    def validate_url(cls, value: str) -> str:
-        # Refused here, before anything is audited: an address can carry a password.
-        return parse_server_url(value).url
-
-    # Saved with the address, never taken from the request: what is resolved, checked and
-    # audited is the host the address itself names.
-    @computed_field
-    @property
-    def host(self) -> str:
-        return parse_server_url(self.url).host
-
-    @computed_field
-    @property
-    def port(self) -> int:
-        return parse_server_url(self.url).port
-
-
-class PrometheusConfig(_HttpServerConfig):
-    pass
-
-
-# Printable ASCII without a space: nothing else can be sent in a header.
-HeaderToken = Annotated[str, StringConstraints(max_length=4096, pattern=r"^[\x21-\x7e]*$")]
-InfluxUsername = Annotated[
-    str, StringConstraints(max_length=255, pattern=r"^[\x20-\x39\x3b-\x7e]*$")
-]
-InfluxPassword = Annotated[str, StringConstraints(max_length=4096, pattern=r"^[\x20-\x7e]*$")]
-
-
-class PrometheusSecret(BaseModel, extra="forbid"):
-    # A user name is printable ASCII too, and has no colon, which is what ends it in Basic
-    # authentication.
-    username: Annotated[
-        str, StringConstraints(max_length=255, pattern=r"^[\x20-\x39\x3b-\x7e]*$")
-    ] = Field(default="", description="With a user name, `token` is sent as its password.")
-    token: HeaderToken = Field(
-        default="", description="Alone, it is sent as a Bearer token. Empty for no credentials."
-    )
-
-
-class CreatePrometheusConnection(BaseModel, extra="forbid"):
-    """Prometheus, or a server with the same HTTP API (VictoriaMetrics, Thanos, Mimir).
-
-    `default` is the only schema, each metric is a table and each of its labels a column. It
-    reads `timeseries` sources only, always with a `bucket`. The saved `config` holds `url`,
-    `host` and `port`.
-    """
-
-    name: ConnectionName
-    kind: Literal["prometheus"]
-    config: PrometheusConfig
-    secret: PrometheusSecret = Field(default_factory=PrometheusSecret)
-
-
-class InfluxConfig(_HttpServerConfig):
-    database: Annotated[
-        str, StringConstraints(min_length=1, max_length=255, pattern=r"^[^\x00-\x1f\x7f]+$")
-    ] = Field(description="The database (1.x), or the name of the bucket (2.x and 3).")
-
-
-class InfluxSecret(BaseModel, extra="forbid"):
-    token: HeaderToken = Field(
-        default="",
-        description="For InfluxDB 2.x and 3, sent as `Authorization: Token …`.",
-    )
-    username: InfluxUsername = Field(
-        default="", description="For an authenticated InfluxDB 1.8 server; give with `password`."
-    )
-    password: InfluxPassword = Field(
-        default="", description="For an authenticated InfluxDB 1.8 server; give with `username`."
-    )
-
-    @model_validator(mode="after")
-    def _one_auth_method(self) -> "InfluxSecret":
-        has_username = bool(self.username)
-        has_password = bool(self.password)
-        if has_username != has_password:
-            raise ValueError("username and password must be given together")
-        if self.token and has_username:
-            raise ValueError("choose a token or username and password")
-        return self
-
-
-class CreateInfluxConnection(BaseModel, extra="forbid"):
-    """InfluxDB 1.8, 2.x or 3 Core, read with InfluxQL.
-
-    `default` is the only schema, each measurement of the database is a table, and each of
-    its fields and tags a column. It reads `timeseries` sources only, always with at least
-    one of `fields`. Use `secret.username` and `secret.password` together for authenticated
-    InfluxDB 1.8, or `secret.token` for InfluxDB 2.x and 3. The saved `config` holds `url`,
-    `database`, `host` and `port`.
-    """
-
-    name: ConnectionName
-    kind: Literal["influxdb"]
-    config: InfluxConfig
-    secret: InfluxSecret = Field(default_factory=InfluxSecret)
-
-
-CreateConnection = Annotated[
-    CreatePostgresConnection
-    | CreateMysqlConnection
-    | CreateBigQueryConnection
-    | CreateGoogleSheetsConnection
-    | CreateGoogleDriveConnection
-    | CreatePrometheusConnection
-    | CreateInfluxConnection,
-    Field(discriminator="kind"),
-]
-
-
-class ReauthorizeConnection(BaseModel, extra="forbid"):
-    grant_id: UUID
-
-
-class RenameConnection(BaseModel, extra="forbid"):
-    name: ConnectionName
-
-
-class ConnectionItem(BaseModel):
-    id: str
-    project_id: str
-    name: str
-    kind: str
-    config: dict[str, Any]
-    last_tested_at: datetime | None
-    last_error_code: str | None
-    created_by_user_id: str
-    created_at: datetime
-    updated_at: datetime
-
-
-def _item(row: DataConnection) -> ConnectionItem:
-    return ConnectionItem(
-        id=str(row.id),
-        project_id=str(row.project_id),
-        name=row.name,
-        kind=row.kind,
-        config=row.config,
-        last_tested_at=row.last_tested_at,
-        last_error_code=row.last_error_code,
-        created_by_user_id=str(row.created_by_user_id),
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-class TableItem(BaseModel):
-    schema_name: str = Field(serialization_alias="schema")
-    name: str
-    type: Literal["table", "view"]
-    column_count: int | None = Field(
-        description="Null for BigQuery, which lists tables without their columns."
-    )
-
-
-class ColumnItem(BaseModel):
-    name: str
-    type: str = Field(description="The type as the database names it.")
-    role: Literal["time", "field", "tag"] | None = Field(
-        default=None,
-        description="What the column is in a time series. Null for every other connection.",
-    )
-
-    @classmethod
-    def of(cls, column: Column) -> "ColumnItem":
-        return cls(name=column.name, type=column.type, role=column.role)
-
-
-class PreviewRequest(BaseModel, extra="forbid"):
-    source: Source
-
-
-class PreviewData(BaseModel):
-    columns: list[ColumnItem]
-    rows: list[list[str | None]] = Field(
-        description=f"Values as text; one longer than {PREVIEW_CELL_CHARS} characters is cut."
-    )
-    truncated: bool = Field(description="The source has more rows than were returned.")
-
-
-class LiveRequest(BaseModel, extra="forbid"):
-    name: Identifier = Field(description="The metric or the measurement.")
-    fields: FieldNames = Field(
-        default_factory=list, description="As in a `timeseries` source: empty for Prometheus."
-    )
-    tags: TagNames = Field(default_factory=list)
-    aggregate: Aggregate
-    last: LiveWindow = Field(
-        description=(
-            "How far back to look. The bucket follows from it: `15s` for `15m`, `1m` for "
-            "`1h`, `5m` for `6h` and `15m` for `24h`."
-        )
-    )
-
-    @model_validator(mode="after")
-    def _distinct_names(self) -> "LiveRequest":
-        check_series_names(self.fields, self.tags)
-        return self
-
-
-class LiveData(BaseModel):
-    columns: list[ColumnItem]
-    rows: list[list[str | None]] = Field(
-        description="Values as text, ordered by `time` and then by the tags."
-    )
-    start: datetime = Field(description="The start of the first bucket, in UTC.")
-    end: datetime = Field(
-        description="The end of the last bucket: the last one that had ended when asked."
-    )
-    bucket: str
-    truncated: bool = Field(
-        description=(
-            f"There were more than {LIVE_MAX_ROWS} rows and the latest are missing. "
-            "Ask for fewer tags."
-        )
-    )
-
-
-async def _name_taken(
-    db: AsyncSession, project_id: UUID, name: str, *, except_id: UUID | None = None
-) -> bool:
-    query = select(DataConnection.id).where(
-        DataConnection.project_id == project_id, func.lower(DataConnection.name) == name.lower()
-    )
-    if except_id is not None:
-        query = query.where(DataConnection.id != except_id)
-    return await db.scalar(query) is not None
-
-
-def _preview_cell(value: Any) -> str | None:
-    text = to_text(value)
-    if text is not None and len(text) > PREVIEW_CELL_CHARS:
-        return text[:PREVIEW_CELL_CHARS] + "…"
-    return text
-
-
-def _name_exists() -> APIError:
-    return APIError(
-        409, "CONNECTION_NAME_EXISTS", "The project already has a connection by that name"
-    )
-
-
-async def _probe(
-    gate: ConnectionGate,
-    factory: ConnectorFactory,
-    project_id: UUID,
-    user_id: UUID,
-    kind: str,
-    config: dict[str, Any],
-    secret: dict[str, Any],
-) -> tuple[Connector | None, ConnectorError | None]:
-    """Connect for real: the connector that answered, or what went wrong.
-
-    Holds a slot, never the Platform's database session: the caller commits first.
-    """
-    async with gate.slot(project_id, user_id):
-        try:
-            connector = await factory(kind, config, secret)
-            await connector.test()
-        except ConnectorError as exc:
-            return None, exc
-    return connector, None
-
-
-def _audit_target(config: dict[str, Any]) -> dict[str, Any]:
-    """Where a connection points, for an audit event: a server, a BigQuery project, a
-    spreadsheet or a Drive folder. Never the Google account: its address is personal data."""
-    if "host" in config:
-        return {"host": config["host"], "port": config["port"]}
-    if "spreadsheet_id" in config:
-        return {"spreadsheet_id": config["spreadsheet_id"]}
-    if "folder_id" in config:
-        return {"folder_id": config["folder_id"]}
-    return {"project_id": config["project_id"]}
-
-
-def _grant_invalid() -> APIError:
-    return APIError(
-        422,
-        "GOOGLE_GRANT_INVALID",
-        "The Google access has expired or was already used. Connect the Google account again.",
-    )
-
-
-def _usable_grant(grant_id: UUID, principal: Principal, project_id: UUID) -> list[Any]:
-    """What makes a grant usable here: it is this user's, for this project, holds Google's
-    answer and has not expired."""
-    return [
-        GoogleConnectionGrant.id == grant_id,
-        GoogleConnectionGrant.user_id == principal.user.id,
-        GoogleConnectionGrant.project_id == project_id,
-        GoogleConnectionGrant.secret_ciphertext.is_not(None),
-        GoogleConnectionGrant.expires_at > datetime.now(UTC),
-    ]
-
-
-@dataclass(frozen=True, slots=True)
-class _GoogleAccess:
-    subject: str
-    email: str
-    # The refresh token. Kept out of the repr, like the secret of a saved connection.
-    secret: dict[str, Any] = field(repr=False)
-
-
-async def _google_access(
-    request: Request,
-    db: AsyncSession,
-    box: SecretBox,
-    principal: Principal,
-    project_id: UUID,
-    grant_id: UUID,
-) -> _GoogleAccess:
-    """Read what a grant holds without using it up: the connection has yet to be tried.
-
-    Grants that expired go away here as well as when a new one is started, so a refresh
-    token nobody used does not outlive its 10 minutes for long.
-    """
-    if request.app.state.google_drive_oauth is None:
-        raise APIError(
-            503, "CONNECTIONS_NOT_CONFIGURED", "Google connections are not configured here"
-        )
-    await db.execute(
-        delete(GoogleConnectionGrant).where(GoogleConnectionGrant.expires_at <= datetime.now(UTC))
-    )
-    grant = await db.scalar(
-        select(GoogleConnectionGrant).where(*_usable_grant(grant_id, principal, project_id))
-    )
-    try:
-        if grant is None:
-            raise _grant_invalid()
-        return _GoogleAccess(
-            grant.google_subject, grant.account_email, box.open(grant.secret_ciphertext)
-        )
-    except (APIError, SecretBoxError):
-        # Committed first: the rollback that follows an error would bring the expired back.
-        await db.commit()
-        raise _grant_invalid() from None
-
-
-async def _use_grant(
-    db: AsyncSession, principal: Principal, project_id: UUID, grant_id: UUID
-) -> None:
-    """Spend a grant in the caller's transaction, or refuse: it is good for one connection.
-
-    One statement, so of two requests with the same grant only one finds it.
-    """
-    used = await db.execute(
-        delete(GoogleConnectionGrant).where(*_usable_grant(grant_id, principal, project_id))
-    )
-    if used.rowcount != 1:
-        raise _grant_invalid()
-
-
-class GooglePickerRequest(BaseModel, extra="forbid"):
-    grant_id: UUID
-
-
-class GooglePickerCredentials(BaseModel):
-    access_token: str = Field(repr=False)
-    api_key: str = Field(repr=False)
-    app_id: str
 
 
 @router.post(
@@ -694,28 +152,6 @@ async def google_picker_credentials(
             api_key=settings.google_picker_api_key.get_secret_value(),
             app_id=settings.google_picker_app_id,
         )
-    )
-
-
-def _audit_failed_test(
-    db: AsyncSession,
-    request: Request,
-    principal: Principal,
-    project_id: UUID,
-    connection_id: UUID,
-    kind: str,
-    config: dict[str, Any],
-    error: ConnectorError,
-) -> None:
-    record_audit(
-        db,
-        actor_user_id=principal.user.id,
-        action="connection.test_failed",
-        resource_type="data_connection",
-        resource_id=connection_id,
-        project_id=project_id,
-        request_id=getattr(request.state, "request_id", None),
-        details={"kind": kind, **_audit_target(config), "reason": error.reason},
     )
 
 
