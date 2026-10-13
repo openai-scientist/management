@@ -1,12 +1,12 @@
 import asyncio
 import re
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
 import pytest_asyncio
-import uvloop
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -36,7 +36,17 @@ CONNECTION_KEY = "dGVzdC1vbmx5LWNvbm5lY3Rpb24tc2VjcmV0LWtleSE="
 # Production runs on uvloop and the rest of the suite on asyncio. TLS, timeouts and the
 # hand-over between a thread and the loop depend on the loop, so a test that asks for this is
 # a coroutine run once on each.
-@pytest.fixture(params=[asyncio.run, uvloop.run], ids=["asyncio", "uvloop"])
+if sys.platform == "win32":
+    _uvloop_runner = pytest.param(
+        None, marks=pytest.mark.skip(reason="uvloop is not supported on Windows"), id="uvloop"
+    )
+else:
+    import uvloop
+
+    _uvloop_runner = pytest.param(uvloop.run, id="uvloop")
+
+
+@pytest.fixture(params=[pytest.param(asyncio.run, id="asyncio"), _uvloop_runner])
 def run(request):
     return request.param
 
