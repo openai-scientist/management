@@ -39,6 +39,7 @@ jobs:
       - run: uv sync --frozen --all-groups
       - run: uv run ruff format --check src alembic tests
       - run: uv run ruff check src alembic tests
+      - run: uv run lint-imports
       - run: uv run alembic upgrade head
       - run: uv run pytest -q
       - run: docker build --file docker/Dockerfile --tag ai-research-platform-be:ci .

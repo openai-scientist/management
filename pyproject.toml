@@ -34,6 +34,7 @@ module-root = "src"
 [dependency-groups]
 dev = [
     "aiosqlite>=0.20,<1",
+    "import-linter>=2.1,<3",
     "jsonschema>=4.23,<5",
     "moto[s3]>=5.1,<6",
     "pytest>=8,<9",
@@ -54,3 +55,49 @@ select = ["E", "F", "I", "UP"]
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.importlinter]
+root_package = "management"
+
+# Higher layers may import lower ones, never the reverse. Layers joined by "|" are
+# independent of each other. Model modules are shared data and are exempt.
+# `management.main` is in no layer, so it may import everything.
+[[tool.importlinter.contracts]]
+name = "Feature layering"
+type = "layers"
+layers = [
+    "management.research | management.monitoring",
+    "management.datasets",
+    "management.connections",
+    "management.projects",
+    "management.identity | management.notifications",
+    "management.audit | management.access",
+    "management.core : management.db : management.infra",
+]
+ignore_imports = [
+    "management.** -> management.*.models",
+]
+
+# No module imports a router of another feature, or of its own. `management.main` mounts the
+# routers, so it is not a source module.
+[[tool.importlinter.contracts]]
+name = "No cross-feature router imports"
+type = "forbidden"
+source_modules = [
+    "management.access",
+    "management.audit",
+    "management.connections",
+    "management.core",
+    "management.datasets",
+    "management.db",
+    "management.identity",
+    "management.infra",
+    "management.monitoring",
+    "management.notifications",
+    "management.projects",
+    "management.research",
+]
+forbidden_modules = [
+    "management.*.router",
+]
+allow_indirect_imports = true
