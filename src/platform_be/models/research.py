@@ -25,7 +25,10 @@ from platform_be.db.base import Base
 
 ACTIVE_RUN_STATUSES = ("queued", "running", "paused", "awaiting_review")
 FINISHED_RUN_STATUSES = ("completed", "budget_exceeded", "failed")
-_ACTIVE_RUN = text("status IN ('queued', 'running', 'paused', 'awaiting_review')")
+_ACTIVE_RUN = text(
+    "status IN ('queued', 'running', 'paused', 'awaiting_review') "
+    "OR (status = 'budget_exceeded' AND pipeline_key IS NOT NULL)"
+)
 _PENDING_REVIEW = text("submitted_at IS NULL")
 
 
@@ -59,8 +62,12 @@ class ResearchRun(Base):
     __table_args__ = (
         CheckConstraint(
             "status IN ('queued', 'running', 'paused', 'awaiting_review', 'completed', "
-            "'budget_exceeded', 'failed')",
+            "'budget_exceeded', 'failed', 'stopped')",
             name="ck_research_runs_status",
+        ),
+        CheckConstraint(
+            "interaction_mode IS NULL OR interaction_mode IN ('auto','light','copilot','full')",
+            name="ck_research_runs_interaction_mode",
         ),
         # A project works on one run at a time.
         Index(
@@ -92,6 +99,11 @@ class ResearchRun(Base):
     review_mode: Mapped[str | None] = mapped_column(String(20), nullable=True, default="copilot")
     last_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_source_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pipeline_key: Mapped[str | None] = mapped_column(String(100))
+    current_stage_key: Mapped[str | None] = mapped_column(String(100))
+    interaction_mode: Mapped[str | None] = mapped_column(String(20))
+    iteration: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    cost_unknown: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
     auto_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -120,10 +132,11 @@ class RunEvent(Base):
         Index("ix_run_events_run_id_seq", "run_id", "seq"),
         Index(
             "run_events_source_seq",
-            "run_id",
+            "stage_run_id",
             "source_seq",
             unique=True,
             postgresql_where=text("source_seq IS NOT NULL"),
+            sqlite_where=text("source_seq IS NOT NULL"),
         ),
     )
 
@@ -132,6 +145,9 @@ class RunEvent(Base):
     )
     seq: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stage_run_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("stage_runs.id")
+    )
     type: Mapped[str] = mapped_column(String(48), nullable=False)
     stage_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
     actor: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -148,9 +164,10 @@ class RunGate(Base):
     __table_args__ = (
         Index(
             "uq_run_gates_open",
-            "run_id",
+            "stage_run_id",
             unique=True,
             postgresql_where=text("answer IS NULL"),
+            sqlite_where=text("answer IS NULL"),
         ),
     )
 
@@ -159,6 +176,9 @@ class RunGate(Base):
         Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False
     )
     gate_key: Mapped[str] = mapped_column(String(32), nullable=False)
+    stage_run_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("stage_runs.id")
+    )
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     spec: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     opened_seq: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -212,7 +232,9 @@ class RunArtifact(Base):
 
     __tablename__ = "run_artifacts"
     __table_args__ = (
-        UniqueConstraint("run_id", "filename", name="uq_run_artifacts_filename"),
+        UniqueConstraint(
+            "stage_run_id", "schema", "version", name="uq_run_artifacts_stage_schema_version"
+        ),
         CheckConstraint(
             "kind IN ('paper_pdf', 'paper_tex', 'figure', 'results', 'other')",
             name="ck_run_artifacts_kind",
@@ -224,6 +246,16 @@ class RunArtifact(Base):
         Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="RESTRICT"), nullable=False
     )
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    stage_run_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("stage_runs.id")
+    )
+    schema_id: Mapped[str | None] = mapped_column("schema", String(160))
+    version: Mapped[int | None] = mapped_column(Integer)
+    is_primary: Mapped[bool] = mapped_column("primary", Boolean, default=False, nullable=False)
+    review_round: Mapped[int | None] = mapped_column(Integer)
+    artifact_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON, default=dict, nullable=False
+    )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str] = mapped_column(String(100), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(400), unique=True, nullable=False)
@@ -231,4 +263,86 @@ class RunArtifact(Base):
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class StageRun(Base):
+    __tablename__ = "stage_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('PENDING','RUNNING','COMPLETED','ACCEPTED',"
+            "'FAILED','STOPPED','SUPERSEDED')",
+            name="ck_stage_runs_status",
+        ),
+        Index("ix_stage_runs_run_iteration_stage", "research_run_id", "iteration", "stage_key"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    research_run_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="RESTRICT")
+    )
+    iteration: Mapped[int] = mapped_column(Integer, default=1)
+    stage_key: Mapped[str] = mapped_column(String(100))
+    engine_key: Mapped[str] = mapped_column(String(100))
+    engine_run_id: Mapped[str | None] = mapped_column(String(200))
+    prior_stage_run_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("stage_runs.id")
+    )
+    origin_decision_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("stage_decisions.id", use_alter=True, name="fk_stage_runs_origin_decision"),
+    )
+    status: Mapped[str] = mapped_column(String(20), default="PENDING")
+    phase: Mapped[str | None] = mapped_column(String(32))
+    step_key: Mapped[str | None] = mapped_column(String(100))
+    waiting_input: Mapped[bool] = mapped_column(Boolean, default=False)
+    open_gate: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    input_refs: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    config_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=Decimal("0"))
+    last_source_seq: Mapped[int] = mapped_column(Integer, default=0)
+    failure: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    engine_unreachable_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class StageDecision(Base):
+    __tablename__ = "stage_decisions"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('answer_gate','approve','comment','accept','send_back','rerun','stop')",
+            name="ck_stage_decisions_action",
+        ),
+        CheckConstraint("actor IN ('user','system')", name="ck_stage_decisions_actor"),
+        CheckConstraint("status IN ('pending','applied')", name="ck_stage_decisions_status"),
+        UniqueConstraint("stage_run_id", "gate_id", name="uq_stage_decisions_gate"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    stage_run_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("stage_runs.id", ondelete="RESTRICT")
+    )
+    gate_id: Mapped[str | None] = mapped_column(String(200))
+    action: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    actor: Mapped[str] = mapped_column(String(20))
+    reason: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="applied")
+    decided_by_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    decided_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+def active_run_filter():
+    return ResearchRun.status.in_(ACTIVE_RUN_STATUSES) | (
+        (ResearchRun.status == "budget_exceeded") & ResearchRun.pipeline_key.is_not(None)
     )

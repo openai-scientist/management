@@ -28,7 +28,7 @@ from platform_be.core.search import SearchTerm, matches
 from platform_be.db.session import get_db
 from platform_be.models.identity import User, UserPlatformRole, UserStatus
 from platform_be.models.project import Project, ProjectMembership
-from platform_be.models.research import ACTIVE_RUN_STATUSES, ResearchRun
+from platform_be.models.research import ResearchRun, active_run_filter
 from platform_be.services.access import (
     active_manager_count,
     ensure_writable_project,
@@ -511,7 +511,7 @@ async def complete_project(
         active = await db.scalar(
             select(ResearchRun.id).where(
                 ResearchRun.project_id == project_id,
-                ResearchRun.status.in_(ACTIVE_RUN_STATUSES),
+                active_run_filter(),
             )
         )
         if active is not None:

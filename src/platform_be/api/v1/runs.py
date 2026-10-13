@@ -61,7 +61,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/projects/{project_id}/runs", tags=["runs"])
 
 RunStatus = Literal[
-    "queued", "running", "paused", "awaiting_review", "completed", "budget_exceeded", "failed"
+    "queued",
+    "running",
+    "paused",
+    "awaiting_review",
+    "completed",
+    "budget_exceeded",
+    "failed",
+    "stopped",
 ]
 
 RUN_ERRORS = {

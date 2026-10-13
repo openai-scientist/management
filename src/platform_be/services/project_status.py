@@ -3,16 +3,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from platform_be.models.dataset import Dataset, DatasetVersion
 from platform_be.models.project import Project
-from platform_be.models.research import ACTIVE_RUN_STATUSES, ResearchRun
+from platform_be.models.research import ResearchRun, active_run_filter
 
 
 async def derive_project_status(db: AsyncSession, project: Project) -> str:
     """Research progress as the project's datasets and runs show it."""
     await db.flush()
     active = await db.scalar(
-        select(ResearchRun.status).where(
-            ResearchRun.project_id == project.id, ResearchRun.status.in_(ACTIVE_RUN_STATUSES)
-        )
+        select(ResearchRun.status).where(ResearchRun.project_id == project.id, active_run_filter())
     )
     if active == "awaiting_review":
         return "needs_review"
