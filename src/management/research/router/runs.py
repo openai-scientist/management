@@ -1,13 +1,10 @@
 import asyncio
 import logging
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal
-from typing import Any, Literal
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +24,6 @@ from management.core.sessions import (
     require_active_principal,
     require_origin,
 )
-from management.datasets.models import DatasetVersion
 from management.db.session import get_db
 from management.infra.file_store import FileStore, get_file_store
 from management.projects.project_status import refresh_project_status
@@ -35,11 +31,9 @@ from management.research.contracts import InteractionMode
 from management.research.models import (
     ACTIVE_RUN_STATUSES,
     FINISHED_RUN_STATUSES,
-    ResearchContext,
     ResearchRun,
     RunEvent,
     RunGate,
-    StageRun,
 )
 from management.research.orchestrator import start_research_run
 from management.research.popper_client import (
@@ -51,7 +45,20 @@ from management.research.popper_client import (
     get_popper_client,
 )
 from management.research.run_event_stream import RunEventHub, run_events_changed
+from management.research.schemas.runs import (
+    RUN_ERRORS,
+    GateAnswer,
+    RunCreate,
+    RunEventItem,
+    RunItem,
+    RunStatus,
+)
 from management.research.service import (
+    _ensure_not_dispatching,
+    _item,
+    _require_popper,
+    _run_item,
+    _run_query,
     apply_run_status,
     gate_answer_summary,
     get_run,
@@ -61,207 +68,11 @@ from management.research.service import (
 
 logger = logging.getLogger(__name__)
 
+
 router = APIRouter(prefix="/projects/{project_id}/runs", tags=["runs"])
 
-RunStatus = Literal[
-    "queued",
-    "running",
-    "paused",
-    "awaiting_review",
-    "completed",
-    "budget_exceeded",
-    "failed",
-    "stopped",
-]
-
-RUN_ERRORS = {
-    403: {"model": ErrorResponse, "description": "Project Manager or Researcher role is required"},
-    404: {"model": ErrorResponse, "description": "The project or run was not found"},
-    409: {"model": ErrorResponse, "description": "The project is archived or already has a run"},
-    502: {"model": ErrorResponse, "description": "Popper could not be reached"},
-    503: {"model": ErrorResponse, "description": "Popper is not configured on this server"},
-}
 
 KEEP_ALIVE_SECONDS = 15
-
-
-class RunCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    topic: str = Field(
-        min_length=12,
-        max_length=2000,
-        description="Core research question or topic",
-    )
-    domains: list[str] = Field(
-        default_factory=list,
-        description="List of academic/scientific domains",
-    )
-    review_mode: Literal["copilot", "auto"] = Field(
-        default="copilot",
-        description="copilot requires review at gates; auto proceeds autonomously",
-    )
-    interaction_mode: InteractionMode | None = Field(
-        default=None,
-        description="Pipeline interaction mode; overrides review_mode when engines are configured",
-    )
-    budget_usd: Decimal | None = Field(
-        default=None,
-        max_digits=10,
-        decimal_places=2,
-        description="Spending cap for this run. Defaults to the server's standard budget.",
-    )
-
-
-class CurrentStage(BaseModel):
-    stage_run_id: str
-    stage_key: str
-    engine_key: str
-    status: str
-    phase: str | None = None
-    step_key: str | None = None
-    waiting_input: bool = False
-    open_gate: dict[str, Any] | None = None
-    cost_usd: Decimal
-
-
-class RunItem(BaseModel):
-    id: str
-    project_id: str
-    label: str
-    topic: str | None = None
-    domains: list[str] = Field(default_factory=list)
-    review_mode: str | None = None
-    pipeline_key: str | None = None
-    iteration: int = 1
-    interaction_mode: str | None = None
-    current_stage: CurrentStage | None = None
-    last_seq: int = 0
-    last_source_seq: int = 0
-    dataset_id: str | None = None
-    dataset_version_id: str | None = None
-    dataset_version_number: int | None = None
-    research_context_id: str | None = None
-    research_context_version: int | None = None
-    created_by_user_id: str
-    status: RunStatus
-    auto_review: bool
-    budget_usd: Decimal
-    cost_usd: Decimal
-    failure_message: str | None
-    created_at: datetime
-    started_at: datetime | None
-    finished_at: datetime | None
-    updated_at: datetime
-
-
-class RunEventItem(BaseModel):
-    seq: int
-    run_id: str
-    ts: datetime
-    type: str
-    stage_key: str | None = None
-    actor: str | None = None
-    payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class GateAnswer(BaseModel):
-    option_id: str = Field(min_length=1, max_length=64)
-    dropped: list[str] = Field(default_factory=list)
-    # Held-back hypotheses the reviewer keeps despite their objection (hypotheses gate only).
-    kept: list[str] = Field(default_factory=list)
-    note: str | None = Field(default=None, max_length=2000)
-
-
-def _run_query():
-    return (
-        select(ResearchRun, DatasetVersion, ResearchContext.version_number)
-        .outerjoin(DatasetVersion, DatasetVersion.id == ResearchRun.dataset_version_id)
-        .outerjoin(ResearchContext, ResearchContext.id == ResearchRun.research_context_id)
-    )
-
-
-def current_stage_item(stage: StageRun) -> CurrentStage:
-    return CurrentStage(
-        stage_run_id=str(stage.id),
-        stage_key=stage.stage_key,
-        engine_key=stage.engine_key,
-        status=stage.status,
-        phase=stage.phase,
-        step_key=stage.step_key,
-        waiting_input=bool(stage.waiting_input),
-        open_gate=stage.open_gate,
-        cost_usd=stage.cost_usd,
-    )
-
-
-def _run_item(
-    run: ResearchRun,
-    version: DatasetVersion | None,
-    context_version: int | None,
-    stage: StageRun | None = None,
-) -> RunItem:
-    label = f"RUN-{str(run.id)[:4].upper()}"
-    return RunItem(
-        id=str(run.id),
-        project_id=str(run.project_id),
-        label=label,
-        topic=run.topic,
-        domains=run.domains or [],
-        review_mode=run.review_mode,
-        pipeline_key=run.pipeline_key,
-        iteration=run.iteration or 1,
-        interaction_mode=run.interaction_mode,
-        current_stage=current_stage_item(stage) if stage else None,
-        last_seq=run.last_seq or 0,
-        last_source_seq=run.last_source_seq or 0,
-        dataset_id=str(version.dataset_id) if version else None,
-        dataset_version_id=str(version.id) if version else None,
-        dataset_version_number=version.version_number if version else None,
-        research_context_id=str(run.research_context_id) if run.research_context_id else None,
-        research_context_version=context_version,
-        created_by_user_id=str(run.created_by_user_id),
-        status=run.status,
-        auto_review=run.auto_review,
-        budget_usd=run.budget_usd,
-        cost_usd=run.cost_usd,
-        failure_message=run.failure_message,
-        created_at=run.created_at,
-        started_at=run.started_at,
-        finished_at=run.finished_at,
-        updated_at=run.updated_at,
-    )
-
-
-async def _item(db: AsyncSession, run: ResearchRun) -> RunItem:
-    await db.flush()
-    row = (await db.execute(_run_query().where(ResearchRun.id == run.id))).one()
-    stage = await db.scalar(
-        select(StageRun)
-        .where(StageRun.research_run_id == run.id)
-        .order_by(StageRun.iteration.desc(), StageRun.created_at.desc())
-        .limit(1)
-    )
-    return _run_item(run, row[1], row[2], stage)
-
-
-def _require_popper(client: PopperClient | None) -> PopperClient:
-    if client is None:
-        raise APIError(503, "POPPER_NOT_CONFIGURED", "Popper is not configured on this server")
-    return client
-
-
-def _ensure_not_dispatching(run: ResearchRun, settings: Settings) -> None:
-    """Refuse to settle a run whose creating request may still be talking to Popper."""
-    if run.popper_run_id is not None:
-        return
-    created_at = run.created_at
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=UTC)
-    if datetime.now(UTC) - created_at < timedelta(seconds=2 * settings.popper_timeout_seconds):
-        raise APIError(
-            409, "RUN_DISPATCHING", "The run is still being sent to Popper; try again shortly"
-        )
 
 
 @router.get(

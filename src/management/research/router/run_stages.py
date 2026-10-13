@@ -24,8 +24,8 @@ from management.research.contracts import Finding, GateAnswer
 from management.research.engines.client import EngineRejected, EngineUnavailable
 from management.research.models import StageDecision, StageRun
 from management.research.orchestrator import accept_stage, validate_selection
-from management.research.router.runs import RUN_ERRORS, CurrentStage, current_stage_item
-from management.research.service import get_run
+from management.research.schemas.runs import RUN_ERRORS, CurrentStage
+from management.research.service import current_stage_item, get_run
 from management.research.stage_runs import append_run_event
 
 router = APIRouter(prefix="/projects/{project_id}/runs/{run_id}/stages", tags=["run stages"])
