@@ -6,6 +6,8 @@ from cryptography.fernet import Fernet
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from platform_be.services.engines.settings import EngineSettings, PipelineStage, validate_pipelines
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -65,6 +67,14 @@ class Settings(BaseSettings):
     popper_timeout_seconds: float = Field(default=30, ge=1, le=300)
     # Address Popper uses to call this API back, without the API prefix.
     public_base_url: str = "http://localhost:8080"
+    engine_callback_base_url: str | None = None
+    engines: dict[str, EngineSettings] = Field(default_factory=dict)
+    pipelines: dict[str, list[PipelineStage]] = Field(default_factory=dict)
+    default_pipeline: str = "default"
+    max_auto_revisions: int = Field(2, ge=0)
+    max_iterations: int = Field(3, ge=1)
+    engine_health_interval_seconds: float = Field(30, gt=0)
+    engine_unreachable_alert_seconds: int = Field(600, ge=1)
     run_default_budget_usd: Decimal = Field(default=Decimal("5"), gt=0)
     run_max_budget_usd: Decimal = Field(default=Decimal("20"), gt=0)
     # Email goes through Resend. Without a key, local and test write each message to the log.
@@ -169,6 +179,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_deployment_security(self) -> "Settings":
+        validate_pipelines(
+            self.engines,
+            self.pipelines,
+            self.default_pipeline,
+            self.engine_callback_base_url or self.public_base_url,
+        )
         alert_settings = (
             self.monitoring_error_rate_alert_threshold_percent,
             self.monitoring_error_rate_alert_recovery_percent,
