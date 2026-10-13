@@ -2,7 +2,25 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 
-from platform_be.models.research import RunGate, StageRun
+from platform_be.models.research import RunEvent, RunGate, StageRun
+from platform_be.services.run_event_stream import run_events_changed
+
+
+def append_run_event(db, run, stage, event_type, payload, *, actor=None, source_seq=None):
+    run.last_seq = (run.last_seq or 0) + 1
+    db.add(
+        RunEvent(
+            run_id=run.id,
+            stage_run_id=stage.id,
+            seq=run.last_seq,
+            source_seq=source_seq,
+            type=event_type,
+            stage_key=stage.stage_key,
+            actor=actor,
+            payload=payload,
+        )
+    )
+    run_events_changed(db, run.id)
 
 
 async def sync_run_status(db, run, *, stage=None) -> None:

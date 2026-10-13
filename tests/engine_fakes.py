@@ -1,9 +1,34 @@
+from uuid import UUID
+
 import httpx
 
 from platform_be.contracts import CONTRACT_VERSION, RunCreateRequest
 from platform_be.services.engines.registry import EngineRegistry
 from platform_be.services.engines.settings import EngineSettings
 from tests.fakes.fake_engine import FakeEngine
+
+
+async def seed_models(harness, user_id):
+    from platform_be.models import ModelProfile
+
+    async with harness.factory() as db:
+        for role in ("stage", "review"):
+            db.add(
+                ModelProfile(
+                    role=role,
+                    scope="global",
+                    provider="openai_compatible",
+                    model=role,
+                    api_key_encrypted=harness.app.state.secret_box.seal(
+                        {"api_key": "model-test-secret"}
+                    ),
+                    extra={},
+                    input_usd_per_mtok=1,
+                    output_usd_per_mtok=2,
+                    updated_by_user_id=UUID(str(user_id)),
+                )
+            )
+        await db.commit()
 
 
 def engine_overrides():
