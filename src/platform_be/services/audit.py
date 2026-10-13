@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -17,6 +18,11 @@ def record_audit(
     project_id: UUID | None = None,
     details: dict[str, Any] | None = None,
 ) -> None:
+    created_at = datetime.now(UTC)
+    previous = db.info.get("last_audit_timestamp")
+    if previous is not None and created_at <= previous:
+        created_at = previous + timedelta(microseconds=1)
+    db.info["last_audit_timestamp"] = created_at
     db.add(
         AuditEvent(
             actor_user_id=actor_user_id,
@@ -26,5 +32,6 @@ def record_audit(
             request_id=request_id,
             project_id=project_id,
             details=details or {},
+            created_at=created_at,
         )
     )
