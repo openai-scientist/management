@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, Self
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from .base import (
     ContractModel,
@@ -16,6 +16,7 @@ from .review import Finding, PipelineFeedback, ResearchProfile
 
 
 class ModelConfig(ContractModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
     provider: Literal["openai_compatible", "bedrock"]
     base_url: str | None = None
     model: str = Field(min_length=1)
@@ -28,6 +29,7 @@ class ModelConfig(ContractModel):
 
 
 class Models(ContractModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
     stage: ModelConfig
     review: ModelConfig
 
@@ -74,6 +76,7 @@ class ReviewPolicy(ContractModel):
 
 
 class RunCreateRequest(ContractModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
     contract_version: str
     platform_run_id: str
     stage_run_id: str

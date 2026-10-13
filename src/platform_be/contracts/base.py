@@ -3,11 +3,11 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
-CONTRACT_VERSION = "1.0"
+CONTRACT_VERSION = "1.0.0"
 
 
 class ContractModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
 
 class Phase(StrEnum):
@@ -58,7 +58,7 @@ class ModelRole(StrEnum):
 
 
 def is_compatible(version: str) -> bool:
-    match = re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version)
+    match = re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?", version)
     return bool(match and match[1] == CONTRACT_VERSION.split(".")[0])
 
 

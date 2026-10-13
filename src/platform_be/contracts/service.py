@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from .base import ContractModel, InteractionMode, ModelRole, Phase, parse_schema_id
 from .review import ResearchProfile
@@ -73,6 +73,7 @@ class Health(ContractModel):
 
 
 class LlmCall(ContractModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
     role: ModelRole
     provider: str
     model: str
@@ -83,6 +84,7 @@ class LlmCall(ContractModel):
 
 
 class TelemetryRecord(ContractModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
     occurred_at: datetime
     level: Literal["DEBUG", "INFO", "WARN", "ERROR"]
     message: str = Field(max_length=500)
@@ -95,6 +97,7 @@ class TelemetryRecord(ContractModel):
 
 
 class TelemetryBatch(ContractModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
     records: list[TelemetryRecord] = Field(min_length=1, max_length=500)
 
 

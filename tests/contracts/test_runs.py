@@ -59,6 +59,13 @@ def test_request_rejects_incompatible_contract(request_data):
         RunCreateRequest(**(request_data | {"contract_version": "2.0"}))
 
 
+def test_secret_models_reject_unknown_fields(request_data):
+    with pytest.raises(ValidationError):
+        RunCreateRequest(**(request_data | {"prompt": "unexpected"}))
+    with pytest.raises(ValidationError):
+        ModelConfig(provider="openai_compatible", model="m", unknown="unexpected")
+
+
 def test_artifact_ref_schema_alias_roundtrip():
     data = dict(
         artifact_id="a",
