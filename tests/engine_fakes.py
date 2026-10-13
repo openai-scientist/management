@@ -2,14 +2,14 @@ from uuid import UUID
 
 import httpx
 
-from management.contracts import CONTRACT_VERSION, RunCreateRequest
 from management.core.engine_settings import EngineSettings
-from management.services.engines.registry import EngineRegistry
+from management.research.contracts import CONTRACT_VERSION, RunCreateRequest
+from management.research.engines.registry import EngineRegistry
 from tests.fakes.fake_engine import FakeEngine
 
 
 async def seed_models(harness, user_id):
-    from management.models import ModelProfile
+    from management.research.models import ModelProfile
 
     async with harness.factory() as db:
         for role in ("stage", "review"):
@@ -74,7 +74,7 @@ def make_request(**kwargs):
 
 
 def install_fake_engines(harness):
-    from management.services.engines.client import EngineClient
+    from management.research.engines.client import EngineClient
 
     fakes = {
         "i2h": FakeEngine(

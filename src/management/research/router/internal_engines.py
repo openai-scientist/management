@@ -5,14 +5,14 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 from sqlalchemy import select
 
-from management.contracts import ArtifactMeta, EventBatch
 from management.core.errors import APIError
 from management.core.security import service_key_matches
 from management.db.session import get_db
 from management.infra.file_store import attachment_headers, safe_filename
-from management.models import ResearchRun, RunArtifact, StageRun
-from management.services.orchestrator import apply_engine_event
-from management.services.stage_runs import append_run_event
+from management.research.contracts import ArtifactMeta, EventBatch
+from management.research.models import ResearchRun, RunArtifact, StageRun
+from management.research.orchestrator import apply_engine_event
+from management.research.stage_runs import append_run_event
 
 
 def require_engine_service(engine_key: str, request: Request):

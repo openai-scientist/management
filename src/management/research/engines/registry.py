@@ -1,4 +1,4 @@
-from management.services.engines.client import EngineClient
+from management.research.engines.client import EngineClient
 
 
 class EngineRegistry:

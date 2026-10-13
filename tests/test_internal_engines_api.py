@@ -2,8 +2,8 @@ import hashlib
 
 from sqlalchemy import select
 
-from management.contracts import ArtifactMeta, EventBatch
-from management.models import RunArtifact, RunEvent, StageRun
+from management.research.contracts import ArtifactMeta, EventBatch
+from management.research.models import RunArtifact, RunEvent, StageRun
 from tests import test_orchestrator_flow as flow
 
 lifecycle = flow.lifecycle

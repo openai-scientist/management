@@ -8,14 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.access.service import require_project_access
-from management.api.v1.internal_popper import ArtifactKind
 from management.core.errors import APIError
 from management.core.responses import ApiResponse, ErrorResponse, ok
 from management.core.sessions import Principal, require_active_principal
 from management.db.session import get_db
 from management.infra.file_store import FileStore, attachment_headers, get_file_store
 from management.research.models import RunArtifact
-from management.services.runs import get_run
+from management.research.router.internal_popper import ArtifactKind
+from management.research.service import get_run
 
 router = APIRouter(prefix="/projects/{project_id}/runs/{run_id}/artifacts", tags=["runs"])
 

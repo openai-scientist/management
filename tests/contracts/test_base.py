@@ -1,6 +1,6 @@
 import pytest
 
-from management.contracts import (
+from management.research.contracts import (
     TERMINAL_PHASES,
     ContractModel,
     Phase,

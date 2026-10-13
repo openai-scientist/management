@@ -6,7 +6,9 @@ from uuid import UUID
 from sqlalchemy import func, select
 
 from management.access.service import ensure_writable_project, lock_project_scope
-from management.contracts import (
+from management.core.errors import APIError
+from management.projects.project_status import refresh_project_status
+from management.research.contracts import (
     CONTRACT_VERSION,
     SELECTION_HYPOTHESIS_IDS,
     ArtifactRef,
@@ -18,20 +20,18 @@ from management.contracts import (
     parse_schema_id,
     paths,
 )
-from management.core.errors import APIError
-from management.models import (
+from management.research.engines.client import EngineContractMismatch, EngineUnavailable
+from management.research.model_profiles import load_integrations, load_models
+from management.research.models import (
     ModelProfile,
     ResearchRun,
     RunArtifact,
     RunGate,
     StageDecision,
     StageRun,
+    active_run_filter,
 )
-from management.projects.project_status import refresh_project_status
-from management.research.models import active_run_filter
-from management.services.engines.client import EngineContractMismatch, EngineUnavailable
-from management.services.model_profiles import load_integrations, load_models
-from management.services.stage_runs import append_run_event, sync_run_status
+from management.research.stage_runs import append_run_event, sync_run_status
 
 ALLOWED = {
     ("RUNNING", "publish"): "COMPLETED",

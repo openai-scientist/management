@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select, update
 
 from management.research.models import RunEvent, RunGate, StageRun
-from management.services.run_event_stream import run_events_changed
+from management.research.run_event_stream import run_events_changed
 
 
 def append_run_event(db, run, stage, event_type, payload, *, actor=None, source_seq=None):

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import management.contracts as contracts
+import management.research.contracts as contracts
 
 
 def test_contract_source_has_no_platform_dependency():

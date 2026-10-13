@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from management.contracts import (
+from management.research.contracts import (
     ArtifactRef,
     EventEnvelope,
     Gate,

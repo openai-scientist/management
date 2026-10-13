@@ -18,7 +18,7 @@ from management.core.sessions import Principal, require_active_csrf, require_act
 from management.db.session import get_db
 from management.infra.file_store import FileStore, get_file_store, put_json, read_json
 from management.research.models import FrameReview
-from management.services.popper_client import (
+from management.research.popper_client import (
     PopperClient,
     PopperNotFound,
     PopperRejected,
@@ -26,7 +26,7 @@ from management.services.popper_client import (
     PopperUncertain,
     get_popper_client,
 )
-from management.services.runs import (
+from management.research.service import (
     apply_run_status,
     complete_frame_review,
     get_run,

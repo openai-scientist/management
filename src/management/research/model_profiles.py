@@ -1,8 +1,8 @@
 from pydantic import SecretStr
 from sqlalchemy import select
 
-from management.contracts import ModelConfig, Models
 from management.core.errors import APIError
+from management.research.contracts import ModelConfig, Models
 from management.research.models import IntegrationSecret, ModelProfile
 
 

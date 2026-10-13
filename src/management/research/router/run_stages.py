@@ -12,8 +12,6 @@ from management.access.service import (
     lock_project_scope,
     require_project_access,
 )
-from management.api.v1.runs import RUN_ERRORS, CurrentStage, current_stage_item
-from management.contracts import Finding, GateAnswer
 from management.core.errors import APIError
 from management.core.responses import ApiResponse, ok
 from management.core.sessions import (
@@ -22,11 +20,13 @@ from management.core.sessions import (
     require_active_principal,
 )
 from management.db.session import get_db
-from management.models import StageDecision, StageRun
-from management.services.engines.client import EngineRejected, EngineUnavailable
-from management.services.orchestrator import accept_stage, validate_selection
-from management.services.runs import get_run
-from management.services.stage_runs import append_run_event
+from management.research.contracts import Finding, GateAnswer
+from management.research.engines.client import EngineRejected, EngineUnavailable
+from management.research.models import StageDecision, StageRun
+from management.research.orchestrator import accept_stage, validate_selection
+from management.research.router.runs import RUN_ERRORS, CurrentStage, current_stage_item
+from management.research.service import get_run
+from management.research.stage_runs import append_run_event
 
 router = APIRouter(prefix="/projects/{project_id}/runs/{run_id}/stages", tags=["run stages"])
 

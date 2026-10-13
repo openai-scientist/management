@@ -2,9 +2,10 @@ import json
 
 from sqlalchemy import select
 
+from management.audit.models import AuditEvent
 from management.identity.bootstrap_admin import bootstrap_admin
-from management.models import AuditEvent, ModelProfile
-from management.services.model_profiles import load_models
+from management.research.model_profiles import load_models
+from management.research.models import ModelProfile
 from tests.conftest import login, mutation_headers
 
 MODELS = "/api/v1/admin/models"

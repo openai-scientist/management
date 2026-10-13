@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from management.identity.models import AuthSession, User
 from management.notifications.notification_stream import notifications_changed
-from management.services.popper_client import PopperUnavailable
+from management.research.popper_client import PopperUnavailable
 from tests.conftest import ORIGIN, Harness, login, mutation_headers
 from tests.test_comments_and_notifications_api import NOTIFICATIONS, team
 from tests.test_projects_api import PROJECTS, add_member, create_project, invite_member

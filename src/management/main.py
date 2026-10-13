@@ -4,7 +4,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -12,32 +12,87 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from management.api.v1.router import router as v1_router
+from management.audit.router import router as audit_router
 from management.connections.connectors import build_connector_executor, build_connector_factory
 from management.connections.connectors.gate import ConnectionGate
 from management.connections.google_drive_oauth import build_google_drive_oauth
+from management.connections.router.connections import router as connections_router
+from management.connections.router.google import router as connections_google_router
 from management.core.config import Settings, get_settings
 from management.core.errors import APIError
+from management.core.health import router as health_router
 from management.core.logging import configure_logging
 from management.core.middleware import RequestProtectionMiddleware
-from management.core.responses import error_response, request_id_context, traceparent_context
+from management.core.responses import (
+    ErrorResponse,
+    error_response,
+    request_id_context,
+    traceparent_context,
+)
 from management.core.sessions import clear_session_cookie
+from management.datasets.router import router as datasets_router
 from management.db.session import get_db
 from management.identity.default_admin import ensure_default_admin
 from management.identity.google_oauth import build_google_oauth
+from management.identity.router.auth import router as auth_router
+from management.identity.router.auth_google import router as auth_google_router
+from management.identity.router.users import router as users_router
 from management.infra.email_sender import build_email_sender
 from management.infra.file_store import build_file_store
 from management.infra.secret_box import SecretBox
 from management.monitoring.alerts import MonitoringAlertEvaluator
 from management.monitoring.events import MonitoringTelemetry
+from management.monitoring.router.admin_log_monitoring import router as admin_log_monitoring_router
+from management.monitoring.router.admin_overview import router as admin_overview_router
+from management.monitoring.router.admin_usage import router as admin_usage_router
 from management.monitoring.stream import MonitoringHub
 from management.notifications.notification_stream import NotificationHub
+from management.notifications.router import router as notifications_router
 from management.projects.invite_candidates_stream import InviteCandidatesHub
-from management.services.engines.registry import build_engine_registry
-from management.services.popper_client import build_popper_client
-from management.services.run_event_stream import RunEventHub
+from management.projects.router.comments import router as comments_router
+from management.projects.router.invitations import router as invitations_router
+from management.projects.router.project_files import router as project_files_router
+from management.projects.router.projects import router as projects_router
+from management.research.engines.registry import build_engine_registry
+from management.research.popper_client import build_popper_client
+from management.research.router.admin_models import router as admin_models_router
+from management.research.router.frame_reviews import router as frame_reviews_router
+from management.research.router.internal_engines import router as internal_engines_router
+from management.research.router.internal_popper import router as internal_popper_router
+from management.research.router.run_artifacts import router as run_artifacts_router
+from management.research.router.run_stages import router as run_stages_router
+from management.research.router.runs import router as runs_router
+from management.research.run_event_stream import RunEventHub
 
 logger = logging.getLogger("management.http")
+
+# Every failure uses the same envelope; replace FastAPI's default 422 schema with it.
+v1_router = APIRouter(
+    responses={422: {"model": ErrorResponse, "description": "Request validation failed"}}
+)
+v1_router.include_router(health_router)
+v1_router.include_router(auth_router)
+v1_router.include_router(auth_google_router)
+v1_router.include_router(users_router)
+v1_router.include_router(audit_router)
+v1_router.include_router(projects_router)
+v1_router.include_router(invitations_router)
+v1_router.include_router(connections_google_router)
+v1_router.include_router(connections_router)
+v1_router.include_router(datasets_router)
+v1_router.include_router(project_files_router)
+v1_router.include_router(runs_router)
+v1_router.include_router(frame_reviews_router)
+v1_router.include_router(run_artifacts_router)
+v1_router.include_router(run_stages_router)
+v1_router.include_router(comments_router)
+v1_router.include_router(notifications_router)
+v1_router.include_router(admin_usage_router)
+v1_router.include_router(admin_overview_router)
+v1_router.include_router(admin_log_monitoring_router)
+v1_router.include_router(admin_models_router)
+v1_router.include_router(internal_popper_router)
+v1_router.include_router(internal_engines_router)
 
 
 def create_app(

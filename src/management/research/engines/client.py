@@ -5,7 +5,9 @@ from uuid import uuid4
 import httpx
 from pydantic import ValidationError
 
-from management.contracts import (
+from management.core.engine_settings import EngineSettings
+from management.core.responses import request_id_context, traceparent_context
+from management.research.contracts import (
     Capabilities,
     EventPage,
     GateAnswer,
@@ -16,8 +18,6 @@ from management.contracts import (
     is_compatible,
     paths,
 )
-from management.core.engine_settings import EngineSettings
-from management.core.responses import request_id_context, traceparent_context
 
 
 class EngineError(Exception):

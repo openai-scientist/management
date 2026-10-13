@@ -22,7 +22,7 @@ from management.connections.connectors.base import (
 )
 from management.connections.google_drive_oauth import GoogleAccessRevoked, GoogleGrant
 from management.identity.google_oauth import GoogleIdentity, GoogleOAuthError
-from management.services.popper_client import PopperNotFound, PopperRunState
+from management.research.popper_client import PopperNotFound, PopperRunState
 
 
 class FakeEmailSender:

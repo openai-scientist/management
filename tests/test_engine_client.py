@@ -3,7 +3,7 @@ import pytest
 
 from management.core.engine_settings import EngineSettings
 from management.core.responses import request_id_context
-from management.services.engines.client import (
+from management.research.engines.client import (
     EngineClient,
     EngineContractMismatch,
     EngineRejected,

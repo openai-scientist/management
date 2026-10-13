@@ -5,7 +5,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from management.services.popper_client import (
+from management.research.popper_client import (
     HttpPopperClient,
     PopperNotFound,
     PopperRejected,

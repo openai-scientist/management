@@ -17,7 +17,6 @@ from management.access.service import (
     require_project_access,
 )
 from management.audit.service import record_audit
-from management.contracts import InteractionMode
 from management.core.config import Settings
 from management.core.errors import APIError
 from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
@@ -32,6 +31,7 @@ from management.datasets.models import DatasetVersion
 from management.db.session import get_db
 from management.infra.file_store import FileStore, get_file_store
 from management.projects.project_status import refresh_project_status
+from management.research.contracts import InteractionMode
 from management.research.models import (
     ACTIVE_RUN_STATUSES,
     FINISHED_RUN_STATUSES,
@@ -41,8 +41,8 @@ from management.research.models import (
     RunGate,
     StageRun,
 )
-from management.services.orchestrator import start_research_run
-from management.services.popper_client import (
+from management.research.orchestrator import start_research_run
+from management.research.popper_client import (
     PopperClient,
     PopperNotFound,
     PopperRejected,
@@ -50,8 +50,8 @@ from management.services.popper_client import (
     PopperUncertain,
     get_popper_client,
 )
-from management.services.run_event_stream import RunEventHub, run_events_changed
-from management.services.runs import (
+from management.research.run_event_stream import RunEventHub, run_events_changed
+from management.research.service import (
     apply_run_status,
     gate_answer_summary,
     get_run,

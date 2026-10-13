@@ -24,8 +24,8 @@ from management.research.models import (
     RunEvent,
     RunGate,
 )
-from management.services.run_event_stream import run_events_changed
-from management.services.runs import (
+from management.research.run_event_stream import run_events_changed
+from management.research.service import (
     engine_event_is_repeat,
     ingest_popper_state,
     normalize_popper_status,

@@ -90,14 +90,20 @@ The command refuses to run when a Platform Admin already exists, and does not ac
 
 ```text
 src/management/
-  main.py          the FastAPI application
-  api/v1/          routes, one module per resource
-  auth/            sessions
-  core/            settings, errors, response envelope, middleware, roles, security
-  db/              engine and session
-  models/          SQLAlchemy models
-  services/        business rules, file stores, email, the Popper client
-    connectors/    PostgreSQL, MySQL and BigQuery connectors, with the network guard
+  main.py          the FastAPI application; mounts every feature's router
+  core/            settings, errors, response envelope, middleware, roles, security, sessions, health
+  db/              engine, session and the model registry Alembic reads
+  infra/           file stores, email sender and templates, secret box
+  audit/           audit events
+  access/          project roles and membership checks
+  identity/        sign-in, Google sign-in, users, avatars, one-time codes, the first admin
+  notifications/   notifications and their stream
+  projects/        projects, invitations, comments, project files
+  connections/     data connections, Google Drive access, connectors/ for each source kind
+  datasets/        datasets, versions, imports
+  monitoring/      admin overview, usage, log monitoring
+  research/        runs, stages, gates, engines, the Popper client, contracts/
+                   (each feature holds router, service, models and the helpers it owns)
 scripts/           `bootstrap_admin.py` (first Platform Admin), `export_contract.py`
 alembic/           database migrations
 docker/            Dockerfile, Compose files for dev and prod, the prod settings template

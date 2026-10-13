@@ -31,7 +31,7 @@ def test_every_wire_model_and_event_has_valid_example():
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema).validate(json.loads(files[f"examples/{name}.json"]))
     events = [name for name in files if name.startswith("examples/event-")]
-    from management.contracts import LIFECYCLE_TYPES, EventEnvelope
+    from management.research.contracts import LIFECYCLE_TYPES, EventEnvelope
 
     assert {json.loads(files[name])["type"] for name in events} >= LIFECYCLE_TYPES
     for name in events:

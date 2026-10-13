@@ -4,8 +4,8 @@ from uuid import UUID
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from management.models import ResearchRun, RunArtifact, RunEvent, RunGate, StageRun
-from management.services.stage_runs import sync_run_status
+from management.research.models import ResearchRun, RunArtifact, RunEvent, RunGate, StageRun
+from management.research.stage_runs import sync_run_status
 from tests.conftest import login, mutation_headers
 from tests.test_projects_api import create_project
 
