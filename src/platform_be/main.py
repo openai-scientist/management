@@ -149,6 +149,9 @@ def create_app(
     )
     app.add_middleware(RequestProtectionMiddleware, settings=settings)
 
+    def engine_internal(request):
+        return request.url.path.startswith(f"{settings.api_prefix}/internal/engines/")
+
     @app.middleware("http")
     async def request_context(request: Request, call_next):
         request_id = getattr(request.state, "request_id", None)
@@ -171,8 +174,15 @@ def create_app(
                 exc_info=exc,
                 extra={"request_id": request_id},
             )
-            response = error_response(
-                500, "INTERNAL_ERROR", "An unexpected error occurred", request_id
+            response = (
+                JSONResponse(
+                    status_code=500,
+                    content={"code": "INTERNAL_ERROR", "message": "An unexpected error occurred"},
+                )
+                if engine_internal(request)
+                else error_response(
+                    500, "INTERNAL_ERROR", "An unexpected error occurred", request_id
+                )
             )
         response.headers["X-Request-ID"] = request_id
         logger.info(
@@ -219,6 +229,10 @@ def create_app(
 
     @app.exception_handler(APIError)
     async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
+        if engine_internal(request):
+            return JSONResponse(
+                status_code=exc.status_code, content={"code": exc.code, "message": exc.message}
+            )
         response = error_response(
             exc.status_code,
             exc.code,
@@ -235,6 +249,18 @@ def create_app(
     async def validation_error_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        if engine_internal(request):
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "code": "VALIDATION_ERROR",
+                    "message": "Request validation failed",
+                    "details": [
+                        {key: error[key] for key in ("loc", "msg", "type")}
+                        for error in exc.errors()
+                    ],
+                },
+            )
         issues = [
             {"field": ".".join(str(part) for part in error["loc"]), "message": error["msg"]}
             for error in exc.errors()
@@ -254,12 +280,21 @@ def create_app(
         message = (
             exc.detail if isinstance(exc.detail, str) else "The request could not be completed"
         )
+        if engine_internal(request):
+            return JSONResponse(
+                status_code=exc.status_code, content={"code": code, "message": message}
+            )
         return error_response(
             exc.status_code, code, message, request_id_of(request), headers=exc.headers
         )
 
     @app.exception_handler(IntegrityError)
     async def integrity_error_handler(request: Request, _: IntegrityError) -> JSONResponse:
+        if engine_internal(request):
+            return JSONResponse(
+                status_code=409,
+                content={"code": "CONFLICT", "message": "The request conflicts with existing data"},
+            )
         return error_response(
             409, "CONFLICT", "The request conflicts with existing data", request_id_of(request)
         )

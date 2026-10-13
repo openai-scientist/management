@@ -13,6 +13,7 @@ from platform_be.api.v1.connections_google import router as connections_google_r
 from platform_be.api.v1.datasets import router as datasets_router
 from platform_be.api.v1.frame_reviews import router as frame_reviews_router
 from platform_be.api.v1.health import router as health_router
+from platform_be.api.v1.internal_engines import router as internal_engines_router
 from platform_be.api.v1.internal_popper import router as internal_popper_router
 from platform_be.api.v1.invitations import router as invitations_router
 from platform_be.api.v1.notifications import router as notifications_router
@@ -48,3 +49,4 @@ router.include_router(admin_overview_router)
 router.include_router(admin_log_monitoring_router)
 router.include_router(admin_models_router)
 router.include_router(internal_popper_router)
+router.include_router(internal_engines_router)

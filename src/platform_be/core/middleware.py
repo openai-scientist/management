@@ -50,6 +50,10 @@ class RequestProtectionMiddleware:
         self._artifact_upload_path = re.compile(rf"{prefix}/internal/popper/runs/[^/]+/artifacts/?")
         self._avatar_upload_path = re.compile(rf"{prefix}/(auth/me|users/[^/]+)/avatar/?")
         self._popper_callback_prefix = f"{settings.api_prefix.rstrip('/')}/internal/popper/"
+        self._engine_callback_prefix = f"{settings.api_prefix.rstrip('/')}/internal/engines/"
+        self._engine_artifact_upload_path = re.compile(
+            rf"{prefix}/internal/engines/[^/]+/runs/[^/]+/artifacts/?"
+        )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -57,8 +61,24 @@ class RequestProtectionMiddleware:
             return
 
         request_id = (scope.get("state") or {}).get("request_id")
+        engine_route = scope.get("path", "").startswith(self._engine_callback_prefix)
+
+        async def reject(*args, **kwargs):
+            await self._reject(*args, **kwargs, bare=engine_route)
+
         max_body_bytes = self._max_body_bytes(scope)
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        if engine_route:
+            key = scope["path"][len(self._engine_callback_prefix) :].split("/", 1)[0]
+            expected = self.settings.engines.get(key)
+            if not service_key_matches(
+                expected.service_key.get_secret_value() if expected else None,
+                headers.get(b"x-service-key", b"").decode("latin-1"),
+            ):
+                await reject(
+                    send, 401, "SERVICE_KEY_INVALID", "A valid service key is required", request_id
+                )
+                return
         if scope.get("path", "").startswith(self._popper_callback_prefix):
             # Checked here so a caller without the key cannot make the API spool an upload.
             expected = self.settings.popper_callback_key
@@ -66,7 +86,7 @@ class RequestProtectionMiddleware:
             if not service_key_matches(
                 expected.get_secret_value() if expected else None, candidate
             ):
-                await self._reject(
+                await reject(
                     send, 401, "SERVICE_KEY_INVALID", "A valid service key is required", request_id
                 )
                 return
@@ -75,17 +95,17 @@ class RequestProtectionMiddleware:
             try:
                 declared_length = int(content_length)
             except ValueError:
-                await self._reject(
+                await reject(
                     send, 400, "INVALID_CONTENT_LENGTH", "Invalid Content-Length", request_id
                 )
                 return
             if declared_length < 0:
-                await self._reject(
+                await reject(
                     send, 400, "INVALID_CONTENT_LENGTH", "Invalid Content-Length", request_id
                 )
                 return
             if declared_length > max_body_bytes:
-                await self._reject(
+                await reject(
                     send,
                     413,
                     "REQUEST_BODY_TOO_LARGE",
@@ -101,7 +121,7 @@ class RequestProtectionMiddleware:
                 limit = getattr(self.settings, limit_setting)
                 retry_after = self._consume_attempt(scope, attempts, limit)
                 if retry_after is not None:
-                    await self._reject(
+                    await reject(
                         send,
                         429,
                         "RATE_LIMITED",
@@ -143,7 +163,7 @@ class RequestProtectionMiddleware:
             if not exceeded or response_started:
                 raise
         if exceeded and not response_started:
-            await self._reject(
+            await reject(
                 send,
                 413,
                 "REQUEST_BODY_TOO_LARGE",
@@ -158,7 +178,9 @@ class RequestProtectionMiddleware:
                 return self.settings.dataset_max_upload_bytes
             if self._project_file_upload_path.fullmatch(path):
                 return self.settings.project_file_max_upload_bytes
-            if self._artifact_upload_path.fullmatch(path):
+            if self._artifact_upload_path.fullmatch(
+                path
+            ) or self._engine_artifact_upload_path.fullmatch(path):
                 return self.settings.artifact_max_upload_bytes
             if self._avatar_upload_path.fullmatch(path):
                 return self.settings.avatar_max_upload_bytes
@@ -195,6 +217,7 @@ class RequestProtectionMiddleware:
         request_id: str | None,
         *,
         headers: dict[str, str] | None = None,
+        bare: bool = False,
     ) -> None:
         response_headers = [(b"content-type", b"application/json")]
         if request_id:
@@ -203,7 +226,10 @@ class RequestProtectionMiddleware:
             (name.encode("ascii"), value.encode("ascii")) for name, value in (headers or {}).items()
         )
         encoded = json.dumps(
-            error_content(code, message, request_id), separators=(",", ":")
+            {"code": code, "message": message}
+            if bare
+            else error_content(code, message, request_id),
+            separators=(",", ":"),
         ).encode("utf-8")
         await send(
             {
