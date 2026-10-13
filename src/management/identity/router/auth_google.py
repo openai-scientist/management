@@ -19,7 +19,7 @@ from management.identity import auth_emails
 from management.identity.avatars import adopt_avatar
 from management.identity.google_oauth import GoogleOAuth, GoogleOAuthError
 from management.identity.models import AuthSession, User, UserStatus
-from management.identity.router.auth import display_name_or_local_part, start_session
+from management.identity.service import display_name_or_local_part, start_session
 from management.infra.email_sender import EmailSender, get_email_sender
 from management.infra.file_store import FileStore, get_file_store
 

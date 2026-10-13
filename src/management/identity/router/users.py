@@ -1,11 +1,9 @@
 import math
 from datetime import UTC, datetime
-from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +18,7 @@ from management.audit.service import record_audit
 from management.core.config import Settings
 from management.core.errors import APIError
 from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
-from management.core.roles import PlatformRole, platform_role_from_code
+from management.core.roles import PlatformRole
 from management.core.search import SearchTerm, matches
 from management.core.security import hash_password
 from management.core.sessions import (
@@ -33,7 +31,7 @@ from management.core.sessions import (
     require_platform_admin,
     require_user_id,
 )
-from management.core.urls import api_prefix, avatar_url
+from management.core.urls import api_prefix
 from management.db.session import get_db
 from management.identity.avatars import (
     AVATAR_TYPES,
@@ -44,103 +42,28 @@ from management.identity.avatars import (
 )
 from management.identity.models import AuthSession, User, UserPlatformRole, UserStatus
 from management.identity.one_time_codes import OtpPurpose, clear_code
-from management.identity.router.auth import (
-    ProfileUpdate,
+from management.identity.schemas.auth import ProfileUpdate
+from management.identity.schemas.users import (
+    PlatformRoleUpdate,
+    UserAdminItem,
+    UserCreate,
+    UserCreated,
+    UserStatusUpdate,
+)
+from management.identity.service import (
+    _active_platform_admin_count,
+    _admin_item,
+    _created_item,
+    _lock_platform_admin_set,
+    _send_account_invite,
+    _user_item,
     display_name_or_local_part,
     record_profile_update,
 )
 from management.infra.email_sender import EmailSender, get_email_sender
-from management.infra.email_templates import account_invite
 from management.infra.file_store import FileStore, get_file_store
 
 router = APIRouter(prefix="/users", tags=["users"])
-
-
-class UserAdminItem(BaseModel):
-    id: str
-    email: str
-    display_name: str | None
-    avatar_url: str | None
-    status: str
-    platform_role: PlatformRole = Field(
-        description="`user` unless the account is a Platform Admin."
-    )
-    email_verified: bool = Field(
-        description=(
-            "False until the user has entered the code emailed to them. Until then they "
-            "cannot sign in, join a project or become a Platform Admin."
-        )
-    )
-    must_change_password: bool = Field(
-        description="True until the user replaces the temporary password set at creation."
-    )
-    last_login_at: datetime | None
-    invite_sent_at: datetime | None = Field(
-        description=(
-            "When the Platform last tried to email the sign-in details; null if it never "
-            "did. `invite_email_sent` on that response says whether the email went."
-        )
-    )
-    created_by_user_id: str | None = Field(
-        description="The admin who created the account; null for a self-registered one."
-    )
-    created_at: datetime
-
-
-class UserCreated(UserAdminItem):
-    temporary_password: str = Field(
-        description=(
-            "The password the user signs in with the first time: the part of the email "
-            "before the @, in lower case. Shown here so the admin can pass it on."
-        )
-    )
-    invite_email_sent: bool = Field(
-        description=(
-            "True when the sign-in details were emailed to the user. False when no email "
-            "was asked for, or when sending failed: the account exists either way."
-        )
-    )
-
-
-class UserCreate(BaseModel):
-    email: EmailStr = Field(description="The sign-in name. One account per email.")
-    display_name: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=200,
-        description="Defaults to the part of the email before the @.",
-    )
-    send_email: bool = Field(
-        default=True,
-        description="Email the sign-in details to the user. With false, pass them on yourself.",
-    )
-
-
-class UserStatusUpdate(BaseModel):
-    status: Literal["active", "suspended"]
-
-
-class PlatformRoleUpdate(BaseModel):
-    role: PlatformRole = Field(description="`platform_admin` grants the role; `user` removes it.")
-
-
-async def _lock_platform_admin_set(db: AsyncSession) -> None:
-    if db.bind and db.bind.dialect.name == "postgresql":
-        from sqlalchemy import text
-
-        await db.execute(text("SELECT pg_advisory_xact_lock(1804, 1)"))
-
-
-async def _active_platform_admin_count(db: AsyncSession) -> int:
-    return int(
-        await db.scalar(
-            select(func.count())
-            .select_from(UserPlatformRole)
-            .join(User, User.id == UserPlatformRole.user_id)
-            .where(User.status == UserStatus.ACTIVE)
-        )
-        or 0
-    )
 
 
 @router.get("", response_model=ApiResponse[list[UserAdminItem]])
@@ -524,43 +447,3 @@ async def update_platform_role(
     )
     await db.flush()
     return ok(await _user_item(db, target, prefix))
-
-
-async def _send_account_invite(settings: Settings, sender: EmailSender, user: User) -> bool:
-    subject, text, html = account_invite(
-        user.email,
-        user.display_name or user.email,
-        email_local_part(user.email),
-        settings.app_url,
-    )
-    return await sender.send(to=user.email, subject=subject, text=text, html=html)
-
-
-def _created_item(item: UserAdminItem, user: User, *, invite_email_sent: bool) -> UserCreated:
-    return UserCreated(
-        **item.model_dump(),
-        temporary_password=email_local_part(user.email),
-        invite_email_sent=invite_email_sent,
-    )
-
-
-async def _user_item(db: AsyncSession, user: User, prefix: str) -> UserAdminItem:
-    role = await db.get(UserPlatformRole, user.id)
-    return _admin_item(user, role.role_code if role else None, prefix)
-
-
-def _admin_item(user: User, role_code: str | None, prefix: str) -> UserAdminItem:
-    return UserAdminItem(
-        id=str(user.id),
-        email=user.email,
-        display_name=user.display_name,
-        avatar_url=avatar_url(prefix, user.id, user.avatar_storage_key),
-        status=user.status,
-        platform_role=platform_role_from_code(role_code),
-        email_verified=user.email_verified_at is not None,
-        must_change_password=user.must_change_password,
-        last_login_at=user.last_login_at,
-        invite_sent_at=user.invite_sent_at,
-        created_by_user_id=str(user.created_by_user_id) if user.created_by_user_id else None,
-        created_at=user.created_at,
-    )
