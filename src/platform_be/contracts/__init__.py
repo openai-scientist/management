@@ -64,8 +64,26 @@ from .runs import (
     RunCreateResponse,
     RunState,
 )
+from .service import (
+    ArtifactMeta,
+    Capabilities,
+    Health,
+    LlmCall,
+    OutputDecl,
+    StepInfo,
+    TelemetryBatch,
+    TelemetryRecord,
+)
 
 __all__ = [
+    "ArtifactMeta",
+    "Capabilities",
+    "Health",
+    "LlmCall",
+    "OutputDecl",
+    "StepInfo",
+    "TelemetryBatch",
+    "TelemetryRecord",
     "ArtifactRef",
     "Decisions",
     "FailureInfo",

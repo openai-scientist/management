@@ -1,10 +1,10 @@
 from pathlib import Path
 
-import research_contracts
+import platform_be.contracts as contracts
 
 
 def test_contract_source_has_no_platform_dependency():
-    source = Path(research_contracts.__file__).parent
+    source = Path(contracts.__file__).parent
     offenders = [
         str(path.relative_to(source))
         for path in source.rglob("*.py")

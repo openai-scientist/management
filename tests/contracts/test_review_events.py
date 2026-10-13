@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from research_contracts import (
+from platform_be.contracts import (
     DatasetDescriptor,
     EventEnvelope,
     EventPage,

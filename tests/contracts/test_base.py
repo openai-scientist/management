@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from research_contracts import (
+from platform_be.contracts import (
     TERMINAL_PHASES,
     ContractModel,
     Phase,
