@@ -5,7 +5,7 @@ from uuid import UUID
 # pyrefly: ignore [missing-import]
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from management.services.notification_stream import NotificationHub, stream_changed
+from management.notifications.notification_stream import NotificationHub, stream_changed
 
 CHANNEL = "platform_run_events"
 RUNS_KEY = "run_event_stream_runs"

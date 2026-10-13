@@ -7,8 +7,8 @@ from sqlalchemy import select
 
 from management.identity.bootstrap_admin import bootstrap_admin
 from management.identity.models import User
-from management.models.project import Project
-from management.models.research import FrameReview, ResearchRun
+from management.projects.models import Project
+from management.research.models import FrameReview, ResearchRun
 from tests.conftest import Harness, login
 
 OVERVIEW = "/api/v1/admin/overview"

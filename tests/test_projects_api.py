@@ -3,7 +3,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select, text
 
 from management.identity.bootstrap_admin import bootstrap_admin
-from management.models.project import Project, ProjectMembership
+from management.projects.models import Project, ProjectMembership
 from tests.conftest import ORIGIN, PASSWORD, Harness, login, mutation_headers
 
 PROJECTS = "/api/v1/projects"

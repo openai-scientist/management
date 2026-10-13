@@ -17,7 +17,7 @@ from management.core.responses import ApiResponse, ErrorResponse, ok
 from management.core.sessions import Principal, require_active_csrf, require_active_principal
 from management.db.session import get_db
 from management.infra.file_store import FileStore, get_file_store, put_json, read_json
-from management.models.research import FrameReview
+from management.research.models import FrameReview
 from management.services.popper_client import (
     PopperClient,
     PopperNotFound,

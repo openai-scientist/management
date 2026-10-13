@@ -11,8 +11,8 @@ from management.core.responses import ApiResponse, paginated
 from management.core.search import SearchTerm, matches
 from management.core.sessions import Principal, require_platform_admin
 from management.db.session import get_db
-from management.models.project import Project
-from management.models.research import ResearchRun
+from management.projects.models import Project
+from management.research.models import ResearchRun
 
 router = APIRouter(prefix="/admin/usage", tags=["usage"])
 

@@ -31,7 +31,8 @@ from management.core.sessions import (
 from management.db.session import get_db
 from management.infra.file_store import FileStore, get_file_store
 from management.models.dataset import DatasetVersion
-from management.models.research import (
+from management.projects.project_status import refresh_project_status
+from management.research.models import (
     ACTIVE_RUN_STATUSES,
     FINISHED_RUN_STATUSES,
     ResearchContext,
@@ -49,7 +50,6 @@ from management.services.popper_client import (
     PopperUncertain,
     get_popper_client,
 )
-from management.services.project_status import refresh_project_status
 from management.services.run_event_stream import RunEventHub, run_events_changed
 from management.services.runs import (
     apply_run_status,

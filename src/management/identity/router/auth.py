@@ -50,7 +50,7 @@ from management.identity.one_time_codes import (
 )
 from management.infra.email_sender import EmailSender, get_email_sender
 from management.infra.file_store import FileStore, get_file_store
-from management.models.project import Project, ProjectMembership
+from management.projects.models import Project, ProjectMembership
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 

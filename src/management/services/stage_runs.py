@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 
-from management.models.research import RunEvent, RunGate, StageRun
+from management.research.models import RunEvent, RunGate, StageRun
 from management.services.run_event_stream import run_events_changed
 
 

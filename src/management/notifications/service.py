@@ -6,9 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.core.roles import ProjectRole
 from management.identity.models import User, UserStatus
-from management.models.collaboration import Notification
-from management.models.project import ProjectMembership
-from management.services.notification_stream import notifications_changed
+from management.notifications.notification_stream import notifications_changed
+from management.projects.models import Notification, ProjectMembership
 
 
 def notify_user(

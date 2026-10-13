@@ -13,7 +13,7 @@ from management.core.roles import ProjectRole
 from management.core.sessions import Principal, require_active_principal
 from management.db.session import get_db
 from management.identity.models import UserPlatformRole
-from management.models.project import ProjectMembership
+from management.projects.models import ProjectMembership
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 

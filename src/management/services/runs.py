@@ -12,15 +12,15 @@ from management.audit.service import record_audit
 from management.core.errors import APIError
 from management.core.roles import ProjectRole
 from management.infra.file_store import FileStore, put_json
-from management.models.project import Project
-from management.models.research import (
+from management.notifications.service import notify_project_members
+from management.projects.models import Project
+from management.projects.project_status import refresh_project_status
+from management.research.models import (
     FINISHED_RUN_STATUSES,
     FrameReview,
     ResearchRun,
     RunGate,
 )
-from management.services.notifications import notify_project_members
-from management.services.project_status import refresh_project_status
 
 REPORTABLE_STATUSES = ("running", "awaiting_review", "completed", "budget_exceeded", "failed")
 

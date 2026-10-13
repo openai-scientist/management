@@ -7,7 +7,7 @@ from sqlalchemy import event
 
 from management.identity.bootstrap_admin import bootstrap_admin
 from management.identity.models import User
-from management.models.project import ProjectMembership
+from management.projects.models import ProjectMembership
 from tests.conftest import Harness, login, mutation_headers
 from tests.test_notification_stream import open_stream
 from tests.test_project_invitations import answer, remove
@@ -155,7 +155,9 @@ async def test_user_changes_are_published_only_after_commit_and_rollback_is_sile
 @pytest.mark.parametrize("ending", ["archived", "role", "removed", "logout"])
 async def test_stream_stops_after_access_or_session_ends(harness: Harness, monkeypatch, ending):
     if ending == "logout":
-        monkeypatch.setattr("management.api.v1.projects.INVITE_CANDIDATES_KEEP_ALIVE_SECONDS", 0.02)
+        monkeypatch.setattr(
+            "management.projects.router.projects.INVITE_CANDIDATES_KEEP_ALIVE_SECONDS", 0.02
+        )
     async with harness.client() as pm:
         manager = await login(harness, pm, uid="pm", email="pm@example.com")
         project = await create_project(pm, manager)
@@ -202,7 +204,9 @@ async def test_stream_stops_after_access_or_session_ends(harness: Harness, monke
 async def test_keep_alive_revalidates_access_without_polling_or_extending_session(
     harness: Harness, monkeypatch
 ):
-    monkeypatch.setattr("management.api.v1.projects.INVITE_CANDIDATES_KEEP_ALIVE_SECONDS", 0.02)
+    monkeypatch.setattr(
+        "management.projects.router.projects.INVITE_CANDIDATES_KEEP_ALIVE_SECONDS", 0.02
+    )
     async with harness.client() as pm:
         manager = await login(harness, pm, uid="pm", email="pm@example.com")
         project = await create_project(pm, manager)

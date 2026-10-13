@@ -40,15 +40,15 @@ from management.db.session import get_db
 from management.identity.models import User, UserPlatformRole, UserStatus
 from management.infra.email_sender import EmailSender, get_email_sender
 from management.infra.email_templates import project_invite
-from management.models.project import Project, ProjectMembership
-from management.models.research import ResearchRun, active_run_filter
-from management.services.notification_stream import notifications_changed
-from management.services.notifications import (
+from management.notifications.notification_stream import notifications_changed
+from management.notifications.service import (
     drop_invitation_notices,
     notify_project_members,
     notify_user,
 )
-from management.services.project_status import derive_project_status
+from management.projects.models import Project, ProjectMembership
+from management.projects.project_status import derive_project_status
+from management.research.models import ResearchRun, active_run_filter
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 INVITE_CANDIDATES_KEEP_ALIVE_SECONDS = 15

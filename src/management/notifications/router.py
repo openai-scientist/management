@@ -24,9 +24,8 @@ from management.core.sessions import (
 from management.core.urls import api_prefix, avatar_url
 from management.db.session import get_db
 from management.identity.models import User
-from management.models.collaboration import Notification
-from management.models.project import Project, ProjectMembership
-from management.services.notification_stream import notifications_changed
+from management.notifications.notification_stream import notifications_changed
+from management.projects.models import Notification, Project, ProjectMembership
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 

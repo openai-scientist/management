@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import func, select
 
 from management.identity.bootstrap_admin import bootstrap_admin
-from management.models.collaboration import Notification
+from management.projects.models import Notification
 from tests.conftest import Harness, login, mutation_headers
 from tests.test_comments_and_notifications_api import NOTIFICATIONS, kinds, unread
 from tests.test_project_invitations import answer, remove

@@ -25,8 +25,8 @@ from management.core.sessions import Principal, require_active_csrf, require_act
 from management.core.urls import api_prefix, avatar_url
 from management.db.session import get_db
 from management.identity.models import User, UserStatus
-from management.models.project import Project, ProjectMembership
-from management.services.notifications import drop_invitation_notices, notify_project_members
+from management.notifications.service import drop_invitation_notices, notify_project_members
+from management.projects.models import Project, ProjectMembership
 
 router = APIRouter(prefix="/invitations", tags=["invitations"])
 

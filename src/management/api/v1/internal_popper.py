@@ -17,7 +17,7 @@ from management.core.responses import ApiResponse, ErrorResponse, ok
 from management.core.security import service_key_matches
 from management.db.session import get_db
 from management.infra.file_store import FileStore, get_file_store, iter_file, safe_filename
-from management.models.research import (
+from management.research.models import (
     FINISHED_RUN_STATUSES,
     ResearchRun,
     RunArtifact,

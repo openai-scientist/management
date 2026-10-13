@@ -19,10 +19,10 @@ from management.core.sessions import Principal, require_active_csrf, require_act
 from management.core.urls import api_prefix, avatar_url
 from management.db.session import get_db
 from management.identity.models import User
-from management.models.collaboration import Comment
-from management.models.research import RunArtifact
-from management.services.notifications import notify_project_members
-from management.services.runs import get_run
+from management.notifications.service import notify_project_members
+from management.projects.models import Comment
+from management.projects.service import get_project_run
+from management.research.models import RunArtifact
 
 router = APIRouter(prefix="/projects/{project_id}/runs/{run_id}/comments", tags=["comments"])
 
@@ -118,7 +118,7 @@ async def list_comments(
     prefix: str = Depends(api_prefix),
 ) -> ApiResponse[list[CommentItem]]:
     await require_project_access(db, principal, project_id)
-    run = await get_run(db, project_id, run_id)
+    run = await get_project_run(db, project_id, run_id)
     filters = [Comment.run_id == run.id]
     if artifact_id is not None:
         filters.append(Comment.artifact_id == artifact_id)
@@ -162,7 +162,7 @@ async def create_comment(
 ) -> ApiResponse[CommentItem]:
     project, _ = await require_project_access(db, principal, project_id)
     ensure_writable_project(project)
-    run = await get_run(db, project_id, run_id)
+    run = await get_project_run(db, project_id, run_id)
     if body.artifact_id is not None:
         in_run = await db.scalar(
             select(RunArtifact.id).where(
@@ -209,7 +209,7 @@ async def edit_comment(
 ) -> ApiResponse[CommentItem]:
     project, _ = await require_project_access(db, principal, project_id)
     ensure_writable_project(project)
-    run = await get_run(db, project_id, run_id)
+    run = await get_project_run(db, project_id, run_id)
     comment = await _live_comment(db, run.id, comment_id)
     if comment.author_user_id != principal.user.id:
         raise APIError(403, "NOT_COMMENT_AUTHOR", "Only the author can edit a comment")
@@ -238,7 +238,7 @@ async def delete_comment(
 ) -> ApiResponse[CommentItem]:
     project, membership = await require_project_access(db, principal, project_id)
     ensure_writable_project(project)
-    run = await get_run(db, project_id, run_id)
+    run = await get_project_run(db, project_id, run_id)
     comment = await _live_comment(db, run.id, comment_id)
     is_author = comment.author_user_id == principal.user.id
     is_manager = membership is not None and membership.role_code == ProjectRole.MANAGER

@@ -27,10 +27,10 @@ from management.models import (
     StageDecision,
     StageRun,
 )
-from management.models.research import active_run_filter
+from management.projects.project_status import refresh_project_status
+from management.research.models import active_run_filter
 from management.services.engines.client import EngineContractMismatch, EngineUnavailable
 from management.services.model_profiles import load_integrations, load_models
-from management.services.project_status import refresh_project_status
 from management.services.stage_runs import append_run_event, sync_run_status
 
 ALLOWED = {

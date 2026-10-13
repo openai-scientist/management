@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.orm import Session
 
 from management.identity.models import User, UserPlatformRole
-from management.models.project import Project, ProjectMembership
-from management.services.notification_stream import NotificationHub, stream_changed
+from management.notifications.notification_stream import NotificationHub, stream_changed
+from management.projects.models import Project, ProjectMembership
 
 CHANNEL = "platform_invite_candidates"
 RECIPIENTS_KEY = "invite_candidate_stream_projects"

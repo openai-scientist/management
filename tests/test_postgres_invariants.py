@@ -16,10 +16,9 @@ from management.db.base import Base
 from management.identity.bootstrap_admin import bootstrap_admin
 from management.identity.models import AuthSession, EmailOtp, User, UserStatus
 from management.main import create_app
-from management.models.collaboration import Notification
-from management.models.project import ProjectMembership
+from management.notifications.service import notify_user
+from management.projects.models import Notification, ProjectMembership
 from management.services.connectors.base import Column
-from management.services.notifications import notify_user
 from tests.conftest import (
     CALLBACK_KEY,
     CONNECTION_KEY,

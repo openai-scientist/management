@@ -20,8 +20,8 @@ from management.core.errors import APIError
 from management.core.sessions import Principal
 from management.infra.file_store import FileStore, StoredFile, iter_file
 from management.models.dataset import Dataset, DatasetVersion
+from management.projects.project_status import refresh_project_status
 from management.services.csv_inspection import CsvSummary, InvalidCsv, inspect_csv
-from management.services.project_status import refresh_project_status
 
 logger = logging.getLogger("management.datasets")
 

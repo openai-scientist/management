@@ -29,7 +29,7 @@ from management.infra.file_store import (
     iter_file,
     safe_filename,
 )
-from management.models.project_file import ProjectFile
+from management.projects.models import ProjectFile
 
 logger = logging.getLogger("management.project_files")
 

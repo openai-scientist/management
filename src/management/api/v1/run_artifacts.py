@@ -14,7 +14,7 @@ from management.core.responses import ApiResponse, ErrorResponse, ok
 from management.core.sessions import Principal, require_active_principal
 from management.db.session import get_db
 from management.infra.file_store import FileStore, attachment_headers, get_file_store
-from management.models.research import RunArtifact
+from management.research.models import RunArtifact
 from management.services.runs import get_run
 
 router = APIRouter(prefix="/projects/{project_id}/runs/{run_id}/artifacts", tags=["runs"])

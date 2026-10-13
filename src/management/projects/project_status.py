@@ -2,8 +2,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.models.dataset import Dataset, DatasetVersion
-from management.models.project import Project
-from management.models.research import ResearchRun, active_run_filter
+from management.projects.models import Project
+from management.research.models import ResearchRun, active_run_filter
 
 
 async def derive_project_status(db: AsyncSession, project: Project) -> str:

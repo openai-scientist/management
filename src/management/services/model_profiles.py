@@ -3,7 +3,7 @@ from sqlalchemy import select
 
 from management.contracts import ModelConfig, Models
 from management.core.errors import APIError
-from management.models.model_config import IntegrationSecret, ModelProfile
+from management.research.models import IntegrationSecret, ModelProfile
 
 
 def require_secret_box(box):

@@ -5,7 +5,7 @@ import pytest
 
 from management.identity.bootstrap_admin import bootstrap_admin
 from management.identity.models import User, UserPlatformRole, UserStatus
-from management.models.project import ProjectMembership
+from management.projects.models import ProjectMembership
 from tests.conftest import Harness, login, mutation_headers
 from tests.test_project_invitations import MISSING, code, remove
 from tests.test_projects_api import PROJECTS, add_member, create_project, invite_member

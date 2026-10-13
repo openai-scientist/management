@@ -11,7 +11,7 @@ from management.core.errors import APIError
 from management.core.responses import ok
 from management.core.sessions import Principal, require_active_csrf, require_platform_admin
 from management.db.session import get_db
-from management.models.model_config import IntegrationSecret, ModelProfile
+from management.research.models import IntegrationSecret, ModelProfile
 from management.services.model_profiles import require_secret_box
 
 router = APIRouter(prefix="/admin", tags=["model configuration"])

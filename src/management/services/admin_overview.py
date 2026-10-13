@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.core.errors import APIError
 from management.models.monitoring import MonitoringEvent
-from management.models.project import Project
-from management.models.research import FINISHED_RUN_STATUSES, FrameReview, ResearchRun
+from management.projects.models import Project
+from management.research.models import FINISHED_RUN_STATUSES, FrameReview, ResearchRun
 from management.services.monitoring_queries import (
     MAX_EVENT_ROWS,
     SERVICE_CODE,

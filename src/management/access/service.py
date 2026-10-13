@@ -8,7 +8,7 @@ from management.core.errors import APIError
 from management.core.roles import ProjectRole
 from management.core.sessions import Principal
 from management.identity.models import User, UserPlatformRole, UserStatus
-from management.models.project import Project, ProjectMembership
+from management.projects.models import Project, ProjectMembership
 
 
 async def is_platform_admin(db: AsyncSession, user_id: UUID) -> bool:
