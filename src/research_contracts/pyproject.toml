@@ -17,12 +17,18 @@ testing = [
 dev = ["ruff>=0.8,<1"]
 
 [build-system]
-requires = ["uv_build>=0.11.8,<0.12.0"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
 
-[tool.uv.build-backend]
-module-name = "research_contracts"
-module-root = "src"
+[tool.hatch.build]
+dev-mode-dirs = [".."]
+
+[tool.hatch.build.targets.wheel]
+include = ["*.py", "testing/**/*.py"]
+exclude = ["tests/**", "**/__pycache__/**", ".venv/**", "dist/**"]
+
+[tool.hatch.build.targets.wheel.sources]
+"" = "research_contracts"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -34,3 +40,6 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["research_contracts"]
