@@ -28,9 +28,9 @@ from management.core.sessions import (
     require_active_principal,
     require_origin,
 )
+from management.datasets.models import DatasetVersion
 from management.db.session import get_db
 from management.infra.file_store import FileStore, get_file_store
-from management.models.dataset import DatasetVersion
 from management.projects.project_status import refresh_project_status
 from management.research.models import (
     ACTIVE_RUN_STATUSES,

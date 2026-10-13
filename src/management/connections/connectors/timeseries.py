@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from management.services.connectors.base import (
+from management.connections.connectors.base import (
     Aggregate,
     Bucket,
     Column,

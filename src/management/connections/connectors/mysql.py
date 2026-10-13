@@ -13,7 +13,7 @@ from pymysql.constants import FIELD_TYPE
 from pymysql.converters import conversions
 from pymysql.cursors import SSCursor
 
-from management.services.connectors.base import (
+from management.connections.connectors.base import (
     Column,
     ConnectorError,
     QuerySource,
@@ -21,10 +21,10 @@ from management.services.connectors.base import (
     TableRef,
     TableSource,
 )
-from management.services.connectors.network_guard import ResolvedHost
-from management.services.connectors.threaded import call_in_thread
-from management.services.connectors.tls import build_ssl_context
-from management.services.connectors.values import approximate_size
+from management.connections.connectors.network_guard import ResolvedHost
+from management.connections.connectors.threaded import call_in_thread
+from management.connections.connectors.tls import build_ssl_context
+from management.connections.connectors.values import approximate_size
 
 logger = logging.getLogger("management.connectors")
 

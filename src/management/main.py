@@ -13,6 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from management.api.v1.router import router as v1_router
+from management.connections.connectors import build_connector_executor, build_connector_factory
+from management.connections.connectors.gate import ConnectionGate
+from management.connections.google_drive_oauth import build_google_drive_oauth
 from management.core.config import Settings, get_settings
 from management.core.errors import APIError
 from management.core.logging import configure_logging
@@ -27,10 +30,7 @@ from management.infra.file_store import build_file_store
 from management.infra.secret_box import SecretBox
 from management.notifications.notification_stream import NotificationHub
 from management.projects.invite_candidates_stream import InviteCandidatesHub
-from management.services.connectors import build_connector_executor, build_connector_factory
-from management.services.connectors.gate import ConnectionGate
 from management.services.engines.registry import build_engine_registry
-from management.services.google_drive_oauth import build_google_drive_oauth
 from management.services.monitoring_alerts import MonitoringAlertEvaluator
 from management.services.monitoring_events import MonitoringTelemetry
 from management.services.monitoring_stream import MonitoringHub

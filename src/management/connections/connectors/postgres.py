@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import asyncpg
 
-from management.services.connectors.base import (
+from management.connections.connectors.base import (
     Column,
     ConnectorError,
     QuerySource,
@@ -16,9 +16,9 @@ from management.services.connectors.base import (
     TableRef,
     TableSource,
 )
-from management.services.connectors.network_guard import ResolvedHost
-from management.services.connectors.tls import build_ssl_context
-from management.services.connectors.values import approximate_size
+from management.connections.connectors.network_guard import ResolvedHost
+from management.connections.connectors.tls import build_ssl_context
+from management.connections.connectors.values import approximate_size
 
 logger = logging.getLogger("management.connectors")
 

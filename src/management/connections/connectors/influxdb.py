@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from management.services.connectors.base import (
+from management.connections.connectors.base import (
     Aggregate,
     AnySource,
     Column,
@@ -28,8 +28,8 @@ from management.services.connectors.base import (
     TableRef,
     TimeSeriesSource,
 )
-from management.services.connectors.http_source import PinnedHttp
-from management.services.connectors.timeseries import (
+from management.connections.connectors.http_source import PinnedHttp
+from management.connections.connectors.timeseries import (
     BUCKET_SECONDS,
     TIME_COLUMN,
     Point,

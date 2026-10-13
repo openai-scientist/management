@@ -6,11 +6,11 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.api.v1 import connections as connections_api
 from management.audit.models import AuditEvent
-from management.models.dataset import Dataset
-from management.services.connectors.gate import LIVE_VIEW_AUDIT_SECONDS, ConnectionGate
-from management.services.connectors.timeseries import BUCKET_SECONDS, time_text
+from management.connections.connectors.gate import LIVE_VIEW_AUDIT_SECONDS, ConnectionGate
+from management.connections.connectors.timeseries import BUCKET_SECONDS, time_text
+from management.connections.router import connections as connections_api
+from management.datasets.models import Dataset
 from tests.conftest import Harness, login, mutation_headers
 from tests.fakes import FakeInfluxDB, FakePrometheus
 from tests.test_connection_browse_api import connected_project, external_database, failure

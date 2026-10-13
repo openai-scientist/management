@@ -24,7 +24,7 @@ from openpyxl.reader.excel import ExcelReader
 from openpyxl.worksheet._read_only import ReadOnlyWorksheet
 from openpyxl.xml.constants import SHARED_STRINGS
 
-from management.services.connectors.base import (
+from management.connections.connectors.base import (
     Column,
     ConnectorError,
     QuerySource,
@@ -32,11 +32,11 @@ from management.services.connectors.base import (
     TableRef,
     TableSource,
 )
-from management.services.connectors.google_api import GoogleAccount, failed, get_json, refusal
-from management.services.connectors.google_sheets import NO_TAB, Spreadsheet, tab_refs
-from management.services.connectors.header_rows import column_names, data_rows, named_columns
-from management.services.connectors.threaded import call_in_thread
-from management.services.google_drive_oauth import GoogleDriveOAuth
+from management.connections.connectors.google_api import GoogleAccount, failed, get_json, refusal
+from management.connections.connectors.google_sheets import NO_TAB, Spreadsheet, tab_refs
+from management.connections.connectors.header_rows import column_names, data_rows, named_columns
+from management.connections.connectors.threaded import call_in_thread
+from management.connections.google_drive_oauth import GoogleDriveOAuth
 
 logger = logging.getLogger("management.connectors")
 

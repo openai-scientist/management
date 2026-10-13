@@ -3,6 +3,7 @@ import io
 
 import pytest
 
+from management.datasets.csv_inspection import InvalidCsv, inspect_csv
 from management.infra.file_store import (
     LocalFileStore,
     attachment_headers,
@@ -10,7 +11,6 @@ from management.infra.file_store import (
     read_json,
     safe_filename,
 )
-from management.services.csv_inspection import InvalidCsv, inspect_csv
 
 
 async def _chunks(*parts: bytes):

@@ -6,8 +6,8 @@ import io
 import tempfile
 from typing import IO, Any
 
-from management.services.connectors.base import RowStream
-from management.services.connectors.values import to_text
+from management.connections.connectors.base import RowStream
+from management.connections.connectors.values import to_text
 
 # Below the 131 072 characters `csv.reader` accepts in one field, so whatever is written here
 # can be read back when the file is inspected.

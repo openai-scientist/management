@@ -1,20 +1,20 @@
 import httpx
 import pytest
 
-from management.identity.google_oauth import GoogleOAuthError
-from management.services.connectors import google_sheets
-from management.services.connectors.base import (
+from management.connections.connectors import google_sheets
+from management.connections.connectors.base import (
     Column,
     ConnectorError,
     QuerySource,
     TableRef,
     TableSource,
 )
-from management.services.connectors.google_sheets import (
+from management.connections.connectors.google_sheets import (
     GoogleSheetsConnector,
     parse_spreadsheet_id,
     tab_range,
 )
+from management.identity.google_oauth import GoogleOAuthError
 from tests.fakes import FakeGoogleDriveOAuth, FakeGoogleSheets, FakeSpreadsheet, access_token_for
 
 SPREADSHEET_ID = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"

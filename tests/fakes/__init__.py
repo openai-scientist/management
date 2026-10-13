@@ -12,8 +12,7 @@ from uuid import UUID
 
 import httpx
 
-from management.identity.google_oauth import GoogleIdentity, GoogleOAuthError
-from management.services.connectors.base import (
+from management.connections.connectors.base import (
     Column,
     ConnectorError,
     QuerySource,
@@ -21,7 +20,8 @@ from management.services.connectors.base import (
     TableRef,
     TableSource,
 )
-from management.services.google_drive_oauth import GoogleAccessRevoked, GoogleGrant
+from management.connections.google_drive_oauth import GoogleAccessRevoked, GoogleGrant
+from management.identity.google_oauth import GoogleIdentity, GoogleOAuthError
 from management.services.popper_client import PopperNotFound, PopperRunState
 
 

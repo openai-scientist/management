@@ -8,15 +8,15 @@ from typing import Any
 
 import pytest
 
-from management.services.connectors import csv_export
-from management.services.connectors.base import Column, RowStream
-from management.services.connectors.csv_export import (
+from management.connections.connectors import csv_export
+from management.connections.connectors.base import Column, RowStream
+from management.connections.connectors.csv_export import (
     CellTooLarge,
     EmptyResult,
     ResultTooLarge,
     export_csv,
 )
-from management.services.csv_inspection import inspect_csv
+from management.datasets.csv_inspection import inspect_csv
 
 
 class Source:

@@ -6,8 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from management.services.connectors import threaded
-from management.services.connectors.threaded import call_in_thread
+from management.connections.connectors import threaded
+from management.connections.connectors.threaded import call_in_thread
 
 
 @pytest.fixture

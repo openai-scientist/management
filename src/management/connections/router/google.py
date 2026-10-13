@@ -9,6 +9,8 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.access.service import ensure_writable_project, require_project_access
+from management.connections.google_drive_oauth import GoogleDriveOAuth, GoogleScopeNotGranted
+from management.connections.models import GoogleConnectionGrant
 from management.core.config import Settings
 from management.core.errors import APIError
 from management.core.responses import ErrorResponse
@@ -16,8 +18,6 @@ from management.core.sessions import Principal, as_utc, require_active_principal
 from management.db.session import get_db
 from management.identity.google_oauth import GoogleOAuthError
 from management.infra.secret_box import SecretBox
-from management.models.google_connection_grant import GoogleConnectionGrant
-from management.services.google_drive_oauth import GoogleDriveOAuth, GoogleScopeNotGranted
 
 STATE_COOKIE = "platform_google_drive_state"
 GRANT_TTL = timedelta(minutes=10)

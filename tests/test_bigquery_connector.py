@@ -18,19 +18,19 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from google.auth.credentials import AnonymousCredentials
 from google.cloud import bigquery
 
-from management.services.connectors.base import (
+from management.connections.connectors.base import (
     REASON_MESSAGES,
     Column,
     ConnectorError,
     QuerySource,
     TableSource,
 )
-from management.services.connectors.bigquery import (
+from management.connections.connectors.bigquery import (
     SERVICE_ACCOUNT_MAX_CHARS,
     BigQueryConnector,
     parse_service_account,
 )
-from management.services.connectors.values import to_text
+from management.connections.connectors.values import to_text
 
 PROJECT = "acme-data"
 LIMIT = 1_000_000

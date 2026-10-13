@@ -1,8 +1,4 @@
-import asyncio
-import hashlib
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
@@ -26,6 +22,51 @@ from management.access.service import (
     require_project_access,
 )
 from management.audit.service import record_audit
+from management.connections.connectors import (
+    Connector,
+    ConnectorError,
+    ConnectorFactory,
+    get_connector_factory,
+)
+from management.connections.connectors.base import (
+    Aggregate,
+    Column,
+    FieldNames,
+    Identifier,
+    Source,
+    TagNames,
+    check_series_names,
+)
+from management.connections.connectors.bigquery import (
+    LOCATION_PATTERN,
+    PROJECT_ID_PATTERN,
+    SERVICE_ACCOUNT_MAX_CHARS,
+    parse_service_account,
+)
+from management.connections.connectors.gate import ConnectionGate, get_connection_gate
+from management.connections.connectors.google_drive import GoogleDriveConnector, parse_folder_id
+from management.connections.connectors.google_sheets import (
+    GoogleSheetsConnector,
+    parse_spreadsheet_id,
+)
+from management.connections.connectors.http_source import parse_server_url
+from management.connections.connectors.network_guard import is_host
+from management.connections.connectors.timeseries import LiveWindow, live_source
+from management.connections.connectors.values import approximate_size, to_text
+from management.connections.google_drive_oauth import GoogleAccessRevoked
+from management.connections.models import DataConnection, GoogleConnectionGrant
+from management.connections.service import (
+    CONNECTION_ERRORS,
+    PROBE_ERRORS,
+    READ_ERRORS,
+    find_connection,
+    open_secret,
+    reading,
+    require_box,
+    require_supported_source,
+    saved_connection,
+    source_audit_details,
+)
 from management.core.errors import APIError
 from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
 from management.core.search import SearchTerm, matches
@@ -33,70 +74,10 @@ from management.core.sessions import Principal, require_active_csrf, require_act
 from management.db.session import get_db
 from management.identity.google_oauth import GoogleOAuthError
 from management.infra.secret_box import SecretBox, SecretBoxError, get_secret_box
-from management.models.data_connection import DataConnection
-from management.models.google_connection_grant import GoogleConnectionGrant
-from management.services.connectors import (
-    Connector,
-    ConnectorError,
-    ConnectorFactory,
-    get_connector_factory,
-)
-from management.services.connectors.base import (
-    Aggregate,
-    AnySource,
-    Column,
-    FieldNames,
-    Identifier,
-    QuerySource,
-    Source,
-    TagNames,
-    TimeSeriesSource,
-    check_series_names,
-    ensure_source_supported,
-)
-from management.services.connectors.bigquery import (
-    LOCATION_PATTERN,
-    PROJECT_ID_PATTERN,
-    SERVICE_ACCOUNT_MAX_CHARS,
-    parse_service_account,
-)
-from management.services.connectors.gate import ConnectionGate, get_connection_gate
-from management.services.connectors.google_drive import GoogleDriveConnector, parse_folder_id
-from management.services.connectors.google_sheets import (
-    GoogleSheetsConnector,
-    parse_spreadsheet_id,
-)
-from management.services.connectors.http_source import parse_server_url
-from management.services.connectors.network_guard import is_host
-from management.services.connectors.timeseries import LiveWindow, live_source
-from management.services.connectors.values import approximate_size, to_text
-from management.services.google_drive_oauth import GoogleAccessRevoked
 
 router = APIRouter(prefix="/projects/{project_id}/connections", tags=["data connections"])
 logger = logging.getLogger("management.connectors")
 
-CONNECTION_ERRORS = {
-    403: {"model": ErrorResponse, "description": "Project Manager or Researcher role is required"},
-    404: {"model": ErrorResponse, "description": "The project or connection was not found"},
-    409: {"model": ErrorResponse, "description": "The project is archived or the name is taken"},
-}
-# For the endpoints that contact the external server.
-PROBE_ERRORS = {
-    **CONNECTION_ERRORS,
-    429: {"model": ErrorResponse, "description": "Too many connection requests"},
-    503: {"model": ErrorResponse, "description": "Data connections are not configured"},
-}
-# For the endpoints that read through a saved connection.
-READ_ERRORS = {
-    **PROBE_ERRORS,
-    422: {
-        "model": ErrorResponse,
-        "description": (
-            "`SOURCE_INVALID` when the table or query is the problem, `CONNECTION_FAILED` when "
-            "the server could not be used; `error.reason` says which"
-        ),
-    },
-}
 MAX_TABLES = 500
 PREVIEW_CELL_CHARS = 500
 # A preview of very wide rows stops early, however few rows that leaves.
@@ -506,27 +487,6 @@ class LiveData(BaseModel):
     )
 
 
-def _require_box(box: SecretBox | None) -> SecretBox:
-    if box is None:
-        raise APIError(
-            503, "CONNECTIONS_NOT_CONFIGURED", "Data connections are not configured on this server"
-        )
-    return box
-
-
-async def _get_connection(
-    db: AsyncSession, project_id: UUID, connection_id: UUID
-) -> DataConnection:
-    row = await db.scalar(
-        select(DataConnection).where(
-            DataConnection.id == connection_id, DataConnection.project_id == project_id
-        )
-    )
-    if row is None:
-        raise APIError(404, "NOT_FOUND", "Connection was not found")
-    return row
-
-
 async def _name_taken(
     db: AsyncSession, project_id: UUID, name: str, *, except_id: UUID | None = None
 ) -> bool:
@@ -536,142 +496,6 @@ async def _name_taken(
     if except_id is not None:
         query = query.where(DataConnection.id != except_id)
     return await db.scalar(query) is not None
-
-
-def _open_secret(box: SecretBox, row: DataConnection) -> dict[str, Any]:
-    try:
-        return box.open(row.secret_ciphertext)
-    except SecretBoxError:
-        raise APIError(
-            409,
-            "CONNECTION_SECRET_UNREADABLE",
-            "The stored credentials cannot be read. Delete this connection and create it again.",
-        ) from None
-
-
-@dataclass(frozen=True, slots=True)
-class SavedConnection:
-    name: str
-    kind: str
-    config: dict[str, Any]
-    # Kept out of the repr, so it cannot reach a log or a traceback through this object.
-    secret: dict[str, Any] = field(repr=False)
-
-
-async def saved_connection(
-    db: AsyncSession,
-    principal: Principal,
-    project_id: UUID,
-    connection_id: UUID,
-    box: SecretBox | None,
-    gate: ConnectionGate,
-) -> SavedConnection:
-    """Check that the caller may read through a connection; return what a read needs of it.
-
-    Everything a read needs from the Platform's database, so the caller can commit before it
-    contacts the external server.
-    """
-    project, _ = await require_project_access(db, principal, project_id, contribute=True)
-    ensure_writable_project(project)
-    box = _require_box(box)
-    gate.check_query_rate(principal.user.id)
-    row = await _get_connection(db, project_id, connection_id)
-    return SavedConnection(row.name, row.kind, row.config, _open_secret(box, row))
-
-
-@asynccontextmanager
-async def reading(
-    request: Request,
-    db: AsyncSession,
-    gate: ConnectionGate,
-    factory: ConnectorFactory,
-    project_id: UUID,
-    user_id: UUID,
-    saved: SavedConnection,
-    *,
-    deadline: float | None = None,
-) -> AsyncIterator[Connector]:
-    """A connector to use within a slot and a deadline; its failures become 422 responses.
-
-    The Platform's own transaction is committed once the slot is held: nothing of it stays
-    open while the external server is contacted, and a request that finds no slot leaves
-    nothing behind. The deadline is the one for a query unless another is given.
-    """
-    if deadline is None:
-        deadline = request.app.state.settings.connection_query_timeout_seconds
-    async with gate.slot(project_id, user_id):
-        await db.commit()
-        try:
-            # The server-side timeout cannot be relied on: the server is whatever the user
-            # pointed at, and may simply stop answering.
-            async with asyncio.timeout(deadline):
-                yield await factory(saved.kind, saved.config, saved.secret)
-        except TimeoutError:
-            logger.info("connection read abandoned after %s seconds", deadline)
-            raise _read_failed(ConnectorError("query_timeout")) from None
-        except ConnectorError as exc:
-            raise _read_failed(exc) from None
-
-
-def _read_failed(error: ConnectorError) -> APIError:
-    about_source = error.reason in (
-        "source_not_found",
-        "query_failed",
-        "query_timeout",
-        "scan_limit_exceeded",
-        "unsupported_source",
-        "source_malformed",
-        "source_too_large",
-        "too_many_points",
-    )
-    code = "SOURCE_INVALID" if about_source else "CONNECTION_FAILED"
-    return APIError(422, code, error.message, reason=error.reason)
-
-
-def require_supported_source(kind: str, source: AnySource) -> None:
-    """Refuse a source this kind of connection cannot read: 422, and nothing is audited."""
-    try:
-        ensure_source_supported(kind, source)
-    except ConnectorError as exc:
-        raise _read_failed(exc) from None
-    if kind == "prometheus" and isinstance(source, TimeSeriesSource) and source.fields:
-        # A mistake in the form, not something about the server.
-        raise APIError(
-            422,
-            "VALIDATION_ERROR",
-            "A Prometheus metric has one value, in the column `value`: leave `fields` empty",
-        )
-    if kind == "influxdb" and isinstance(source, TimeSeriesSource) and not source.fields:
-        raise APIError(
-            422,
-            "VALIDATION_ERROR",
-            "An InfluxDB measurement is read by its fields: name at least one in `fields`",
-        )
-
-
-def _utc_text(moment: datetime) -> str:
-    return moment.isoformat().replace("+00:00", "Z")
-
-
-def source_audit_details(source: AnySource) -> dict[str, Any]:
-    """What an audit event records about a source that was read."""
-    if isinstance(source, TimeSeriesSource):
-        # The name of a metric is not sensitive the way the text of a query can be.
-        return {
-            "source_type": "timeseries",
-            "name": source.name,
-            "start": _utc_text(source.start),
-            "end": _utc_text(source.end),
-            "bucket": source.bucket,
-            "aggregate": source.aggregate,
-        }
-    if isinstance(source, QuerySource):
-        # Not the text: SQL can carry sensitive constants.
-        return {
-            "source_type": "query",
-            "sql_sha256": hashlib.sha256(source.sql.encode()).hexdigest(),
-        }
-    return {"source_type": "table", "schema": source.schema_name, "name": source.name}
 
 
 def _preview_cell(value: Any) -> str | None:
@@ -837,7 +661,7 @@ async def google_picker_credentials(
     response.headers["Cache-Control"] = "no-store"
     project, _ = await require_project_access(db, principal, project_id, contribute=True)
     ensure_writable_project(project)
-    box = _require_box(box)
+    box = require_box(box)
     settings = request.app.state.settings
     if not (settings.google_picker_api_key and settings.google_picker_app_id):
         raise APIError(
@@ -972,7 +796,7 @@ async def create_connection(
 ) -> ApiResponse[ConnectionItem]:
     project, _ = await require_project_access(db, principal, project_id, contribute=True)
     ensure_writable_project(project)
-    box = _require_box(box)
+    box = require_box(box)
     gate.check_rate(principal.user.id)
     if await _name_taken(db, project_id, body.name):
         raise _name_exists()
@@ -1064,7 +888,7 @@ async def get_connection(
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[ConnectionItem]:
     await require_project_access(db, principal, project_id)
-    return ok(_item(await _get_connection(db, project_id, connection_id)))
+    return ok(_item(await find_connection(db, project_id, connection_id)))
 
 
 @router.patch(
@@ -1088,7 +912,7 @@ async def rename_connection(
     await lock_project_scope(db, project_id)
     project, _ = await require_project_access(db, principal, project_id, contribute=True, lock=True)
     ensure_writable_project(project)
-    row = await _get_connection(db, project_id, connection_id)
+    row = await find_connection(db, project_id, connection_id)
     if await _name_taken(db, project_id, body.name, except_id=row.id):
         raise _name_exists()
     previous = row.name
@@ -1126,7 +950,7 @@ async def delete_connection(
 ) -> ApiResponse[None]:
     project, _ = await require_project_access(db, principal, project_id, contribute=True)
     ensure_writable_project(project)
-    row = await _get_connection(db, project_id, connection_id)
+    row = await find_connection(db, project_id, connection_id)
     await db.delete(row)
     record_audit(
         db,
@@ -1165,10 +989,10 @@ async def test_connection(
 ) -> ApiResponse[ConnectionItem]:
     project, _ = await require_project_access(db, principal, project_id, contribute=True)
     ensure_writable_project(project)
-    box = _require_box(box)
+    box = require_box(box)
     gate.check_rate(principal.user.id)
-    row = await _get_connection(db, project_id, connection_id)
-    secret = _open_secret(box, row)
+    row = await find_connection(db, project_id, connection_id)
+    secret = open_secret(box, row)
     kind, config = row.kind, row.config
     await db.commit()
 
@@ -1239,9 +1063,9 @@ async def reauthorize_connection(
 ) -> ApiResponse[ConnectionItem]:
     project, _ = await require_project_access(db, principal, project_id, contribute=True)
     ensure_writable_project(project)
-    box = _require_box(box)
+    box = require_box(box)
     gate.check_rate(principal.user.id)
-    row = await _get_connection(db, project_id, connection_id)
+    row = await find_connection(db, project_id, connection_id)
     kind, config = row.kind, row.config
     if "google_subject" not in config:
         raise APIError(422, "CONNECTION_NOT_GOOGLE", "Only a Google connection can be reauthorized")

@@ -10,10 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.audit.models import AuditEvent
-from management.models.dataset import Dataset, DatasetVersion
-from management.services import dataset_ingest
-from management.services.connectors.base import Column, ConnectorError
-from management.services.connectors.gate import ConnectionGate
+from management.connections.connectors.base import Column, ConnectorError
+from management.connections.connectors.gate import ConnectionGate
+from management.datasets import dataset_ingest
+from management.datasets.models import Dataset, DatasetVersion
 from tests.conftest import ORIGIN, Harness, login, mutation_headers
 from tests.fakes import FakeTable
 from tests.test_connection_browse_api import (

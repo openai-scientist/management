@@ -5,7 +5,7 @@ import pytest
 from pydantic import SecretStr
 from sqlalchemy import update
 
-from management.models.google_connection_grant import GoogleConnectionGrant
+from management.connections.models import GoogleConnectionGrant
 from tests.conftest import Harness, login, mutation_headers
 from tests.fakes import access_token_for
 from tests.test_connection_browse_api import failure

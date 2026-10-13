@@ -18,17 +18,17 @@ from pymysql.constants import CLIENT
 from pymysql.cursors import SSCursor
 from sqlalchemy.engine import make_url
 
-from management.services.connectors import mysql
-from management.services.connectors.base import (
+from management.connections.connectors import mysql
+from management.connections.connectors.base import (
     REASON_MESSAGES,
     ConnectorError,
     QuerySource,
     TableSource,
 )
-from management.services.connectors.gate import ConnectionGate
-from management.services.connectors.mysql import MysqlConnector, map_error, map_query_error
-from management.services.connectors.network_guard import ResolvedHost
-from management.services.connectors.values import to_text
+from management.connections.connectors.gate import ConnectionGate
+from management.connections.connectors.mysql import MysqlConnector, map_error, map_query_error
+from management.connections.connectors.network_guard import ResolvedHost
+from management.connections.connectors.values import to_text
 from tests.test_postgres_connector import self_signed_certificate, tcp_server
 
 PASSWORD = "s3cret-value"

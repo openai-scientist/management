@@ -1,10 +1,9 @@
 """SQLAlchemy models, imported by Alembic and application services."""
 
 from management.audit.models import AuditEvent
+from management.connections.models import DataConnection, GoogleConnectionGrant
+from management.datasets.models import Dataset, DatasetVersion
 from management.identity.models import AuthSession, EmailOtp, User, UserPlatformRole
-from management.models.data_connection import DataConnection
-from management.models.dataset import Dataset, DatasetVersion
-from management.models.google_connection_grant import GoogleConnectionGrant
 from management.models.monitoring import (
     MonitoringAlert,
     MonitoringCaptureGap,

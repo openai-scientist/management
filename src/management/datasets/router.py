@@ -15,7 +15,23 @@ from management.access.service import (
     lock_project_scope,
     require_project_access,
 )
-from management.api.v1.connections import (
+from management.audit.service import record_audit
+from management.connections.connectors import ConnectorFactory, get_connector_factory
+from management.connections.connectors.base import (
+    ConnectorError,
+    QuerySource,
+    Source,
+    TimeSeriesSource,
+)
+from management.connections.connectors.csv_export import (
+    CellTooLarge,
+    EmptyResult,
+    ResultTooLarge,
+    export_csv,
+)
+from management.connections.connectors.gate import ConnectionGate, get_connection_gate
+from management.connections.connectors.google_drive import NOT_XLSX, XlsxBook, open_workbook
+from management.connections.service import (
     READ_ERRORS,
     SavedConnection,
     reading,
@@ -23,37 +39,12 @@ from management.api.v1.connections import (
     saved_connection,
     source_audit_details,
 )
-from management.audit.service import record_audit
 from management.core.errors import APIError
 from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
 from management.core.search import SearchTerm, matches
 from management.core.sessions import Principal, require_active_csrf, require_active_principal
-from management.db.session import get_db
-from management.infra.file_store import (
-    FileStore,
-    attachment_headers,
-    get_file_store,
-    safe_filename,
-)
-from management.infra.secret_box import SecretBox, get_secret_box
-from management.models.dataset import Dataset, DatasetVersion
-from management.services.connectors import ConnectorFactory, get_connector_factory
-from management.services.connectors.base import (
-    ConnectorError,
-    QuerySource,
-    Source,
-    TimeSeriesSource,
-)
-from management.services.connectors.csv_export import (
-    CellTooLarge,
-    EmptyResult,
-    ResultTooLarge,
-    export_csv,
-)
-from management.services.connectors.gate import ConnectionGate, get_connection_gate
-from management.services.connectors.google_drive import NOT_XLSX, XlsxBook, open_workbook
-from management.services.csv_inspection import DuplicateColumns, InvalidCsv, check_header
-from management.services.dataset_ingest import (
+from management.datasets.csv_inspection import DuplicateColumns, InvalidCsv, check_header
+from management.datasets.dataset_ingest import (
     StoredCsv,
     append_version,
     create_dataset_with_version,
@@ -62,6 +53,15 @@ from management.services.dataset_ingest import (
     storage_key,
     store_csv,
 )
+from management.datasets.models import Dataset, DatasetVersion
+from management.db.session import get_db
+from management.infra.file_store import (
+    FileStore,
+    attachment_headers,
+    get_file_store,
+    safe_filename,
+)
+from management.infra.secret_box import SecretBox, get_secret_box
 
 router = APIRouter(prefix="/projects/{project_id}/datasets", tags=["datasets"])
 

@@ -8,7 +8,7 @@ from concurrent.futures import Executor
 from contextlib import asynccontextmanager, suppress
 from typing import Any
 
-from management.services.connectors.base import (
+from management.connections.connectors.base import (
     Column,
     ConnectorError,
     QuerySource,
@@ -16,7 +16,7 @@ from management.services.connectors.base import (
     TableRef,
     TableSource,
 )
-from management.services.connectors.threaded import call_in_thread
+from management.connections.connectors.threaded import call_in_thread
 
 # Google's libraries are imported inside the functions that use them, on a worker thread:
 # they take about a second to load, and an API that never opens a BigQuery connection should

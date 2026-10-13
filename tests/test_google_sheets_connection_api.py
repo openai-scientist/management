@@ -10,12 +10,11 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, update
 
+from management.connections.connectors import build_connector_factory
+from management.connections.google_drive_oauth import GoogleGrant
+from management.connections.models import DataConnection, GoogleConnectionGrant
+from management.datasets.models import DatasetVersion
 from management.infra.secret_box import SecretBox
-from management.models.data_connection import DataConnection
-from management.models.dataset import DatasetVersion
-from management.models.google_connection_grant import GoogleConnectionGrant
-from management.services.connectors import build_connector_factory
-from management.services.google_drive_oauth import GoogleGrant
 from tests.conftest import CONNECTION_KEY, Harness, login, mutation_headers
 from tests.fakes import FakeGoogleSheets, FakeSpreadsheet, access_token_for
 from tests.test_connection_browse_api import failure, preview

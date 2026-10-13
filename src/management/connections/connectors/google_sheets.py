@@ -13,7 +13,7 @@ from urllib.parse import quote
 
 import httpx
 
-from management.services.connectors.base import (
+from management.connections.connectors.base import (
     Column,
     ConnectorError,
     QuerySource,
@@ -21,9 +21,9 @@ from management.services.connectors.base import (
     TableRef,
     TableSource,
 )
-from management.services.connectors.google_api import GoogleAccount, get_json
-from management.services.connectors.header_rows import column_names, named_columns, row_fitter
-from management.services.google_drive_oauth import GoogleDriveOAuth
+from management.connections.connectors.google_api import GoogleAccount, get_json
+from management.connections.connectors.header_rows import column_names, named_columns, row_fitter
+from management.connections.google_drive_oauth import GoogleDriveOAuth
 
 logger = logging.getLogger("management.connectors")
 

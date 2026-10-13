@@ -5,24 +5,24 @@ from typing import Any, Protocol
 import httpx
 from fastapi import Request
 
-from management.core.config import Settings
-from management.services.connectors.base import Connector, ConnectorError
-from management.services.connectors.bigquery import BigQueryConnector
-from management.services.connectors.google_drive import GoogleDriveConnector
-from management.services.connectors.google_sheets import GoogleSheetsConnector
-from management.services.connectors.http_source import PinnedHttp, parse_server_url
-from management.services.connectors.influxdb import InfluxConnector
-from management.services.connectors.influxdb import authorization as influxdb_authorization
-from management.services.connectors.mysql import MysqlConnector
-from management.services.connectors.network_guard import (
+from management.connections.connectors.base import Connector, ConnectorError
+from management.connections.connectors.bigquery import BigQueryConnector
+from management.connections.connectors.google_drive import GoogleDriveConnector
+from management.connections.connectors.google_sheets import GoogleSheetsConnector
+from management.connections.connectors.http_source import PinnedHttp, parse_server_url
+from management.connections.connectors.influxdb import InfluxConnector
+from management.connections.connectors.influxdb import authorization as influxdb_authorization
+from management.connections.connectors.mysql import MysqlConnector
+from management.connections.connectors.network_guard import (
     Resolver,
     resolve_public_host,
     system_resolver,
 )
-from management.services.connectors.postgres import PostgresConnector
-from management.services.connectors.prometheus import PrometheusConnector
-from management.services.connectors.prometheus import authorization as prometheus_authorization
-from management.services.google_drive_oauth import GoogleDriveOAuth
+from management.connections.connectors.postgres import PostgresConnector
+from management.connections.connectors.prometheus import PrometheusConnector
+from management.connections.connectors.prometheus import authorization as prometheus_authorization
+from management.connections.google_drive_oauth import GoogleDriveOAuth
+from management.core.config import Settings
 
 __all__ = [
     "Connector",

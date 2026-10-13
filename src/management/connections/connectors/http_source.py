@@ -12,9 +12,9 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from management.services.connectors.base import ConnectorError
-from management.services.connectors.network_guard import ResolvedHost, is_host
-from management.services.connectors.tls import build_ssl_context
+from management.connections.connectors.base import ConnectorError
+from management.connections.connectors.network_guard import ResolvedHost, is_host
+from management.connections.connectors.tls import build_ssl_context
 
 logger = logging.getLogger("management.connectors")
 

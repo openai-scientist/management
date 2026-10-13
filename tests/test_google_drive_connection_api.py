@@ -6,9 +6,9 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from management.audit.models import AuditEvent
-from management.models.dataset import DatasetVersion
-from management.services.connectors import build_connector_factory, google_drive
-from management.services.connectors.google_drive import CSV, SPREADSHEET, XLSX
+from management.connections.connectors import build_connector_factory, google_drive
+from management.connections.connectors.google_drive import CSV, SPREADSHEET, XLSX
+from management.datasets.models import DatasetVersion
 from tests.conftest import Harness, login, mutation_headers
 from tests.fakes import FakeDriveFile, FakeGoogleDrive, FakeSpreadsheet, access_token_for
 from tests.test_connection_browse_api import failure, preview

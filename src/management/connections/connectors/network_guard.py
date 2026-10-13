@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from concurrent.futures import Executor
 from dataclasses import dataclass
 
-from management.services.connectors.base import ConnectorError
+from management.connections.connectors.base import ConnectorError
 
 # Prefixes that is_global treats as public but that can carry traffic to an internal IPv4
 # address: NAT64, 6to4, Teredo and the old IPv4-compatible form (::a.b.c.d).

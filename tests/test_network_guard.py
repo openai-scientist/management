@@ -1,7 +1,7 @@
 import pytest
 
-from management.services.connectors.base import ConnectorError
-from management.services.connectors.network_guard import (
+from management.connections.connectors.base import ConnectorError
+from management.connections.connectors.network_guard import (
     ResolvedHost,
     is_host,
     resolve_public_host,

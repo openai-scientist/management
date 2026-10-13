@@ -17,16 +17,16 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 from sqlalchemy.engine import make_url
 
-from management.services.connectors.base import (
+from management.connections.connectors.base import (
     REASON_MESSAGES,
     ConnectorError,
     QuerySource,
     TableSource,
 )
-from management.services.connectors.gate import ConnectionGate
-from management.services.connectors.network_guard import ResolvedHost
-from management.services.connectors.postgres import PostgresConnector
-from management.services.connectors.values import to_text
+from management.connections.connectors.gate import ConnectionGate
+from management.connections.connectors.network_guard import ResolvedHost
+from management.connections.connectors.postgres import PostgresConnector
+from management.connections.connectors.values import to_text
 
 Handler = Callable[[asyncio.StreamReader, asyncio.StreamWriter], Awaitable[None]]
 

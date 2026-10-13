@@ -4,7 +4,7 @@ from typing import get_args
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from management.services.connectors.base import (
+from management.connections.connectors.base import (
     Column,
     ConnectorError,
     FormBucket,
@@ -14,7 +14,7 @@ from management.services.connectors.base import (
     TimeSeriesSource,
     ensure_source_supported,
 )
-from management.services.connectors.timeseries import (
+from management.connections.connectors.timeseries import (
     BUCKET_SECONDS,
     LIVE_WINDOWS,
     bucket_start,

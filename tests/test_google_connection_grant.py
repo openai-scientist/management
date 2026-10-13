@@ -8,11 +8,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete, select, update
 
-from management.core.config import Settings
-from management.identity.google_oauth import AUTHORIZATION_URL, TOKEN_URL, GoogleOAuthError
-from management.infra.secret_box import SecretBox
-from management.models.google_connection_grant import GoogleConnectionGrant
-from management.services.google_drive_oauth import (
+from management.connections.google_drive_oauth import (
     DRIVE_SCOPE,
     GoogleAccessRevoked,
     GoogleDriveOAuth,
@@ -20,6 +16,10 @@ from management.services.google_drive_oauth import (
     GoogleScopeNotGranted,
     build_google_drive_oauth,
 )
+from management.connections.models import GoogleConnectionGrant
+from management.core.config import Settings
+from management.identity.google_oauth import AUTHORIZATION_URL, TOKEN_URL, GoogleOAuthError
+from management.infra.secret_box import SecretBox
 from tests.conftest import (
     APP_URL,
     CONNECTION_KEY,

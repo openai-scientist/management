@@ -10,8 +10,8 @@ import openpyxl
 import pytest
 from openpyxl.chart import BarChart, Reference
 
-from management.services.connectors import google_drive, header_rows
-from management.services.connectors.base import (
+from management.connections.connectors import google_drive, header_rows
+from management.connections.connectors.base import (
     REASON_MESSAGES,
     Column,
     ConnectorError,
@@ -19,7 +19,7 @@ from management.services.connectors.base import (
     TableRef,
     TableSource,
 )
-from management.services.connectors.google_drive import (
+from management.connections.connectors.google_drive import (
     CSV,
     NO_FILE,
     NO_FOLDER,
@@ -32,7 +32,7 @@ from management.services.connectors.google_drive import (
     parse_folder_id,
     quoted,
 )
-from management.services.connectors.values import to_text
+from management.connections.connectors.values import to_text
 from tests.fakes import (
     FakeDriveFile,
     FakeGoogleDrive,

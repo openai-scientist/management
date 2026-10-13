@@ -8,8 +8,8 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from itertools import chain, repeat
 from typing import Any
 
-from management.services.connectors.base import Column, ConnectorError
-from management.services.connectors.values import to_text
+from management.connections.connectors.base import Column, ConnectorError
+from management.connections.connectors.values import to_text
 
 # Empty rows in a run before the file is refused: as many rows as an Excel sheet can have.
 MAX_EMPTY_ROWS = 1_048_576

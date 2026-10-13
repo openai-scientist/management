@@ -3,11 +3,11 @@ from uuid import uuid4
 
 import pytest
 
+from management.connections.connectors import gate as gate_module
+from management.connections.connectors.gate import ConnectionGate
 from management.core.config import Settings
 from management.core.errors import APIError
 from management.main import create_app
-from management.services.connectors import gate as gate_module
-from management.services.connectors.gate import ConnectionGate
 
 
 @pytest.mark.asyncio
