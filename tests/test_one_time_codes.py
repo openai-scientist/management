@@ -3,8 +3,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from platform_be.models.identity import EmailOtp, User
-from platform_be.services.one_time_codes import OtpPurpose, check_code, clear_code, issue_code
+from management.models.identity import EmailOtp, User
+from management.services.one_time_codes import OtpPurpose, check_code, clear_code, issue_code
 from tests.conftest import Harness
 
 START = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)

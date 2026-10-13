@@ -5,8 +5,8 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from platform_be.core.config import Settings
-from platform_be.services.email_sender import (
+from management.core.config import Settings
+from management.services.email_sender import (
     RESEND_URL,
     LogEmailSender,
     ResendEmailSender,
@@ -74,7 +74,7 @@ async def test_a_failed_send_is_logged_without_the_message(caplog) -> None:
         for handler in (refused, broken, unreachable):
             assert await resend(handler).send(**MESSAGE) is False
 
-    errors = [record for record in caplog.records if record.name == "platform_be.email"]
+    errors = [record for record in caplog.records if record.name == "management.email"]
     assert [record.levelname for record in errors] == ["ERROR"] * 3
     messages = [record.getMessage() for record in errors]
     assert messages == [
@@ -92,7 +92,7 @@ async def test_a_failed_send_is_logged_without_the_message(caplog) -> None:
 async def test_without_a_key_the_message_goes_to_the_log(caplog) -> None:
     sender = build_email_sender(settings(resend_api_key="  "))
     assert isinstance(sender, LogEmailSender)
-    with caplog.at_level(logging.INFO, logger="platform_be.email"):
+    with caplog.at_level(logging.INFO, logger="management.email"):
         assert await sender.send(**MESSAGE) is True
     assert "dat@example.com" in caplog.text
     assert "Sign in with dat" in caplog.text

@@ -1,14 +1,14 @@
 import httpx
 import pytest
 
-from platform_be.core.responses import request_id_context
-from platform_be.services.engines.client import (
+from management.core.responses import request_id_context
+from management.services.engines.client import (
     EngineClient,
     EngineContractMismatch,
     EngineRejected,
     EngineUnavailable,
 )
-from platform_be.services.engines.settings import EngineSettings
+from management.services.engines.settings import EngineSettings
 from tests.engine_fakes import make_request
 from tests.fakes.fake_engine import FakeEngine
 

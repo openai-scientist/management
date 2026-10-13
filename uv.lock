@@ -7,69 +7,6 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "ai-research-platform-be"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "alembic" },
-    { name = "asyncpg" },
-    { name = "boto3" },
-    { name = "cryptography" },
-    { name = "email-validator" },
-    { name = "fastapi" },
-    { name = "google-cloud-bigquery" },
-    { name = "httpx" },
-    { name = "openpyxl" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "pymysql" },
-    { name = "python-multipart" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
-    { name = "tzdata", marker = "sys_platform == 'win32'" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "aiosqlite" },
-    { name = "jsonschema" },
-    { name = "moto", extra = ["s3"] },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "alembic", specifier = ">=1.13,<2" },
-    { name = "asyncpg", specifier = ">=0.30,<1" },
-    { name = "boto3", specifier = ">=1.36,<2" },
-    { name = "cryptography", specifier = ">=44,<51" },
-    { name = "email-validator", specifier = ">=2.2,<3" },
-    { name = "fastapi", specifier = ">=0.115,<1" },
-    { name = "google-cloud-bigquery", specifier = ">=3.30,<4" },
-    { name = "httpx", specifier = ">=0.27,<1" },
-    { name = "openpyxl", specifier = ">=3.1,<4" },
-    { name = "pydantic", specifier = ">=2.6,<3" },
-    { name = "pydantic-settings", specifier = ">=2.5,<3" },
-    { name = "pymysql", specifier = ">=1.1.1,<1.2.1" },
-    { name = "python-multipart", specifier = ">=0.0.18,<1" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0,<3" },
-    { name = "tzdata", marker = "sys_platform == 'win32'", specifier = ">=2025.1" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "aiosqlite", specifier = ">=0.20,<1" },
-    { name = "jsonschema", specifier = ">=4.23,<5" },
-    { name = "moto", extras = ["s3"], specifier = ">=5.1,<6" },
-    { name = "pytest", specifier = ">=8,<9" },
-    { name = "pytest-asyncio", specifier = ">=0.24,<2" },
-    { name = "ruff", specifier = ">=0.8,<1" },
-]
-
-[[package]]
 name = "aiosqlite"
 version = "0.22.1"
 source = { registry = "https://pypi.org/simple" }
@@ -947,6 +884,69 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5a/09/e07c4b5579a79f4b16f8d4f29f6c54514ac787c4ad506b8c4f28a0e6b0bf/mako-1.4.3.tar.gz", hash = "sha256:cd6537fe88d5fec315c55c2f8529bc4ce7a9a352ad7db3eeaa6a66e2dd4ec37a", size = 412799, upload-time = "2026-09-22T20:54:31.509Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6d/a0/053d6af3e8f871e0073b4a36732d9e65be77a72e5434c31b94f6af78a6bb/mako-1.4.3-py3-none-any.whl", hash = "sha256:723296007c870bfd6b3f0c3230dba7198096e5269297ebf5e4eff9e7ffa39d4f", size = 80164, upload-time = "2026-09-22T20:54:33.128Z" },
+]
+
+[[package]]
+name = "management"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "alembic" },
+    { name = "asyncpg" },
+    { name = "boto3" },
+    { name = "cryptography" },
+    { name = "email-validator" },
+    { name = "fastapi" },
+    { name = "google-cloud-bigquery" },
+    { name = "httpx" },
+    { name = "openpyxl" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pymysql" },
+    { name = "python-multipart" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "aiosqlite" },
+    { name = "jsonschema" },
+    { name = "moto", extra = ["s3"] },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "alembic", specifier = ">=1.13,<2" },
+    { name = "asyncpg", specifier = ">=0.30,<1" },
+    { name = "boto3", specifier = ">=1.36,<2" },
+    { name = "cryptography", specifier = ">=44,<51" },
+    { name = "email-validator", specifier = ">=2.2,<3" },
+    { name = "fastapi", specifier = ">=0.115,<1" },
+    { name = "google-cloud-bigquery", specifier = ">=3.30,<4" },
+    { name = "httpx", specifier = ">=0.27,<1" },
+    { name = "openpyxl", specifier = ">=3.1,<4" },
+    { name = "pydantic", specifier = ">=2.6,<3" },
+    { name = "pydantic-settings", specifier = ">=2.5,<3" },
+    { name = "pymysql", specifier = ">=1.1.1,<1.2.1" },
+    { name = "python-multipart", specifier = ">=0.0.18,<1" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0,<3" },
+    { name = "tzdata", marker = "sys_platform == 'win32'", specifier = ">=2025.1" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "aiosqlite", specifier = ">=0.20,<1" },
+    { name = "jsonschema", specifier = ">=4.23,<5" },
+    { name = "moto", extras = ["s3"], specifier = ">=5.1,<6" },
+    { name = "pytest", specifier = ">=8,<9" },
+    { name = "pytest-asyncio", specifier = ">=0.24,<2" },
+    { name = "ruff", specifier = ">=0.8,<1" },
 ]
 
 [[package]]

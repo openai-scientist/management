@@ -8,15 +8,15 @@ from typing import Any
 
 import pytest
 
-from platform_be.services.connectors import csv_export
-from platform_be.services.connectors.base import Column, RowStream
-from platform_be.services.connectors.csv_export import (
+from management.services.connectors import csv_export
+from management.services.connectors.base import Column, RowStream
+from management.services.connectors.csv_export import (
     CellTooLarge,
     EmptyResult,
     ResultTooLarge,
     export_csv,
 )
-from platform_be.services.csv_inspection import inspect_csv
+from management.services.csv_inspection import inspect_csv
 
 
 class Source:

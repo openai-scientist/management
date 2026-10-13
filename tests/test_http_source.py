@@ -6,10 +6,10 @@ import ssl
 import httpx
 import pytest
 
-from platform_be.core.logging import configure_logging, hide_outgoing_queries
-from platform_be.services.connectors.base import ConnectorError
-from platform_be.services.connectors.http_source import PinnedHttp
-from platform_be.services.connectors.network_guard import ResolvedHost
+from management.core.logging import configure_logging, hide_outgoing_queries
+from management.services.connectors.base import ConnectorError
+from management.services.connectors.http_source import PinnedHttp
+from management.services.connectors.network_guard import ResolvedHost
 
 HOST = ResolvedHost(hostname="metrics.example.com", ip="203.0.113.7", port=9090)
 BAD_REQUEST = ConnectorError("query_failed", "The server rejected the request")

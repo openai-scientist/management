@@ -8,9 +8,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete, select, update
 
-from platform_be.core.config import Settings
-from platform_be.models.google_connection_grant import GoogleConnectionGrant
-from platform_be.services.google_drive_oauth import (
+from management.core.config import Settings
+from management.models.google_connection_grant import GoogleConnectionGrant
+from management.services.google_drive_oauth import (
     DRIVE_SCOPE,
     GoogleAccessRevoked,
     GoogleDriveOAuth,
@@ -18,8 +18,8 @@ from platform_be.services.google_drive_oauth import (
     GoogleScopeNotGranted,
     build_google_drive_oauth,
 )
-from platform_be.services.google_oauth import AUTHORIZATION_URL, TOKEN_URL, GoogleOAuthError
-from platform_be.services.secret_box import SecretBox
+from management.services.google_oauth import AUTHORIZATION_URL, TOKEN_URL, GoogleOAuthError
+from management.services.secret_box import SecretBox
 from tests.conftest import (
     APP_URL,
     CONNECTION_KEY,

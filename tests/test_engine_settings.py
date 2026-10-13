@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from platform_be.core.config import Settings
+from management.core.config import Settings
 
 
 def config(**kwargs):

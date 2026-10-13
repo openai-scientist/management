@@ -3,8 +3,8 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from platform_be.services.connectors import influxdb
-from platform_be.services.connectors.base import (
+from management.services.connectors import influxdb
+from management.services.connectors.base import (
     Column,
     ConnectorError,
     QuerySource,
@@ -12,8 +12,8 @@ from platform_be.services.connectors.base import (
     TableSource,
     TimeSeriesSource,
 )
-from platform_be.services.connectors.http_source import PinnedHttp
-from platform_be.services.connectors.influxdb import (
+from management.services.connectors.http_source import PinnedHttp
+from management.services.connectors.influxdb import (
     NEEDS_FIELDS,
     NO_DATABASE,
     NO_FIELD,
@@ -30,7 +30,7 @@ from platform_be.services.connectors.influxdb import (
     influxql,
     quote_identifier,
 )
-from platform_be.services.connectors.network_guard import ResolvedHost
+from management.services.connectors.network_guard import ResolvedHost
 from tests.fakes import FakeInfluxDB
 from tests.test_prometheus_connector import DAY, at
 

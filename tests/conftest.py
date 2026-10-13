@@ -12,9 +12,9 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from platform_be.core.config import Settings
-from platform_be.db.base import Base
-from platform_be.main import create_app
+from management.core.config import Settings
+from management.db.base import Base
+from management.main import create_app
 from tests.fakes import (
     FakeConnectorFactory,
     FakeEmailSender,

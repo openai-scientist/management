@@ -10,7 +10,7 @@ from fastapi import FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from platform_be.contracts import (
+from management.contracts import (
     CONTRACT_VERSION,
     TERMINAL_PHASES,
     ArtifactMeta,
@@ -37,7 +37,7 @@ from platform_be.contracts import (
     TelemetryRecord,
     TokenUsage,
 )
-from platform_be.contracts.base import PIPELINE_RECOMMENDATION, REVIEW_FINDINGS
+from management.contracts.base import PIPELINE_RECOMMENDATION, REVIEW_FINDINGS
 
 
 class FakeEngine:

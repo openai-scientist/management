@@ -29,10 +29,10 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
-from platform_be.models.google_connection_grant import GoogleConnectionGrant
-from platform_be.services.connectors import build_connector_factory
-from platform_be.services.connectors.timeseries import time_text
-from platform_be.services.google_drive_oauth import build_google_drive_oauth
+from management.models.google_connection_grant import GoogleConnectionGrant
+from management.services.connectors import build_connector_factory
+from management.services.connectors.timeseries import time_text
+from management.services.google_drive_oauth import build_google_drive_oauth
 from tests.conftest import (
     APP_URL,
     GOOGLE_CONNECTIONS_REDIRECT_URI,

@@ -9,11 +9,11 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from platform_be.models.audit import AuditEvent
-from platform_be.models.dataset import Dataset, DatasetVersion
-from platform_be.services import dataset_ingest
-from platform_be.services.connectors.base import Column, ConnectorError
-from platform_be.services.connectors.gate import ConnectionGate
+from management.models.audit import AuditEvent
+from management.models.dataset import Dataset, DatasetVersion
+from management.services import dataset_ingest
+from management.services.connectors.base import Column, ConnectorError
+from management.services.connectors.gate import ConnectionGate
 from tests.conftest import ORIGIN, Harness, login, mutation_headers
 from tests.fakes import FakeTable
 from tests.test_connection_browse_api import (
@@ -645,7 +645,7 @@ def test_the_stored_csv_is_what_a_csv_reader_expects() -> None:
 
 @pytest.mark.asyncio
 async def test_a_file_whose_storing_is_interrupted_is_taken_back_out(tmp_path) -> None:
-    from platform_be.services.file_store import LocalFileStore
+    from management.services.file_store import LocalFileStore
 
     class Interrupted(LocalFileStore):
         async def put(self, key, chunks):

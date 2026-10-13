@@ -6,10 +6,10 @@ import pytest
 from sqlalchemy import select
 from starlette.requests import Request
 
-from platform_be.api.v1.admin_log_monitoring import stream_monitoring
-from platform_be.core.security import token_digest
-from platform_be.models.identity import AuthSession, User, UserPlatformRole
-from platform_be.services.monitoring_stream import MonitoringHub, monitoring_changed
+from management.api.v1.admin_log_monitoring import stream_monitoring
+from management.core.security import token_digest
+from management.models.identity import AuthSession, User, UserPlatformRole
+from management.services.monitoring_stream import MonitoringHub, monitoring_changed
 from tests.conftest import Harness
 from tests.test_admin_log_monitoring_api import _login_admin, _request_event
 

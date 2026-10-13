@@ -11,9 +11,9 @@ from httpx import AsyncClient
 from sqlalchemy import event, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from platform_be.models.identity import AuthSession, User
-from platform_be.services.notification_stream import notifications_changed
-from platform_be.services.popper_client import PopperUnavailable
+from management.models.identity import AuthSession, User
+from management.services.notification_stream import notifications_changed
+from management.services.popper_client import PopperUnavailable
 from tests.conftest import ORIGIN, Harness, login, mutation_headers
 from tests.test_comments_and_notifications_api import NOTIFICATIONS, team
 from tests.test_projects_api import PROJECTS, add_member, create_project, invite_member
@@ -220,7 +220,7 @@ async def test_failed_callback_never_pushes_a_rolled_back_notification(harness: 
 async def test_idle_stream_sends_keep_alive_without_polling_notifications(
     harness: Harness, monkeypatch
 ) -> None:
-    monkeypatch.setattr("platform_be.api.v1.notifications.KEEP_ALIVE_SECONDS", 0.01)
+    monkeypatch.setattr("management.api.v1.notifications.KEEP_ALIVE_SECONDS", 0.01)
     async with harness.client() as client:
         await login(harness, client, uid="member", email="member@example.com")
         async with open_stream(harness, client) as (_, stream):
@@ -246,7 +246,7 @@ async def test_idle_stream_sends_keep_alive_without_polling_notifications(
 async def test_open_stream_stops_when_its_session_is_no_longer_valid(
     harness: Harness, monkeypatch, ending: str
 ) -> None:
-    monkeypatch.setattr("platform_be.api.v1.notifications.KEEP_ALIVE_SECONDS", 0.02)
+    monkeypatch.setattr("management.api.v1.notifications.KEEP_ALIVE_SECONDS", 0.02)
     async with harness.client() as client:
         signed_in = await login(harness, client, uid="member", email="member@example.com")
         async with open_stream(harness, client) as (_, stream):

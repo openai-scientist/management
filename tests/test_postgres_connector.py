@@ -17,16 +17,16 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 from sqlalchemy.engine import make_url
 
-from platform_be.services.connectors.base import (
+from management.services.connectors.base import (
     REASON_MESSAGES,
     ConnectorError,
     QuerySource,
     TableSource,
 )
-from platform_be.services.connectors.gate import ConnectionGate
-from platform_be.services.connectors.network_guard import ResolvedHost
-from platform_be.services.connectors.postgres import PostgresConnector
-from platform_be.services.connectors.values import to_text
+from management.services.connectors.gate import ConnectionGate
+from management.services.connectors.network_guard import ResolvedHost
+from management.services.connectors.postgres import PostgresConnector
+from management.services.connectors.values import to_text
 
 Handler = Callable[[asyncio.StreamReader, asyncio.StreamWriter], Awaitable[None]]
 
@@ -107,7 +107,7 @@ def test_a_closed_port_is_unreachable_and_the_log_names_only_the_reason(run, cap
 
         assert await reason_of(connector(port)) == "unreachable"
 
-    with caplog.at_level(logging.INFO, logger="platform_be.connectors"):
+    with caplog.at_level(logging.INFO, logger="management.connectors"):
         run(scenario())
 
     assert [record.getMessage() for record in caplog.records] == [

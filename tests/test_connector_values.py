@@ -6,7 +6,7 @@ import uuid
 import asyncpg
 import pytest
 
-from platform_be.services.connectors.values import approximate_size, to_text
+from management.services.connectors.values import approximate_size, to_text
 
 UTC = datetime.UTC
 

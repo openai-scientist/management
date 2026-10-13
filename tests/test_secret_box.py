@@ -2,8 +2,8 @@ import pytest
 from cryptography.fernet import Fernet
 from pydantic import ValidationError
 
-from platform_be.core.config import Settings
-from platform_be.services.secret_box import SecretBox, SecretBoxError
+from management.core.config import Settings
+from management.services.secret_box import SecretBox, SecretBoxError
 from tests.conftest import CONNECTION_KEY
 
 

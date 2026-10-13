@@ -3,7 +3,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import select
 
-from platform_be.models import StageDecision
+from management.models import StageDecision
 from tests.conftest import login, mutation_headers, open_harness
 from tests.engine_fakes import engine_overrides, install_fake_engines, seed_models
 from tests.test_projects_api import PROJECTS, add_member, create_project

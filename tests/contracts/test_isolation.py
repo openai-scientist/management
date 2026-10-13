@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import platform_be.contracts as contracts
+import management.contracts as contracts
 
 
 def test_contract_source_has_no_platform_dependency():
@@ -8,6 +8,6 @@ def test_contract_source_has_no_platform_dependency():
     offenders = [
         str(path.relative_to(source))
         for path in source.rglob("*.py")
-        if ".venv" not in path.parts and "platform_be" in path.read_text(encoding="utf-8")
+        if ".venv" not in path.parts and "management" in path.read_text(encoding="utf-8")
     ]
     assert offenders == []

@@ -3,11 +3,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from platform_be.auth.sessions import normalize_email
-from platform_be.cli.bootstrap_admin import bootstrap_admin
-from platform_be.core.errors import APIError
-from platform_be.models.audit import AuditEvent
-from platform_be.models.identity import AuthSession, User, UserPlatformRole
+from management.auth.sessions import normalize_email
+from management.core.errors import APIError
+from management.identity.bootstrap_admin import bootstrap_admin
+from management.models.audit import AuditEvent
+from management.models.identity import AuthSession, User, UserPlatformRole
 from tests.conftest import ORIGIN, PASSWORD, Harness, login, mutation_headers, sign_in, verify
 
 

@@ -1,7 +1,7 @@
 import pytest
 from httpx import AsyncClient
 
-from platform_be.services.popper_client import PopperRejected, PopperUnavailable
+from management.services.popper_client import PopperRejected, PopperUnavailable
 from tests.conftest import CALLBACK_KEY, Harness, login, mutation_headers
 from tests.test_projects_api import PROJECTS, create_project
 

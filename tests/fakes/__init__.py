@@ -12,7 +12,7 @@ from uuid import UUID
 
 import httpx
 
-from platform_be.services.connectors.base import (
+from management.services.connectors.base import (
     Column,
     ConnectorError,
     QuerySource,
@@ -20,9 +20,9 @@ from platform_be.services.connectors.base import (
     TableRef,
     TableSource,
 )
-from platform_be.services.google_drive_oauth import GoogleAccessRevoked, GoogleGrant
-from platform_be.services.google_oauth import GoogleIdentity, GoogleOAuthError
-from platform_be.services.popper_client import PopperNotFound, PopperRunState
+from management.services.google_drive_oauth import GoogleAccessRevoked, GoogleGrant
+from management.services.google_oauth import GoogleIdentity, GoogleOAuthError
+from management.services.popper_client import PopperNotFound, PopperRunState
 
 
 class FakeEmailSender:

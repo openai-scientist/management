@@ -4,9 +4,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import func, select
 
-from platform_be.cli.bootstrap_admin import bootstrap_admin
-from platform_be.models.audit import AuditEvent
-from platform_be.models.monitoring import MonitoringAlert, MonitoringEvent, MonitoringWorkerState
+from management.identity.bootstrap_admin import bootstrap_admin
+from management.models.audit import AuditEvent
+from management.models.monitoring import MonitoringAlert, MonitoringEvent, MonitoringWorkerState
 from tests.conftest import Harness, login, mutation_headers
 
 BASE = "/api/v1/admin/log-monitoring"

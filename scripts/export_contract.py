@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from platform_be import contracts as c
-from platform_be.contracts.events import (
+from management import contracts as c
+from management.contracts.events import (
     EmptyPayload,
     PhaseChanged,
     StepChanged,
@@ -18,7 +18,7 @@ DOCS = Path(__file__).resolve().parents[1] / "docs" / "contract"
 def _models(parent: type[c.ContractModel]) -> dict[str, type[c.ContractModel]]:
     result = {}
     for model in parent.__subclasses__():
-        if model.__module__.startswith("platform_be.contracts."):
+        if model.__module__.startswith("management.contracts."):
             result[model.__name__] = model
         result.update(_models(model))
     return result

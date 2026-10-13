@@ -9,11 +9,11 @@ import httpx
 import pytest
 from sqlalchemy import func, select, update
 
-from platform_be.cli.bootstrap_admin import bootstrap_admin
-from platform_be.core.config import Settings
-from platform_be.models.audit import AuditEvent
-from platform_be.models.identity import User, UserStatus
-from platform_be.services.google_oauth import (
+from management.core.config import Settings
+from management.identity.bootstrap_admin import bootstrap_admin
+from management.models.audit import AuditEvent
+from management.models.identity import User, UserStatus
+from management.services.google_oauth import (
     AUTHORIZATION_URL,
     TOKEN_URL,
     GoogleIdentity,

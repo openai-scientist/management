@@ -6,8 +6,8 @@ from decimal import Decimal
 import httpx
 import pytest
 
-from platform_be.services.connectors import prometheus
-from platform_be.services.connectors.base import (
+from management.services.connectors import prometheus
+from management.services.connectors.base import (
     Column,
     ConnectorError,
     QuerySource,
@@ -15,9 +15,9 @@ from platform_be.services.connectors.base import (
     TableSource,
     TimeSeriesSource,
 )
-from platform_be.services.connectors.http_source import PinnedHttp
-from platform_be.services.connectors.network_guard import ResolvedHost
-from platform_be.services.connectors.prometheus import (
+from management.services.connectors.http_source import PinnedHttp
+from management.services.connectors.network_guard import ResolvedHost
+from management.services.connectors.prometheus import (
     NEEDS_BUCKET,
     NO_LABEL,
     NO_METRIC,

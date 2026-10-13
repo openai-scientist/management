@@ -10,16 +10,16 @@ import pytest_asyncio
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from platform_be.cli.bootstrap_admin import bootstrap_admin
-from platform_be.core.config import Settings
-from platform_be.db.base import Base
-from platform_be.main import create_app
-from platform_be.models.audit import AuditEvent
-from platform_be.models.collaboration import Notification
-from platform_be.models.identity import AuthSession, EmailOtp, User, UserStatus
-from platform_be.models.project import ProjectMembership
-from platform_be.services.connectors.base import Column
-from platform_be.services.notifications import notify_user
+from management.core.config import Settings
+from management.db.base import Base
+from management.identity.bootstrap_admin import bootstrap_admin
+from management.main import create_app
+from management.models.audit import AuditEvent
+from management.models.collaboration import Notification
+from management.models.identity import AuthSession, EmailOtp, User, UserStatus
+from management.models.project import ProjectMembership
+from management.services.connectors.base import Column
+from management.services.notifications import notify_user
 from tests.conftest import (
     CALLBACK_KEY,
     CONNECTION_KEY,
@@ -836,7 +836,7 @@ async def test_a_real_table_is_imported_and_a_run_starts_from_it(
 ) -> None:
     from sqlalchemy.engine import make_url
 
-    from platform_be.services.connectors import build_connector_factory
+    from management.services.connectors import build_connector_factory
     from tests.test_dataset_imports_api import import_dataset, import_version
     from tests.test_postgres_connector import sample_schema
 
@@ -925,9 +925,9 @@ async def test_a_real_table_is_imported_and_a_run_starts_from_it(
 async def test_two_returns_from_google_with_one_state_store_one_refresh_token(
     postgres_harness: Harness,
 ) -> None:
-    from platform_be.models.google_connection_grant import GoogleConnectionGrant
-    from platform_be.services.google_drive_oauth import GoogleGrant
-    from platform_be.services.secret_box import SecretBox
+    from management.models.google_connection_grant import GoogleConnectionGrant
+    from management.services.google_drive_oauth import GoogleGrant
+    from management.services.secret_box import SecretBox
     from tests.test_google_connection_grant import CALLBACK, STATE_COOKIE, start
 
     harness = postgres_harness

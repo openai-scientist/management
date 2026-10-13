@@ -6,8 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from platform_be.services.connectors import threaded
-from platform_be.services.connectors.threaded import call_in_thread
+from management.services.connectors import threaded
+from management.services.connectors.threaded import call_in_thread
 
 
 @pytest.fixture
@@ -161,7 +161,7 @@ def test_a_thread_that_cannot_be_cut_off_is_left_behind_after_a_grace_period(
                 await call_in_thread(executor, lambda: None, abort=never)
         release.set()
 
-    with caplog.at_level(logging.WARNING, logger="platform_be.connectors"):
+    with caplog.at_level(logging.WARNING, logger="management.connectors"):
         run(scenario())
     assert [record.getMessage() for record in caplog.records] == [
         "a connector thread did not stop within 0.3 seconds of being cut off"

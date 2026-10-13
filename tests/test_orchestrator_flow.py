@@ -6,10 +6,10 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import select
 
-from platform_be.contracts import EventEnvelope
-from platform_be.core.errors import APIError
-from platform_be.models import Project, RunArtifact, StageRun, User
-from platform_be.services.orchestrator import accept_stage, apply_engine_event, start_research_run
+from management.contracts import EventEnvelope
+from management.core.errors import APIError
+from management.models import Project, RunArtifact, StageRun, User
+from management.services.orchestrator import accept_stage, apply_engine_event, start_research_run
 from tests.conftest import login, open_harness
 from tests.engine_fakes import engine_overrides, install_fake_engines, seed_models
 from tests.test_projects_api import create_project

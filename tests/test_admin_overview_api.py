@@ -5,10 +5,10 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
-from platform_be.cli.bootstrap_admin import bootstrap_admin
-from platform_be.models.identity import User
-from platform_be.models.project import Project
-from platform_be.models.research import FrameReview, ResearchRun
+from management.identity.bootstrap_admin import bootstrap_admin
+from management.models.identity import User
+from management.models.project import Project
+from management.models.research import FrameReview, ResearchRun
 from tests.conftest import Harness, login
 
 OVERVIEW = "/api/v1/admin/overview"

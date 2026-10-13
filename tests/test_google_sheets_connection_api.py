@@ -10,12 +10,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, update
 
-from platform_be.models.data_connection import DataConnection
-from platform_be.models.dataset import DatasetVersion
-from platform_be.models.google_connection_grant import GoogleConnectionGrant
-from platform_be.services.connectors import build_connector_factory
-from platform_be.services.google_drive_oauth import GoogleGrant
-from platform_be.services.secret_box import SecretBox
+from management.models.data_connection import DataConnection
+from management.models.dataset import DatasetVersion
+from management.models.google_connection_grant import GoogleConnectionGrant
+from management.services.connectors import build_connector_factory
+from management.services.google_drive_oauth import GoogleGrant
+from management.services.secret_box import SecretBox
 from tests.conftest import CONNECTION_KEY, Harness, login, mutation_headers
 from tests.fakes import FakeGoogleSheets, FakeSpreadsheet, access_token_for
 from tests.test_connection_browse_api import failure, preview
@@ -217,7 +217,7 @@ async def test_a_spreadsheet_is_connected_browsed_and_previewed(google_harness: 
         "spreadsheet_id": SPREADSHEET_ID,
     }
     async with harness.factory() as db:
-        from platform_be.models.audit import AuditEvent
+        from management.models.audit import AuditEvent
 
         trail = json.dumps([item.details for item in await db.scalars(select(AuditEvent))])
     assert REFRESH_TOKEN not in trail and EMAIL not in trail and SUBJECT not in trail

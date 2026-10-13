@@ -4,10 +4,10 @@ import pytest
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from platform_be.cli.bootstrap_admin import bootstrap_admin
-from platform_be.core.security import token_digest
-from platform_be.models.audit import AuditEvent
-from platform_be.models.identity import EmailOtp, User, UserStatus
+from management.core.security import token_digest
+from management.identity.bootstrap_admin import bootstrap_admin
+from management.models.audit import AuditEvent
+from management.models.identity import EmailOtp, User, UserStatus
 from tests.conftest import PASSWORD, Harness, emailed_code, login, mutation_headers
 from tests.test_email_verification import AUTH, USERS, invalid, post, register, user_row, wrong
 

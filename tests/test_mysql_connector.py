@@ -18,17 +18,17 @@ from pymysql.constants import CLIENT
 from pymysql.cursors import SSCursor
 from sqlalchemy.engine import make_url
 
-from platform_be.services.connectors import mysql
-from platform_be.services.connectors.base import (
+from management.services.connectors import mysql
+from management.services.connectors.base import (
     REASON_MESSAGES,
     ConnectorError,
     QuerySource,
     TableSource,
 )
-from platform_be.services.connectors.gate import ConnectionGate
-from platform_be.services.connectors.mysql import MysqlConnector, map_error, map_query_error
-from platform_be.services.connectors.network_guard import ResolvedHost
-from platform_be.services.connectors.values import to_text
+from management.services.connectors.gate import ConnectionGate
+from management.services.connectors.mysql import MysqlConnector, map_error, map_query_error
+from management.services.connectors.network_guard import ResolvedHost
+from management.services.connectors.values import to_text
 from tests.test_postgres_connector import self_signed_certificate, tcp_server
 
 PASSWORD = "s3cret-value"
@@ -275,7 +275,7 @@ def test_a_closed_port_is_unreachable_and_the_log_names_only_the_reason(run, poo
 
         assert await reason_of(connector(pool, port)) == "unreachable"
 
-    with caplog.at_level(logging.INFO, logger="platform_be.connectors"):
+    with caplog.at_level(logging.INFO, logger="management.connectors"):
         run(scenario())
 
     assert [record.getMessage() for record in caplog.records] == [
@@ -451,7 +451,7 @@ def test_an_answer_that_is_not_what_was_asked_for_fails_as_a_query(run, pool, ca
                 assert raised.value.__cause__ is None
             assert_idle(pool)
 
-    with caplog.at_level(logging.INFO, logger="platform_be.connectors"):
+    with caplog.at_level(logging.INFO, logger="management.connectors"):
         run(scenario())
     assert len(caplog.records) == 3
     assert not any("hostile" in record.getMessage() for record in caplog.records)

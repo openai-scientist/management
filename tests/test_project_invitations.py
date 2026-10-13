@@ -6,10 +6,10 @@ from httpx import AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from platform_be.cli.bootstrap_admin import bootstrap_admin
-from platform_be.models.audit import AuditEvent
-from platform_be.models.project import ProjectMembership
-from platform_be.services.invite_emails import local_time
+from management.identity.bootstrap_admin import bootstrap_admin
+from management.models.audit import AuditEvent
+from management.models.project import ProjectMembership
+from management.services.invite_emails import local_time
 from tests.conftest import Harness, login, mutation_headers
 from tests.test_comments_and_notifications_api import kinds
 from tests.test_projects_api import (

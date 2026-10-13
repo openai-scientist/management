@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from platform_be.contracts import GateAnswer, Phase, RunCreateRequest, RunState
+from management.contracts import GateAnswer, Phase, RunCreateRequest, RunState
 from tests.fakes.fake_engine import FakeEngine
 
 

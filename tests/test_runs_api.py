@@ -6,8 +6,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import update
 
-from platform_be.models.research import ResearchRun
-from platform_be.services.popper_client import (
+from management.models.research import ResearchRun
+from management.services.popper_client import (
     PopperRejected,
     PopperRunState,
     PopperUnavailable,

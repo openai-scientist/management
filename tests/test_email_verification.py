@@ -3,10 +3,10 @@ from httpx import AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from platform_be.cli.bootstrap_admin import bootstrap_admin
-from platform_be.core.errors import APIError
-from platform_be.models.audit import AuditEvent
-from platform_be.models.identity import EmailOtp, User
+from management.core.errors import APIError
+from management.identity.bootstrap_admin import bootstrap_admin
+from management.models.audit import AuditEvent
+from management.models.identity import EmailOtp, User
 from tests.conftest import (
     ORIGIN,
     PASSWORD,

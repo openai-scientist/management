@@ -3,8 +3,8 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from platform_be.contracts import ArtifactMeta, Capabilities, Health, TelemetryRecord
-from platform_be.contracts.paths import ENGINE_RUN_GATE
+from management.contracts import ArtifactMeta, Capabilities, Health, TelemetryRecord
+from management.contracts.paths import ENGINE_RUN_GATE
 
 
 def capabilities(**kwargs):
@@ -40,7 +40,7 @@ def test_capabilities_reject_invalid_declarations(kwargs):
 def test_capabilities_providers_and_profile_support():
     caps = capabilities(profiles=[{}, {"domain": "ml"}])
     assert caps.providers == ["openai_compatible"]
-    from platform_be.contracts import ResearchProfile
+    from management.contracts import ResearchProfile
 
     assert caps.supports(ResearchProfile(domain="unknown"))
     assert not caps.exact_support(ResearchProfile(domain="unknown"))

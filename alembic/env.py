@@ -5,9 +5,9 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
-from platform_be import models  # noqa: F401
-from platform_be.core.config import get_settings
-from platform_be.db.base import Base
+from management import models  # noqa: F401
+from management.core.config import get_settings
+from management.db.base import Base
 
 config = context.config
 if config.config_file_name is not None:

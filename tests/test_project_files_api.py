@@ -4,7 +4,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from platform_be.models.audit import AuditEvent
+from management.models.audit import AuditEvent
 from tests.conftest import ORIGIN, Harness, login, mutation_headers
 from tests.test_projects_api import PROJECTS, add_member, create_project
 

@@ -1,9 +1,9 @@
 import pytest
 from sqlalchemy import select
 
-from platform_be.cli.bootstrap_admin import bootstrap_admin
-from platform_be.models.audit import AuditEvent
-from platform_be.models.identity import User, UserPlatformRole
+from management.identity.bootstrap_admin import bootstrap_admin
+from management.models.audit import AuditEvent
+from management.models.identity import User, UserPlatformRole
 from tests.conftest import ORIGIN, PASSWORD, Harness, login, mutation_headers, sign_in, verify
 
 USERS = "/api/v1/users"

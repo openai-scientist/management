@@ -3,8 +3,8 @@ import io
 
 import pytest
 
-from platform_be.services.csv_inspection import InvalidCsv, inspect_csv
-from platform_be.services.file_store import (
+from management.services.csv_inspection import InvalidCsv, inspect_csv
+from management.services.file_store import (
     LocalFileStore,
     attachment_headers,
     put_json,

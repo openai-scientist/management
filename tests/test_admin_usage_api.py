@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from platform_be.cli.bootstrap_admin import bootstrap_admin
+from management.identity.bootstrap_admin import bootstrap_admin
 from tests.conftest import Harness, login, mutation_headers
 from tests.test_projects_api import PROJECTS, add_member, create_project
 from tests.test_runs_api import ready_project, report, start_run

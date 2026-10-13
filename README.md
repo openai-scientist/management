@@ -68,7 +68,7 @@ The local stack starts with a Platform Admin: `admin@gmail.com`, with the passwo
 Without those two settings, register an account (`POST /api/v1/auth/register`), verify its email with the emailed code (`POST /api/v1/auth/verify-email`; without `RESEND_API_KEY` the code is in the API log) and make it the first Platform Admin:
 
 ```bash
-docker compose --env-file .env.local -f docker/docker-compose.dev.yml run --rm api platform-be bootstrap-admin --email admin@example.com
+docker compose --env-file .env.local -f docker/docker-compose.dev.yml run --rm api python scripts/bootstrap_admin.py --email admin@example.com
 ```
 
 The command refuses to run when a Platform Admin already exists, and does not accept an unregistered, unverified or suspended account.
@@ -89,16 +89,16 @@ The command refuses to run when a Platform Admin already exists, and does not ac
 ## Project structure
 
 ```text
-src/platform_be/
+src/management/
   main.py          the FastAPI application
   api/v1/          routes, one module per resource
   auth/            sessions
-  cli/             the `platform-be` command: `run`, `bootstrap-admin`
   core/            settings, errors, response envelope, middleware, roles, security
   db/              engine and session
   models/          SQLAlchemy models
   services/        business rules, file stores, email, the Popper client
     connectors/    PostgreSQL, MySQL and BigQuery connectors, with the network guard
+scripts/           `bootstrap_admin.py` (first Platform Admin), `export_contract.py`
 alembic/           database migrations
 docker/            Dockerfile, Compose files for dev and prod, the prod settings template
 tests/             pytest suite
