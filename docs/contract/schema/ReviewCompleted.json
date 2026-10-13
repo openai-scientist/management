@@ -1,0 +1,45 @@
+{
+  "$id": "urn:research-contract:1.0.0:ReviewCompleted",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifact_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Artifact Id"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error"
+    },
+    "passed": {
+      "title": "Passed",
+      "type": "boolean"
+    },
+    "round": {
+      "minimum": 1,
+      "title": "Round",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "round",
+    "passed",
+    "artifact_id"
+  ],
+  "title": "ReviewCompleted",
+  "type": "object"
+}

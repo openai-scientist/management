@@ -1,0 +1,386 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "download_url": {
+          "title": "Download Url",
+          "type": "string"
+        },
+        "primary": {
+          "default": false,
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "schema": {
+          "title": "Schema",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "schema",
+        "version",
+        "sha256",
+        "download_url"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "Decisions": {
+      "properties": {
+        "actor": {
+          "enum": [
+            "user",
+            "system"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "decided_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decided By"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "selection": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Selection",
+          "type": "object"
+        }
+      },
+      "required": [
+        "actor"
+      ],
+      "title": "Decisions",
+      "type": "object"
+    },
+    "Inputs": {
+      "properties": {
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "decisions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Decisions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "feedback": {
+          "items": {
+            "$ref": "#/$defs/PipelineFeedback"
+          },
+          "title": "Feedback",
+          "type": "array"
+        },
+        "history": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "History",
+          "type": "array"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        },
+        "prior_engine_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prior Engine Run Id"
+        }
+      },
+      "title": "Inputs",
+      "type": "object"
+    },
+    "InteractionMode": {
+      "enum": [
+        "auto",
+        "light",
+        "copilot",
+        "full"
+      ],
+      "title": "InteractionMode",
+      "type": "string"
+    },
+    "ModelConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "format": "password",
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        },
+        "extra": {
+          "additionalProperties": true,
+          "title": "Extra",
+          "type": "object"
+        },
+        "model": {
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "openai_compatible",
+            "bedrock"
+          ],
+          "title": "Provider",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ],
+      "title": "ModelConfig",
+      "type": "object"
+    },
+    "Models": {
+      "additionalProperties": false,
+      "properties": {
+        "review": {
+          "$ref": "#/$defs/ModelConfig"
+        },
+        "stage": {
+          "$ref": "#/$defs/ModelConfig"
+        }
+      },
+      "required": [
+        "stage",
+        "review"
+      ],
+      "title": "Models",
+      "type": "object"
+    },
+    "PipelineFeedback": {
+      "properties": {
+        "artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifact Ids",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "source_stage_key": {
+          "title": "Source Stage Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_stage_key"
+      ],
+      "title": "PipelineFeedback",
+      "type": "object"
+    },
+    "ResearchProfile": {
+      "properties": {
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "research_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Type"
+        }
+      },
+      "title": "ResearchProfile",
+      "type": "object"
+    },
+    "ReviewPolicy": {
+      "properties": {
+        "max_auto_revisions": {
+          "default": 2,
+          "minimum": 0,
+          "title": "Max Auto Revisions",
+          "type": "integer"
+        }
+      },
+      "title": "ReviewPolicy",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.0.0:RunCreateRequest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "budget_usd": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "title": "Budget Usd"
+    },
+    "callback_url": {
+      "title": "Callback Url",
+      "type": "string"
+    },
+    "contract_version": {
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "inputs": {
+      "$ref": "#/$defs/Inputs"
+    },
+    "integrations": {
+      "additionalProperties": {
+        "format": "password",
+        "type": "string",
+        "writeOnly": true
+      },
+      "title": "Integrations",
+      "type": "object"
+    },
+    "interaction_mode": {
+      "$ref": "#/$defs/InteractionMode"
+    },
+    "iteration": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Iteration",
+      "type": "integer"
+    },
+    "models": {
+      "$ref": "#/$defs/Models"
+    },
+    "platform_run_id": {
+      "title": "Platform Run Id",
+      "type": "string"
+    },
+    "profile": {
+      "$ref": "#/$defs/ResearchProfile"
+    },
+    "review_policy": {
+      "$ref": "#/$defs/ReviewPolicy"
+    },
+    "stage_key": {
+      "title": "Stage Key",
+      "type": "string"
+    },
+    "stage_run_id": {
+      "title": "Stage Run Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "contract_version",
+    "platform_run_id",
+    "stage_run_id",
+    "stage_key",
+    "interaction_mode",
+    "models",
+    "budget_usd",
+    "callback_url"
+  ],
+  "title": "RunCreateRequest",
+  "type": "object"
+}

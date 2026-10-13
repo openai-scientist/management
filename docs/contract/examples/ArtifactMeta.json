@@ -1,0 +1,10 @@
+{
+  "filename": "hypotheses.json",
+  "media_type": "application/json",
+  "metadata": {},
+  "primary": true,
+  "review_round": null,
+  "schema": "i2h.hypotheses/v1",
+  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "version": 1
+}

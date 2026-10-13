@@ -1,0 +1,17 @@
+{
+  "actor": null,
+  "class": "lifecycle",
+  "occurred_at": "2026-10-14T00:00:00Z",
+  "payload": {
+    "artifact_id": "a1",
+    "primary": true,
+    "schema": "i2h.hypotheses/v1",
+    "version": 1
+  },
+  "phase": "drafting",
+  "refs": [],
+  "source_seq": 1,
+  "step_key": "work",
+  "summary": null,
+  "type": "artifact.delivered"
+}

@@ -1,0 +1,37 @@
+{
+  "$id": "urn:research-contract:1.0.0:RevisionItem",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "finding_id": {
+      "title": "Finding Id",
+      "type": "string"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "outcome": {
+      "enum": [
+        "fixed",
+        "rebutted",
+        "not_fixed"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    }
+  },
+  "required": [
+    "finding_id",
+    "outcome"
+  ],
+  "title": "RevisionItem",
+  "type": "object"
+}

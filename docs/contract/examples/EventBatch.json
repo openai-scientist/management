@@ -1,0 +1,16 @@
+{
+  "events": [
+    {
+      "actor": "screener",
+      "class": "activity",
+      "occurred_at": "2026-10-14T00:00:00Z",
+      "payload": {},
+      "phase": "drafting",
+      "refs": [],
+      "source_seq": 1,
+      "step_key": "screen",
+      "summary": "Scored one paper",
+      "type": "i2h.screen.scored"
+    }
+  ]
+}

@@ -1,0 +1,208 @@
+{
+  "$defs": {
+    "FailureInfo": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "FailureInfo",
+      "type": "object"
+    },
+    "Gate": {
+      "properties": {
+        "artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifact Ids",
+          "type": "array"
+        },
+        "default_option_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Option Id"
+        },
+        "gate_id": {
+          "title": "Gate Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/GateKind"
+        },
+        "opened_at": {
+          "format": "date-time",
+          "title": "Opened At",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/GateOption"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "step_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Step Key"
+        }
+      },
+      "required": [
+        "gate_id",
+        "kind",
+        "step_key",
+        "prompt",
+        "opened_at"
+      ],
+      "title": "Gate",
+      "type": "object"
+    },
+    "GateKind": {
+      "enum": [
+        "question",
+        "artifact_review"
+      ],
+      "title": "GateKind",
+      "type": "string"
+    },
+    "GateOption": {
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "option_id": {
+          "title": "Option Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "option_id",
+        "label"
+      ],
+      "title": "GateOption",
+      "type": "object"
+    },
+    "Phase": {
+      "enum": [
+        "drafting",
+        "reviewing",
+        "revising",
+        "awaiting_researcher",
+        "published",
+        "failed",
+        "cancelled",
+        "paused"
+      ],
+      "title": "Phase",
+      "type": "string"
+    }
+  },
+  "$id": "urn:research-contract:1.0.0:RunState",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cost_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "default": "0",
+      "title": "Cost Usd"
+    },
+    "engine_run_id": {
+      "title": "Engine Run Id",
+      "type": "string"
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FailureInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "last_source_seq": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Last Source Seq",
+      "type": "integer"
+    },
+    "open_gate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Gate"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "phase": {
+      "$ref": "#/$defs/Phase"
+    },
+    "stage_run_id": {
+      "title": "Stage Run Id",
+      "type": "string"
+    },
+    "step_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Step Key"
+    },
+    "waiting_input": {
+      "title": "Waiting Input",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "engine_run_id",
+    "stage_run_id",
+    "phase",
+    "step_key",
+    "waiting_input",
+    "open_gate"
+  ],
+  "title": "RunState",
+  "type": "object"
+}

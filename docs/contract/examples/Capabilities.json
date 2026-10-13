@@ -1,0 +1,40 @@
+{
+  "activity_types": [
+    "i2h.screen.scored"
+  ],
+  "auto_revision": false,
+  "contract_version": "1.0.0",
+  "engine_key": "i2h",
+  "engine_version": "example",
+  "feedback_schemas": [],
+  "input_schemas": [],
+  "integrations": [],
+  "optional_integrations": [],
+  "output_schemas": [
+    {
+      "primary": true,
+      "schema": "i2h.hypotheses/v1"
+    }
+  ],
+  "profiles": [
+    {
+      "domain": null,
+      "research_type": null
+    }
+  ],
+  "providers": [
+    "openai_compatible"
+  ],
+  "question_gates": {},
+  "reuses_prior_run": false,
+  "stage_keys": [
+    "hypothesis"
+  ],
+  "steps": [
+    {
+      "label": "Work",
+      "order": 1,
+      "step_key": "work"
+    }
+  ]
+}

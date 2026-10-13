@@ -1,0 +1,62 @@
+{
+  "$defs": {
+    "ModelRole": {
+      "enum": [
+        "stage",
+        "review"
+      ],
+      "title": "ModelRole",
+      "type": "string"
+    },
+    "TokenUsage": {
+      "properties": {
+        "input_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        }
+      },
+      "title": "TokenUsage",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.0.0:RunCost",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cost_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cost Usd"
+    },
+    "usage": {
+      "additionalProperties": {
+        "$ref": "#/$defs/TokenUsage"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/ModelRole"
+      },
+      "title": "Usage",
+      "type": "object"
+    }
+  },
+  "title": "RunCost",
+  "type": "object"
+}

@@ -1,0 +1,14 @@
+{
+  "action": "proceed",
+  "evidence_artifact_ids": [],
+  "outcome": "inconclusive",
+  "profile": null,
+  "reason": "Review passed",
+  "selection": {
+    "hypothesis_ids": [
+      "H1",
+      "H2"
+    ]
+  },
+  "target_stage_key": null
+}

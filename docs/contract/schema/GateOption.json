@@ -1,0 +1,20 @@
+{
+  "$id": "urn:research-contract:1.0.0:GateOption",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "label": {
+      "title": "Label",
+      "type": "string"
+    },
+    "option_id": {
+      "title": "Option Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "option_id",
+    "label"
+  ],
+  "title": "GateOption",
+  "type": "object"
+}

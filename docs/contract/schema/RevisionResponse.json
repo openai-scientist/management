@@ -1,0 +1,71 @@
+{
+  "$defs": {
+    "RevisionItem": {
+      "properties": {
+        "finding_id": {
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "outcome": {
+          "enum": [
+            "fixed",
+            "rebutted",
+            "not_fixed"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding_id",
+        "outcome"
+      ],
+      "title": "RevisionItem",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.0.0:RevisionResponse",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifact_after": {
+      "title": "Artifact After",
+      "type": "string"
+    },
+    "artifact_before": {
+      "title": "Artifact Before",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/RevisionItem"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "round": {
+      "minimum": 1,
+      "title": "Round",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "round",
+    "artifact_before",
+    "artifact_after",
+    "items"
+  ],
+  "title": "RevisionResponse",
+  "type": "object"
+}

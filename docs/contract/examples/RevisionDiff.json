@@ -1,0 +1,7 @@
+{
+  "artifact_after": "a2",
+  "artifact_before": "a1",
+  "format": "unified",
+  "patch": "-old\n+new",
+  "round": 1
+}

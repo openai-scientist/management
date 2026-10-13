@@ -1,0 +1,22 @@
+{
+  "findings": [
+    {
+      "anchor": {
+        "artifact_id": "a1",
+        "locator": "hypothesis:H1/falsification_criteria"
+      },
+      "author": "researcher",
+      "category": "baseline",
+      "evidence_refs": [],
+      "finding_id": "F1-1",
+      "issue": "Describe the baseline",
+      "kind": "fix",
+      "severity": "major",
+      "suggestion": null
+    }
+  ],
+  "passed": true,
+  "reviewed_artifact_id": "a1",
+  "reviewer_model": "review-example",
+  "round": 1
+}

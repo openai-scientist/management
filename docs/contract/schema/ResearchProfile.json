@@ -1,0 +1,32 @@
+{
+  "$id": "urn:research-contract:1.0.0:ResearchProfile",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "domain": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Domain"
+    },
+    "research_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Research Type"
+    }
+  },
+  "title": "ResearchProfile",
+  "type": "object"
+}

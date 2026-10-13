@@ -37,6 +37,7 @@ module-root = "src"
 [dependency-groups]
 dev = [
     "aiosqlite>=0.20,<1",
+    "jsonschema>=4.23,<5",
     "moto[s3]>=5.1,<6",
     "pytest>=8,<9",
     "pytest-asyncio>=0.24,<2",

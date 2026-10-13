@@ -1,0 +1,34 @@
+{
+  "$id": "urn:research-contract:1.0.0:GateClosed",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "enum": [
+        "answer",
+        "approve",
+        "comment"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "actor": {
+      "enum": [
+        "user",
+        "system"
+      ],
+      "title": "Actor",
+      "type": "string"
+    },
+    "gate_id": {
+      "title": "Gate Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "gate_id",
+    "action",
+    "actor"
+  ],
+  "title": "GateClosed",
+  "type": "object"
+}

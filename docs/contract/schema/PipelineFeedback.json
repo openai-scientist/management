@@ -1,0 +1,34 @@
+{
+  "$id": "urn:research-contract:1.0.0:PipelineFeedback",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifact_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Artifact Ids",
+      "type": "array"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "source_stage_key": {
+      "title": "Source Stage Key",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_stage_key"
+  ],
+  "title": "PipelineFeedback",
+  "type": "object"
+}

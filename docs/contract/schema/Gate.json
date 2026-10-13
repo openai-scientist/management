@@ -1,0 +1,96 @@
+{
+  "$defs": {
+    "GateKind": {
+      "enum": [
+        "question",
+        "artifact_review"
+      ],
+      "title": "GateKind",
+      "type": "string"
+    },
+    "GateOption": {
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "option_id": {
+          "title": "Option Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "option_id",
+        "label"
+      ],
+      "title": "GateOption",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.0.0:Gate",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifact_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Artifact Ids",
+      "type": "array"
+    },
+    "default_option_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Default Option Id"
+    },
+    "gate_id": {
+      "title": "Gate Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/GateKind"
+    },
+    "opened_at": {
+      "format": "date-time",
+      "title": "Opened At",
+      "type": "string"
+    },
+    "options": {
+      "items": {
+        "$ref": "#/$defs/GateOption"
+      },
+      "title": "Options",
+      "type": "array"
+    },
+    "prompt": {
+      "title": "Prompt",
+      "type": "string"
+    },
+    "step_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Step Key"
+    }
+  },
+  "required": [
+    "gate_id",
+    "kind",
+    "step_key",
+    "prompt",
+    "opened_at"
+  ],
+  "title": "Gate",
+  "type": "object"
+}

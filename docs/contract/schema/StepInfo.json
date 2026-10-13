@@ -1,0 +1,26 @@
+{
+  "$id": "urn:research-contract:1.0.0:StepInfo",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "label": {
+      "title": "Label",
+      "type": "string"
+    },
+    "order": {
+      "minimum": 1,
+      "title": "Order",
+      "type": "integer"
+    },
+    "step_key": {
+      "title": "Step Key",
+      "type": "string"
+    }
+  },
+  "required": [
+    "step_key",
+    "label",
+    "order"
+  ],
+  "title": "StepInfo",
+  "type": "object"
+}

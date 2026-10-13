@@ -1,0 +1,31 @@
+{
+  "$id": "urn:research-contract:1.0.0:ArtifactDelivered",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifact_id": {
+      "title": "Artifact Id",
+      "type": "string"
+    },
+    "primary": {
+      "title": "Primary",
+      "type": "boolean"
+    },
+    "schema": {
+      "title": "Schema",
+      "type": "string"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "artifact_id",
+    "schema",
+    "version",
+    "primary"
+  ],
+  "title": "ArtifactDelivered",
+  "type": "object"
+}

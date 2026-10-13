@@ -1,0 +1,15 @@
+{
+  "$id": "urn:research-contract:1.0.0:RunPublished",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifact_id": {
+      "title": "Artifact Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "artifact_id"
+  ],
+  "title": "RunPublished",
+  "type": "object"
+}

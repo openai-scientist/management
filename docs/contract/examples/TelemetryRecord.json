@@ -1,0 +1,19 @@
+{
+  "engine_run_id": "e1",
+  "level": "INFO",
+  "llm": {
+    "input_tokens": 10,
+    "latency_ms": 1,
+    "model": "review-example",
+    "outcome": "ok",
+    "output_tokens": 2,
+    "provider": "openai_compatible",
+    "role": "review"
+  },
+  "message": "Review finished",
+  "occurred_at": "2026-10-14T00:00:00Z",
+  "phase": "reviewing",
+  "platform_run_id": "r1",
+  "stage_run_id": "s1",
+  "step_key": null
+}

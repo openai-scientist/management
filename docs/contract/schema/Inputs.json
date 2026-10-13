@@ -1,0 +1,182 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "download_url": {
+          "title": "Download Url",
+          "type": "string"
+        },
+        "primary": {
+          "default": false,
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "schema": {
+          "title": "Schema",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "schema",
+        "version",
+        "sha256",
+        "download_url"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "Decisions": {
+      "properties": {
+        "actor": {
+          "enum": [
+            "user",
+            "system"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "decided_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decided By"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "selection": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Selection",
+          "type": "object"
+        }
+      },
+      "required": [
+        "actor"
+      ],
+      "title": "Decisions",
+      "type": "object"
+    },
+    "PipelineFeedback": {
+      "properties": {
+        "artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifact Ids",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "source_stage_key": {
+          "title": "Source Stage Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_stage_key"
+      ],
+      "title": "PipelineFeedback",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.0.0:Inputs",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "decisions": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Decisions"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "feedback": {
+      "items": {
+        "$ref": "#/$defs/PipelineFeedback"
+      },
+      "title": "Feedback",
+      "type": "array"
+    },
+    "history": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "History",
+      "type": "array"
+    },
+    "params": {
+      "additionalProperties": true,
+      "title": "Params",
+      "type": "object"
+    },
+    "prior_engine_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prior Engine Run Id"
+    }
+  },
+  "title": "Inputs",
+  "type": "object"
+}

@@ -1,0 +1,20 @@
+{
+  "$id": "urn:research-contract:1.0.0:OutputDecl",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "primary": {
+      "default": false,
+      "title": "Primary",
+      "type": "boolean"
+    },
+    "schema": {
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema"
+  ],
+  "title": "OutputDecl",
+  "type": "object"
+}

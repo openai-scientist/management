@@ -1,0 +1,5 @@
+{
+  "action": "approve",
+  "actor": "user",
+  "gate_id": "g1"
+}
