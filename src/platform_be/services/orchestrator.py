@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -6,6 +7,7 @@ from sqlalchemy import func, select
 
 from platform_be.contracts import (
     CONTRACT_VERSION,
+    SELECTION_HYPOTHESIS_IDS,
     ArtifactRef,
     Decisions,
     Gate,
@@ -378,3 +380,26 @@ async def accept_stage(db, app_state, stage_run, *, selection, note, actor, user
             ),
         ),
     )
+
+
+async def validate_selection(db, app_state, stage_run, selection):
+    """X4: a hypothesis stage is accepted with at least one id found in its primary artifact."""
+    if stage_run.stage_key != "hypothesis":
+        return
+    ids = selection.get(SELECTION_HYPOTHESIS_IDS) or []
+    if not ids:
+        raise APIError(422, "INVALID_SELECTION", "Select at least one hypothesis")
+    primary_id = stage_run.config_snapshot.get("published_artifact_id")
+    artifact = await db.get(RunArtifact, UUID(primary_id)) if primary_id else None
+    if artifact is None or artifact.stage_run_id != stage_run.id:
+        raise APIError(409, "ARTIFACT_NOT_READY", "Published primary artifact is missing")
+    store = app_state.file_store
+    try:
+        body = b"".join([chunk async for chunk in store.open(artifact.storage_key)])
+        known = {item["id"] for item in json.loads(body)["hypotheses"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        raise APIError(
+            409, "ARTIFACT_NOT_READY", "Published primary artifact cannot be read"
+        ) from None
+    if not set(ids) <= known:
+        raise APIError(422, "INVALID_SELECTION", "Selection contains an unknown hypothesis id")

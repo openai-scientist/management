@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -31,6 +31,11 @@ class RunArtifactItem(BaseModel):
     size_bytes: int
     sha256: str
     created_at: datetime
+    stage_run_id: str | None = None
+    schema_id: str | None = None
+    version: int | None = None
+    primary: bool = False
+    review_round: int | None = None
 
 
 @router.get(
@@ -42,16 +47,22 @@ class RunArtifactItem(BaseModel):
 async def list_run_artifacts(
     project_id: UUID,
     run_id: UUID,
+    stage_run_id: UUID | None = None,
+    schema_id: str | None = Query(default=None, alias="schema"),
+    version: int | None = Query(default=None, ge=1),
     principal: Principal = Depends(require_active_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[list[RunArtifactItem]]:
     await require_project_access(db, principal, project_id)
     run = await get_run(db, project_id, run_id)
-    artifacts = (
-        await db.scalars(
-            select(RunArtifact).where(RunArtifact.run_id == run.id).order_by(RunArtifact.filename)
-        )
-    ).all()
+    query = select(RunArtifact).where(RunArtifact.run_id == run.id)
+    if stage_run_id is not None:
+        query = query.where(RunArtifact.stage_run_id == stage_run_id)
+    if schema_id is not None:
+        query = query.where(RunArtifact.schema_id == schema_id)
+    if version is not None:
+        query = query.where(RunArtifact.version == version)
+    artifacts = (await db.scalars(query.order_by(RunArtifact.filename))).all()
     return ok(
         [
             RunArtifactItem(
@@ -63,6 +74,11 @@ async def list_run_artifacts(
                 size_bytes=artifact.size_bytes,
                 sha256=artifact.sha256,
                 created_at=artifact.created_at,
+                stage_run_id=str(artifact.stage_run_id) if artifact.stage_run_id else None,
+                schema_id=artifact.schema_id,
+                version=artifact.version,
+                primary=artifact.is_primary,
+                review_round=artifact.review_round,
             )
             for artifact in artifacts
         ]

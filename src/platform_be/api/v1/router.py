@@ -20,6 +20,7 @@ from platform_be.api.v1.notifications import router as notifications_router
 from platform_be.api.v1.project_files import router as project_files_router
 from platform_be.api.v1.projects import router as projects_router
 from platform_be.api.v1.run_artifacts import router as run_artifacts_router
+from platform_be.api.v1.run_stages import router as run_stages_router
 from platform_be.api.v1.runs import router as runs_router
 from platform_be.api.v1.users import router as users_router
 from platform_be.core.responses import ErrorResponse
@@ -42,6 +43,7 @@ router.include_router(project_files_router)
 router.include_router(runs_router)
 router.include_router(frame_reviews_router)
 router.include_router(run_artifacts_router)
+router.include_router(run_stages_router)
 router.include_router(comments_router)
 router.include_router(notifications_router)
 router.include_router(admin_usage_router)

@@ -18,6 +18,7 @@ from platform_be.auth.sessions import (
     require_active_principal,
     require_origin,
 )
+from platform_be.contracts import InteractionMode
 from platform_be.core.config import Settings
 from platform_be.core.errors import APIError
 from platform_be.core.responses import ApiResponse, ErrorResponse, ok, paginated
@@ -30,6 +31,7 @@ from platform_be.models.research import (
     ResearchRun,
     RunEvent,
     RunGate,
+    StageRun,
 )
 from platform_be.services.access import (
     ensure_writable_project,
@@ -38,6 +40,7 @@ from platform_be.services.access import (
 )
 from platform_be.services.audit import record_audit
 from platform_be.services.file_store import FileStore, get_file_store
+from platform_be.services.orchestrator import start_research_run
 from platform_be.services.popper_client import (
     PopperClient,
     PopperNotFound,
@@ -98,12 +101,28 @@ class RunCreate(BaseModel):
         default="copilot",
         description="copilot requires review at gates; auto proceeds autonomously",
     )
+    interaction_mode: InteractionMode | None = Field(
+        default=None,
+        description="Pipeline interaction mode; overrides review_mode when engines are configured",
+    )
     budget_usd: Decimal | None = Field(
         default=None,
         max_digits=10,
         decimal_places=2,
         description="Spending cap for this run. Defaults to the server's standard budget.",
     )
+
+
+class CurrentStage(BaseModel):
+    stage_run_id: str
+    stage_key: str
+    engine_key: str
+    status: str
+    phase: str | None = None
+    step_key: str | None = None
+    waiting_input: bool = False
+    open_gate: dict[str, Any] | None = None
+    cost_usd: Decimal
 
 
 class RunItem(BaseModel):
@@ -113,6 +132,10 @@ class RunItem(BaseModel):
     topic: str | None = None
     domains: list[str] = Field(default_factory=list)
     review_mode: str | None = None
+    pipeline_key: str | None = None
+    iteration: int = 1
+    interaction_mode: str | None = None
+    current_stage: CurrentStage | None = None
     last_seq: int = 0
     last_source_seq: int = 0
     dataset_id: str | None = None
@@ -158,8 +181,25 @@ def _run_query():
     )
 
 
+def current_stage_item(stage: StageRun) -> CurrentStage:
+    return CurrentStage(
+        stage_run_id=str(stage.id),
+        stage_key=stage.stage_key,
+        engine_key=stage.engine_key,
+        status=stage.status,
+        phase=stage.phase,
+        step_key=stage.step_key,
+        waiting_input=bool(stage.waiting_input),
+        open_gate=stage.open_gate,
+        cost_usd=stage.cost_usd,
+    )
+
+
 def _run_item(
-    run: ResearchRun, version: DatasetVersion | None, context_version: int | None
+    run: ResearchRun,
+    version: DatasetVersion | None,
+    context_version: int | None,
+    stage: StageRun | None = None,
 ) -> RunItem:
     label = f"RUN-{str(run.id)[:4].upper()}"
     return RunItem(
@@ -169,6 +209,10 @@ def _run_item(
         topic=run.topic,
         domains=run.domains or [],
         review_mode=run.review_mode,
+        pipeline_key=run.pipeline_key,
+        iteration=run.iteration or 1,
+        interaction_mode=run.interaction_mode,
+        current_stage=current_stage_item(stage) if stage else None,
         last_seq=run.last_seq or 0,
         last_source_seq=run.last_source_seq or 0,
         dataset_id=str(version.dataset_id) if version else None,
@@ -192,7 +236,13 @@ def _run_item(
 async def _item(db: AsyncSession, run: ResearchRun) -> RunItem:
     await db.flush()
     row = (await db.execute(_run_query().where(ResearchRun.id == run.id))).one()
-    return _run_item(run, row[1], row[2])
+    stage = await db.scalar(
+        select(StageRun)
+        .where(StageRun.research_run_id == run.id)
+        .order_by(StageRun.iteration.desc(), StageRun.created_at.desc())
+        .limit(1)
+    )
+    return _run_item(run, row[1], row[2], stage)
 
 
 def _require_popper(client: PopperClient | None) -> PopperClient:
@@ -275,7 +325,9 @@ async def create_run(
 ) -> ApiResponse[RunItem]:
     settings: Settings = request.app.state.settings
     request_id = getattr(request.state, "request_id", None)
-    popper = _require_popper(popper)
+    pipeline_mode = bool(settings.engines)
+    if not pipeline_mode:
+        popper = _require_popper(popper)
 
     await lock_project_scope(db, project_id)
     project, _ = await require_project_access(db, principal, project_id, contribute=True, lock=True)
@@ -296,7 +348,7 @@ async def create_run(
             ResearchRun.project_id == project_id, ResearchRun.status.in_(ACTIVE_RUN_STATUSES)
         )
     )
-    if active is not None:
+    if active is not None and not pipeline_mode:
         raise APIError(409, "RUN_ACTIVE", "This project already has a run in progress")
 
     topic = body.topic.strip()
@@ -311,6 +363,35 @@ async def create_run(
             cleaned_domains.append(d)
     if not cleaned_domains:
         raise APIError(422, "VALIDATION_ERROR", "At least one research domain is required")
+
+    if pipeline_mode:
+        interaction_mode = body.interaction_mode or InteractionMode(body.review_mode)
+        run = await start_research_run(
+            db,
+            request.app.state,
+            project=project,
+            principal=principal,
+            topic=topic,
+            interaction_mode=interaction_mode,
+            budget_usd=budget,
+            domains=cleaned_domains,
+        )
+        record_audit(
+            db,
+            actor_user_id=principal.user.id,
+            action="run.created",
+            resource_type="run",
+            resource_id=run.id,
+            project_id=project_id,
+            request_id=request_id,
+            details={
+                "topic": topic,
+                "domains": cleaned_domains,
+                "interaction_mode": str(interaction_mode),
+                "budget_usd": str(budget),
+            },
+        )
+        return ok(await _item(db, run), "Run started")
 
     auto_review = body.review_mode == "auto"
     run = ResearchRun(
