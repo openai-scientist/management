@@ -19,6 +19,7 @@ COPY --from=builder --chown=app:app /app/runtime-env /app/runtime-env
 COPY --chown=app:app alembic.ini ./alembic.ini
 COPY --chown=app:app alembic ./alembic
 COPY --chown=app:app src ./src
+COPY --chown=app:app scripts ./scripts
 # Uploaded files live here; a volume mounted on it inherits this ownership.
 RUN mkdir -p /app/var/storage && chown -R app:app /app/var
 USER app
