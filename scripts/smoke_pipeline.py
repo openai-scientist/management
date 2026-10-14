@@ -40,7 +40,12 @@ async def smoke(client, project, csrf_token, *, timeout=600, poll_interval=1, to
     async def wait(label, predicate):
         deadline = monotonic() + timeout
         while monotonic() < deadline:
-            current = data(await client.get(run_url))
+            try:
+                current = data(await client.get(run_url))
+            except httpx.TransportError:
+                # A poll may reuse a keep-alive connection the server just closed; poll again.
+                await asyncio.sleep(poll_interval)
+                continue
             if current["status"] in {"failed", "stopped", "budget_exceeded"}:
                 stage = current.get("current_stage") or {}
                 raise SmokeError(
