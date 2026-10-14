@@ -1,7 +1,7 @@
 {
   "budget_usd": "10",
   "callback_url": "http://platform.test/api/v1/internal/engines/i2h/runs/s1",
-  "contract_version": "1.0.0",
+  "contract_version": "1.1.0",
   "inputs": {
     "artifacts": [],
     "decisions": null,

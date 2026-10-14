@@ -1,13 +1,13 @@
 # Research engine HTTP contract
 
-Contract version: **1.0.0** (semantic versioning). This directory is the public
+Contract version: **1.1.0** (semantic versioning). This directory is the public
 contract; Python implementations belong to each service. Engines copy `schema/`,
 `examples/`, and this README into `tests/contract/vendor/`, with the management
 commit in `vendor/SOURCE`. No service imports code from another repository.
 
 Regenerate with `uv run python scripts/export_contract.py`. Verify with
 `uv run python scripts/export_contract.py --check` and
-`uv run pytest tests/contracts -q`. Every wire model has a standalone JSON Schema
+`uv run pytest tests/unit/research/contracts -q`. Every wire model has a standalone JSON Schema
 and an example. Every lifecycle event and one activity event has an example.
 Examples contain placeholder credentials only. Replace them when calling a service.
 

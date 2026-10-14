@@ -9,7 +9,7 @@
       "type": "string"
     }
   },
-  "$id": "urn:research-contract:1.0.0:LlmCall",
+  "$id": "urn:research-contract:1.1.0:LlmCall",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {

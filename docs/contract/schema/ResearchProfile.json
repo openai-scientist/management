@@ -1,5 +1,5 @@
 {
-  "$id": "urn:research-contract:1.0.0:ResearchProfile",
+  "$id": "urn:research-contract:1.1.0:ResearchProfile",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "domain": {

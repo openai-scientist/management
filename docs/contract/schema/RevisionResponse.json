@@ -36,7 +36,7 @@
       "type": "object"
     }
   },
-  "$id": "urn:research-contract:1.0.0:RevisionResponse",
+  "$id": "urn:research-contract:1.1.0:RevisionResponse",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "artifact_after": {

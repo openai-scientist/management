@@ -120,7 +120,7 @@
       "type": "string"
     }
   },
-  "$id": "urn:research-contract:1.0.0:GateAnswer",
+  "$id": "urn:research-contract:1.1.0:GateAnswer",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "action": {
