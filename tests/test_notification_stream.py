@@ -251,6 +251,11 @@ async def test_open_stream_stops_when_its_session_is_no_longer_valid(
         signed_in = await login(harness, client, uid="member", email="member@example.com")
         async with open_stream(harness, client) as (_, stream):
             await stream.snapshot()
+            # The harness shares one SQLite connection: a tick that closes its session
+            # between the ending's flush and commit rolls the ending back. Quiet the
+            # stream while the session ends.
+            monkeypatch.setattr("management.notifications.router.KEEP_ALIVE_SECONDS", 0.5)
+            await asyncio.sleep(0.1)
             if ending == "logout":
                 response = await client.post(
                     "/api/v1/auth/logout", headers=mutation_headers(signed_in["csrf_token"])
@@ -268,7 +273,11 @@ async def test_open_stream_stops_when_its_session_is_no_longer_valid(
                             )
                         )
                         session.absolute_expires_at = datetime.now(UTC) - timedelta(seconds=1)
-            frame = await stream.frame()
+            monkeypatch.setattr("management.notifications.router.KEEP_ALIVE_SECONDS", 0.02)
+            async with asyncio.timeout(2):
+                frame = await stream.frame()
+                while frame == ": keep-alive":
+                    frame = await stream.frame()
             assert frame.startswith("event: session-ended\n"), frame
             expected_code = "USER_SUSPENDED" if ending == "suspended" else "SESSION_EXPIRED"
             assert json.loads(frame.split("data: ", 1)[1])["code"] == expected_code
