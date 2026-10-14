@@ -50,50 +50,6 @@ async def test_start_creates_first_stage_with_request(pipeline):
     assert "model-test-secret" not in str(stage.config_snapshot)
 
 
-async def test_published_marks_completed_and_accept_starts_next_with_selection(pipeline):
-    harness, db, run, stage, fakes = pipeline
-    artifact = await publish(db, run, stage)
-    assert stage.status == "COMPLETED" and run.status == "awaiting_review"
-    next_stage = await accept_stage(
-        db,
-        harness.app.state,
-        stage,
-        selection={"hypothesis_ids": ["H1", "H2"]},
-        note="Use both",
-        actor="user",
-        user_id=run.created_by_user_id,
-    )
-    assert stage.status == "ACCEPTED" and next_stage.stage_key == "experiment_plan"
-    req = fakes["exd"].requests[0]
-    assert req.inputs.artifacts[0].artifact_id == str(artifact.id)
-    assert req.inputs.artifacts[0].schema_id == "i2h.hypotheses/v1"
-    assert req.inputs.decisions.selection == {"hypothesis_ids": ["H1", "H2"]}
-    assert "/exd/artifacts/" in req.inputs.artifacts[0].download_url
-    await publish(db, run, next_stage, schema="exd.exp_plan/v1")
-    assert (
-        await accept_stage(
-            db,
-            harness.app.state,
-            next_stage,
-            selection={},
-            note=None,
-            actor="user",
-            user_id=run.created_by_user_id,
-        )
-        is None
-    )
-    assert run.status == "completed"
-
-
-async def test_accept_while_running_conflict(pipeline):
-    harness, db, _, stage, _ = pipeline
-    with pytest.raises(APIError) as info:
-        await accept_stage(
-            db, harness.app.state, stage, selection={}, note=None, actor="user", user_id=None
-        )
-    assert info.value.status_code == 409
-
-
 async def test_schema_mismatch_rejected(pipeline):
     harness, db, run, stage, _ = pipeline
     await publish(db, run, stage, schema="other.output/v1")

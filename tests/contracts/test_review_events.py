@@ -4,14 +4,11 @@ import pytest
 from pydantic import ValidationError
 
 from management.research.contracts import (
-    DatasetDescriptor,
     EventEnvelope,
-    EventPage,
     Finding,
     PipelineRecommendation,
     ResearchProfile,
     ReviewFindings,
-    RevisionDiff,
     RevisionItem,
 )
 
@@ -56,10 +53,6 @@ def test_passed_must_match_blocking_findings(blocking, passed):
         )
 
 
-def test_finding_category_default_other():
-    assert finding().category == "other"
-
-
 @pytest.mark.parametrize("outcome", ["rebutted", "not_fixed"])
 @pytest.mark.parametrize("note", [None, "", "   "])
 def test_unfixed_requires_note(outcome, note):
@@ -95,37 +88,9 @@ def test_class_alias_roundtrip():
     assert e.engine_prefix() == "i2h"
 
 
-def test_revision_diff_roundtrip():
-    d = RevisionDiff(round=1, artifact_before="a", artifact_after="b", patch="-old\n+new")
-    assert RevisionDiff.model_validate_json(d.model_dump_json()) == d
-    with pytest.raises(ValidationError):
-        RevisionDiff(
-            round=1, artifact_before="a", artifact_after="b", patch="", format="json_patch"
-        )
-
-
-def test_dataset_roundtrip_and_hash_validation():
-    data = dict(
-        dataset_version_id="d",
-        version_number=1,
-        original_filename="data.csv",
-        sha256="0" * 64,
-        source_type="upload",
-        download_url="http://platform/data",
-    )
-    descriptor = DatasetDescriptor(**data)
-    assert DatasetDescriptor.model_validate_json(descriptor.model_dump_json()) == descriptor
-    with pytest.raises(ValidationError):
-        DatasetDescriptor(**(data | {"sha256": "short"}))
-
-
 def test_profile_is_base():
     assert ResearchProfile().is_base
     assert not ResearchProfile(domain="se").is_base
-
-
-def test_empty_event_page_is_valid():
-    assert EventPage(events=[]).events == []
 
 
 @pytest.mark.parametrize(

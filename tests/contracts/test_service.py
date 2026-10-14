@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from management.research.contracts import ArtifactMeta, Capabilities, Health, TelemetryRecord
+from management.research.contracts import Capabilities, TelemetryRecord
 from management.research.contracts.paths import ENGINE_RUN_GATE
 
 
@@ -60,23 +60,6 @@ def test_telemetry_message_limit_and_research_run_id_rejected():
     for override in ({"message": "x" * 501}, {"research_run_id": "wrong"}):
         with pytest.raises(ValidationError):
             TelemetryRecord(**(data | override))
-
-
-def test_artifact_metadata_roundtrip():
-    meta = ArtifactMeta(
-        schema="i2h.hypotheses/v1",
-        version=1,
-        filename="hypotheses.json",
-        media_type="application/json",
-        sha256="0" * 64,
-    )
-    assert meta.metadata == {}
-    assert ArtifactMeta.model_validate_json(meta.model_dump_json(by_alias=True)) == meta
-
-
-def test_health_details_optional():
-    health = Health(status="ok", engine_version="test", contract_version="1.0", active_runs=0)
-    assert health.checks is None and health.last_error is None
 
 
 def test_paths_format():

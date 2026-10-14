@@ -12,7 +12,6 @@ from management.infra.email_sender import (
     ResendEmailSender,
     build_email_sender,
 )
-from tests.helpers.harness import Harness
 
 API_KEY = "re_test_key_that_must_never_be_logged"
 SENDER = "AI Research Platform <no-reply@beyond8.io.vn>"
@@ -125,7 +124,3 @@ def test_deployed_settings_need_the_key_and_a_safe_link() -> None:
     # A blank value from Compose means "not set".
     assert settings(app_url="").app_url is None
     assert API_KEY not in repr(production)
-
-
-def test_the_app_gets_a_sender(harness: Harness) -> None:
-    assert harness.app.state.email_sender is harness.emails

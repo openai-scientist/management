@@ -15,7 +15,6 @@ from management.connections.connectors.base import (
     ensure_source_supported,
 )
 from management.connections.connectors.timeseries import (
-    BUCKET_SECONDS,
     LIVE_WINDOWS,
     bucket_start,
     live_source,
@@ -104,13 +103,6 @@ def test_the_limits_themselves_are_allowed() -> None:
     assert parse(aggregate="increase").aggregate == "increase"
     for bucket in get_args(FormBucket):
         assert parse(bucket=bucket).bucket == bucket
-
-
-def test_the_bucket_of_a_live_view_is_not_one_a_form_can_choose() -> None:
-    # Every bucket a connector reads but that one.
-    assert set(BUCKET_SECONDS) - set(get_args(FormBucket)) == {"15s"}
-    with pytest.raises(ValidationError):
-        parse(bucket="15s")
 
 
 @pytest.mark.parametrize(

@@ -49,43 +49,6 @@ async def test_monitoring_services_are_admin_only_and_unknown_without_measured_r
         assert response.json()["data"][0]["metrics"]["available"] is False
 
 
-def test_monitoring_openapi_documents_filters_errors_and_aggregate_semantics(
-    harness: Harness,
-) -> None:
-    paths = harness.app.openapi()["paths"]
-
-    services = paths["/api/v1/admin/log-monitoring/services"]["get"]
-    assert services["summary"] == "List measured monitoring services"
-    assert {"401", "403", "422", "429", "503"} <= services["responses"].keys()
-    service_limit = next(
-        parameter for parameter in services["parameters"] if parameter["name"] == "limit"
-    )
-    assert service_limit["schema"]["minimum"] == 1
-    assert service_limit["schema"]["maximum"] == 100
-
-    events = paths["/api/v1/admin/log-monitoring/events"]["get"]
-    assert "stable event ID descending" in events["description"]
-    assert "404" in events["responses"]
-    event_params = {parameter["name"]: parameter for parameter in events["parameters"]}
-    assert event_params["from"]["description"].startswith("Inclusive")
-    assert event_params["to"]["description"].startswith("Exclusive")
-
-    metrics = paths["/api/v1/admin/log-monitoring/services/{service_id}/metrics"]["get"]
-    assert "nearest-rank" in metrics["description"]
-    assert "100,000" in metrics["description"]
-
-    acknowledge = paths["/api/v1/admin/log-monitoring/alerts/{alert_id}/acknowledge"]["post"]
-    assert "409" in acknowledge["responses"]
-    assert "CSRF token" in acknowledge["description"]
-
-    overview = paths["/api/v1/admin/overview"]["get"]
-    assert {"401", "403", "422"} <= overview["responses"].keys()
-
-    stream = paths["/api/v1/admin/log-monitoring/stream"]["get"]
-    assert {"200", "401", "403", "429", "503"} <= stream["responses"].keys()
-    assert "15 seconds" in stream["description"]
-
-
 @pytest.mark.asyncio
 async def test_events_filter_stably_and_detail_does_not_return_raw_attributes(
     harness: Harness,

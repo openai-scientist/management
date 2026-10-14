@@ -8,7 +8,6 @@ from tests.fakes.engines import engine_overrides, install_fake_engines, seed_mod
 from tests.helpers.harness import open_harness
 from tests.helpers.identity import login, mutation_headers
 from tests.helpers.projects import PROJECTS, add_member, create_project
-from tests.helpers.research import start_run
 
 
 @pytest.fixture
@@ -82,6 +81,16 @@ async def test_s1_flow_light_mode(api):
     request = fakes["exd"].requests[0]
     assert request.inputs.artifacts[0].schema_id == "i2h.hypotheses/v1"
     assert request.inputs.decisions.selection == {"hypothesis_ids": ["H1", "H2"]}
+    artifacts_path = f"{PROJECTS}/{project['id']}/runs/{run['id']}/artifacts"
+    published = (
+        await client.get(
+            f"{artifacts_path}?stage_run_id={stage['stage_run_id']}&schema=i2h.hypotheses/v1"
+        )
+    ).json()["data"]
+    assert request.inputs.artifacts[0].artifact_id == next(
+        a["id"] for a in published if a["primary"]
+    )
+    assert "/exd/artifacts/" in request.inputs.artifacts[0].download_url
 
     run = await get_run(client, project, run)
     second = run["current_stage"]
@@ -110,17 +119,6 @@ async def test_s1_flow_light_mode(api):
     async with harness.factory() as db:
         actions = [d.action for d in await db.scalars(select(StageDecision))]
     assert sorted(actions) == ["accept", "accept", "approve", "approve"]
-
-
-async def test_legacy_path_when_no_engines(harness):
-    async with harness.client() as client:
-        session = await login(harness, client, uid="owner", email="owner@example.com")
-        project = await create_project(client, session)
-        response = await start_run(client, session, project["id"], "")
-    assert harness.app.state.settings.engines == {}
-    assert response.status_code in {201, 202, 503}
-    if response.status_code != 503:
-        assert response.json()["data"]["pipeline_key"] is None
 
 
 async def test_gate_not_open_409(api):

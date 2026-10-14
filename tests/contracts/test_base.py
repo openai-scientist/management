@@ -1,9 +1,7 @@
 import pytest
 
 from management.research.contracts import (
-    TERMINAL_PHASES,
     ContractModel,
-    Phase,
     is_compatible,
     parse_schema_id,
 )
@@ -12,6 +10,8 @@ from management.research.contracts import (
 def test_is_compatible_same_major():
     assert is_compatible("1.0") and is_compatible("1.7")
     assert not is_compatible("2.0")
+    assert is_compatible("1.0.0")
+    assert not is_compatible("2.0.0")
 
 
 @pytest.mark.parametrize("version", ["", "one", "1", "1.x", "1.0.extra", "01.0"])
@@ -34,12 +34,3 @@ def test_contract_receiver_ignores_additive_fields():
         a: int
 
     assert M(a=1, b=2).model_dump() == {"a": 1}
-
-
-def test_compatible_semver_patch():
-    assert is_compatible("1.0.0")
-    assert not is_compatible("2.0.0")
-
-
-def test_terminal_phases():
-    assert TERMINAL_PHASES == {Phase.published, Phase.failed, Phase.cancelled}

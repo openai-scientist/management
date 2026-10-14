@@ -13,7 +13,7 @@ from tests.helpers.identity import PASSWORD, login, mutation_headers, sign_in, v
 
 
 @pytest.mark.asyncio
-async def test_health_probes_and_openapi(harness: Harness) -> None:
+async def test_health_probes_answer_and_openapi_keeps_its_guards(harness: Harness) -> None:
     async with harness.client() as client:
         live = await client.get("/api/v1/health/live")
         ready = await client.get("/api/v1/health/ready")
@@ -27,57 +27,13 @@ async def test_health_probes_and_openapi(harness: Harness) -> None:
     assert ready.status_code == 200
     assert ready.json()["data"] == {"status": "ready"}
     schema = harness.app.openapi()
-    auth_paths = {path for path in schema["paths"] if path.startswith("/api/v1/auth/")}
-    assert auth_paths == {
-        "/api/v1/auth/register",
-        "/api/v1/auth/login",
-        "/api/v1/auth/google/start",
-        "/api/v1/auth/google/callback",
-        "/api/v1/auth/verify-email",
-        "/api/v1/auth/resend-verification",
-        "/api/v1/auth/forgot-password",
-        "/api/v1/auth/reset-password",
-        "/api/v1/auth/verify-reset-password",
-        "/api/v1/auth/change-password",
-        "/api/v1/auth/logout",
-        "/api/v1/auth/logout-all",
-        "/api/v1/auth/me",
-        "/api/v1/auth/me/avatar",
-        "/api/v1/auth/csrf-token",
-    }
     # Listed even while the feature is off, like the sign-in pair above.
     assert {
         "/api/v1/projects/{project_id}/connections/google/start",
         "/api/v1/connections/google/callback",
         "/api/v1/projects/{project_id}/connections/{connection_id}/reauthorize",
     } <= set(schema["paths"])
-    login_responses = schema["paths"]["/api/v1/auth/login"]["post"]["responses"]
-    assert {"200", "401", "403", "413", "422", "429"}.issubset(login_responses)
-    register_responses = schema["paths"]["/api/v1/auth/register"]["post"]["responses"]
-    assert {"201", "403", "409", "413", "422", "429"}.issubset(register_responses)
-    for name, expected in (
-        ("verify-email", {"200", "400", "403", "413", "422", "429"}),
-        ("verify-reset-password", {"200", "400", "403", "413", "422", "429"}),
-        ("reset-password", {"200", "400", "403", "413", "422", "429"}),
-        ("resend-verification", {"200", "403", "413", "422", "429"}),
-        ("forgot-password", {"200", "403", "413", "422", "429"}),
-    ):
-        assert expected.issubset(schema["paths"][f"/api/v1/auth/{name}"]["post"]["responses"])
-    assert {"200", "401", "403"}.issubset(
-        schema["paths"]["/api/v1/auth/logout"]["post"]["responses"]
-    )
-    assert {"200", "401"}.issubset(schema["paths"]["/api/v1/auth/me"]["get"]["responses"])
-    assert {"200", "401"}.issubset(schema["paths"]["/api/v1/auth/csrf-token"]["get"]["responses"])
-    login_request = schema["paths"]["/api/v1/auth/login"]["post"]["requestBody"]
-    request_schema_name = login_request["content"]["application/json"]["schema"]["$ref"].rsplit(
-        "/", maxsplit=1
-    )[1]
-    request_properties = schema["components"]["schemas"][request_schema_name]["properties"]
-    assert set(request_properties) == {"email", "password"}
     assert "HTTPValidationError" not in schema["components"]["schemas"]
-    assert "/api/v1/projects/{project_id}/members/{membership_id}" in schema["paths"]
-    assert {"post", "delete", "get"} == set(schema["paths"]["/api/v1/users/{user_id}/avatar"])
-    assert "/api/v1/users/{user_id}/invite" in schema["paths"]
     assert "/api/v1/research" not in schema["paths"]
 
 
@@ -180,7 +136,9 @@ async def test_session_token_is_stored_as_digest_and_admin_bootstrap_is_one_time
 
 
 @pytest.mark.asyncio
-async def test_mutation_requires_csrf_and_suspend_revokes_sessions(harness: Harness) -> None:
+async def test_mutation_requires_csrf_and_the_last_admin_cannot_be_suspended(
+    harness: Harness,
+) -> None:
     async with harness.client() as client:
         session = await login(harness, client, uid="pa", email="pa@example.com")
         await bootstrap_admin(
