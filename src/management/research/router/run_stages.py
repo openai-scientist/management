@@ -185,7 +185,16 @@ async def answer_stage_gate(
         run,
         stage,
         "decision.recorded",
-        {"action": decision.action, "gate_id": gate_id},
+        # The choice itself, so a client replaying the run can show what was decided.
+        {
+            "action": decision.action,
+            "gate_id": gate_id,
+            **{
+                key: payload[key]
+                for key in ("option_id", "text", "params", "findings")
+                if payload.get(key)
+            },
+        },
         actor="user",
     )
     return ok({"gate_id": gate_id, "status": "applied"}, "Answer recorded")

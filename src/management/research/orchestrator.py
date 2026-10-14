@@ -376,7 +376,7 @@ async def accept_stage(db, app_state, stage_run, *, selection, note, actor, user
         run,
         stage_run,
         "decision.recorded",
-        {"action": "accept", "selection": selection},
+        {"action": "accept", "selection": selection, **({"note": note} if note else {})},
         actor=actor,
     )
     append_run_event(db, run, stage_run, "stage.status_changed", {"status": "ACCEPTED"})
