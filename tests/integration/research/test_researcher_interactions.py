@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from management.projects.models import Notification
 from management.research.contracts import Phase
-from management.research.engines.client import EngineUnavailable
+from management.research.engines.client import EngineRejected, EngineUnavailable
 from management.research.models import ResearchRun, RunArtifact, RunEvent, StageDecision, StageRun
 from tests.helpers.identity import login, mutation_headers
 from tests.helpers.projects import add_member
@@ -276,3 +276,18 @@ async def test_terminal_stage_asks_for_attention(interaction, terminal):
             await db.scalars(select(Notification).where(Notification.run_id == row.research_run_id))
         ).all()
         assert len(notices) == 1
+
+
+async def test_engine_rejection_reason_reaches_the_client(interaction, monkeypatch):
+    harness, *_, fakes = interaction
+    row = await stage(interaction)
+    gate = await fakes["i2h"].open_review_gate(row.engine_run_id)
+
+    async def reject(*args, **kwargs):
+        raise EngineRejected(422, "VALIDATION_ERROR", "token_allowance_exhausted")
+
+    monkeypatch.setattr(harness.app.state.engines.get("i2h"), "answer_gate", reject)
+    payload = {"action": "comment", "findings": [finding(gate.artifact_ids[0])]}
+    response = await answer(interaction, gate, payload)
+    assert response.status_code == 422
+    assert "token_allowance_exhausted" in response.json()["message"]

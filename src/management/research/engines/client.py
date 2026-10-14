@@ -29,10 +29,12 @@ class EngineUnavailable(EngineError):
 
 
 class EngineRejected(EngineError):
-    def __init__(self, status_code: int, code: str):
+    def __init__(self, status_code: int, code: str, detail: str | None = None):
         super().__init__(f"Engine rejected request ({code})")
         self.status_code = status_code
         self.code = code
+        # The engine's own reason, e.g. "token_allowance_exhausted"; bounded for the client.
+        self.detail = detail
 
 
 class EngineContractMismatch(EngineError):
@@ -77,16 +79,16 @@ class EngineClient:
         if response.status_code >= 500:
             raise EngineUnavailable("Engine is unavailable")
         if response.status_code >= 400:
+            code, detail = "ENGINE_REJECTED", None
             try:
                 body = response.json()
-                code = (
-                    body.get("code", "ENGINE_REJECTED")
-                    if isinstance(body, dict)
-                    else "ENGINE_REJECTED"
-                )
+                if isinstance(body, dict):
+                    code = body.get("code", code)
+                    message = body.get("message")
+                    detail = message[:300] if isinstance(message, str) and message else None
             except ValueError:
-                code = "ENGINE_REJECTED"
-            raise EngineRejected(response.status_code, code)
+                pass
+            raise EngineRejected(response.status_code, code, detail)
         try:
             return model.model_validate(response.json())
         except (ValueError, ValidationError):

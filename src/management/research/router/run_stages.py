@@ -170,8 +170,11 @@ async def answer_stage_gate(
     except EngineRejected as exc:
         await db.delete(await db.get(StageDecision, decision_id))
         await db.commit()
+        message = "Engine rejected the answer"
         raise APIError(
-            409 if exc.status_code == 409 else 422, exc.code, "Engine rejected the answer"
+            409 if exc.status_code == 409 else 422,
+            exc.code,
+            f"{message}: {exc.detail}" if exc.detail else message,
         ) from None
     run = await get_run(db, project_id, run_id, lock=True)
     stage = await _stage(db, run, stage_run_id)

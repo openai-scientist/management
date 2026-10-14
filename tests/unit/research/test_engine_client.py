@@ -56,6 +56,7 @@ async def test_4xx_raises_engine_rejected():
     with pytest.raises(EngineRejected) as info:
         await client(FakeEngine()).get_run("missing")
     assert info.value.status_code == 404 and info.value.code == "RUN_NOT_FOUND"
+    assert info.value.detail == "Run not found"
 
 
 async def test_base_prefix_preserved_and_events_page():
