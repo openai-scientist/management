@@ -9,22 +9,24 @@ from management.audit.models import AuditEvent
 from management.connections.connectors import build_connector_factory, google_drive
 from management.connections.connectors.google_drive import CSV, SPREADSHEET, XLSX
 from management.datasets.models import DatasetVersion
-from tests.conftest import Harness, login, mutation_headers
 from tests.fakes import FakeDriveFile, FakeGoogleDrive, FakeSpreadsheet, access_token_for
-from tests.test_connection_browse_api import failure, preview
-from tests.test_connections_api import audit_events
-from tests.test_google_drive_connector import workbook
-from tests.test_google_sheets_connection_api import (
+from tests.helpers.audit import audit_events
+from tests.helpers.connections import (
     EMAIL,
     REFRESH_TOKEN,
     SUBJECT,
     connections,
+    failure,
     google_grant,
     grant_ids,
+    preview,
     reauthorize,
     stored_token,
+    workbook,
 )
-from tests.test_projects_api import PROJECTS, create_project
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, create_project
 
 FOLDER_ID = "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"
 FOLDER_URL = f"https://drive.google.com/drive/u/0/folders/{FOLDER_ID}?usp=sharing"

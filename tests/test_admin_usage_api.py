@@ -3,9 +3,10 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from management.identity.bootstrap_admin import bootstrap_admin
-from tests.conftest import Harness, login, mutation_headers
-from tests.test_projects_api import PROJECTS, add_member, create_project
-from tests.test_runs_api import ready_project, report, start_run
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
+from tests.helpers.research import ready_project, report, start_run
 
 USAGE = "/api/v1/admin/usage/projects"
 

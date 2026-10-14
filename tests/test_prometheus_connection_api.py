@@ -1,85 +1,28 @@
-import json
 import logging
 from base64 import b64encode
 
 import httpx
 import pytest
-from httpx import AsyncClient
-from sqlalchemy import select
 
-from management.audit.models import AuditEvent
-from management.connections.connectors import build_connector_factory
-from management.connections.models import DataConnection
 from management.infra.secret_box import SecretBox
-from tests.conftest import CONNECTION_KEY, Harness, login, mutation_headers
-from tests.fakes import FakePrometheus
-from tests.test_connection_browse_api import failure, preview
-from tests.test_connections_api import audit_events
-from tests.test_projects_api import PROJECTS, create_project
-from tests.test_prometheus_connector import at
+from tests.helpers.audit import audit_events, every_audit_detail
+from tests.helpers.connections import (
+    PROMETHEUS_SERIES,
+    PROMETHEUS_URL,
+    at,
+    connected_prometheus,
+    connections,
+    create,
+    failure,
+    preview,
+    prometheus_body,
+    with_prometheus,
+)
+from tests.helpers.harness import CONNECTION_KEY, Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, create_project
 
 TOKEN = "glc_s3cret-token-never-shown"
-URL = "https://metrics.example.com:9090/prometheus"
-# A public address: the guard refuses the ranges kept for examples. Nothing is sent to it.
-IP = "93.184.216.34"
-SERIES = {
-    "type": "timeseries",
-    "name": "latency",
-    "fields": [],
-    "tags": ["host"],
-    "start": "2026-10-01T00:00:00Z",
-    "end": "2026-10-01T03:00:00Z",
-    "bucket": "1h",
-    "aggregate": "mean",
-}
-
-
-def with_prometheus(harness: Harness) -> FakePrometheus:
-    """Put a fake Prometheus behind the real connector factory; one metric is in it."""
-    server = FakePrometheus(base_path="/prometheus")
-    server.add("latency", {"host": "a"}, [(at(0.25), 1.0), (at(0.5), 2.0), (at(1.5), 10.0)])
-    server.add("latency", {"host": "b"}, [(at(0.75), 5.0), (at(2.5), 2.5)])
-    server.add("http_requests_total", {"code": "200"}, [])
-
-    async def resolver(host: str, port: int) -> list[str]:
-        return {"metrics.example.com": [IP], "internal.example.com": ["10.0.0.5"]}[host]
-
-    harness.app.state.connector_factory = build_connector_factory(
-        harness.settings, resolver, http_transport=server.transport
-    )
-    return server
-
-
-def prometheus_body(name: str = "Metrics", url: str = URL, **secret: str) -> dict:
-    return {"name": name, "kind": "prometheus", "config": {"url": url}, "secret": secret}
-
-
-async def create(client: AsyncClient, session: dict, project_id: str, body: dict):
-    return await client.post(
-        f"{PROJECTS}/{project_id}/connections",
-        json=body,
-        headers=mutation_headers(session["csrf_token"]),
-    )
-
-
-async def connected_prometheus(harness: Harness, client: AsyncClient, **secret: str):
-    """A signed-in owner, their project and the URL of a saved Prometheus connection."""
-    session = await login(harness, client, uid="owner", email="owner@example.com")
-    project = await create_project(client, session)
-    created = await create(client, session, project["id"], prometheus_body(**secret))
-    assert created.status_code == 201, created.text
-    url = f"{PROJECTS}/{project['id']}/connections/{created.json()['data']['id']}"
-    return session, project, url
-
-
-async def connections(harness: Harness) -> list[DataConnection]:
-    async with harness.factory() as db:
-        return list(await db.scalars(select(DataConnection)))
-
-
-async def every_audit_detail(harness: Harness) -> str:
-    async with harness.factory() as db:
-        return json.dumps([event.details for event in await db.scalars(select(AuditEvent))])
 
 
 async def test_a_prometheus_server_is_connected_tested_renamed_and_deleted(
@@ -103,7 +46,11 @@ async def test_a_prometheus_server_is_connected_tested_renamed_and_deleted(
         created = response.json()["data"]
         assert created["kind"] == "prometheus"
         # The address written one way, and the host and port it names.
-        assert created["config"] == {"url": URL, "host": "metrics.example.com", "port": 9090}
+        assert created["config"] == {
+            "url": PROMETHEUS_URL,
+            "host": "metrics.example.com",
+            "port": 9090,
+        }
         assert created["last_error_code"] is None
         assert TOKEN not in response.text
         # Tried once before anything was saved, with the token.
@@ -268,8 +215,8 @@ async def test_an_address_that_is_more_than_an_address_is_refused_and_never_reco
     "body",
     [
         # The host and the port are read from the address, never taken beside it.
-        {"config": {"url": URL, "host": "internal.example.com"}},
-        {"config": {"url": URL, "port": 22}},
+        {"config": {"url": PROMETHEUS_URL, "host": "internal.example.com"}},
+        {"config": {"url": PROMETHEUS_URL, "port": 22}},
         {"config": {}},
         {"secret": {"password": "x"}},
         # Nothing but printable ASCII fits in a header.
@@ -336,7 +283,7 @@ async def test_metrics_and_labels_are_browsed_and_a_form_is_previewed(harness: H
         missing = await client.get(f"{url}/columns", params={"schema": "default", "table": "gone"})
         assert failure(missing) == (422, "SOURCE_INVALID", "source_not_found")
 
-        shown = await preview(client, session, url, SERIES)
+        shown = await preview(client, session, url, PROMETHEUS_SERIES)
         assert shown.status_code == 200, shown.text
         assert shown.json()["data"] == {
             "columns": [
@@ -374,7 +321,7 @@ async def test_a_preview_stops_at_the_rows_it_shows(harness: Harness) -> None:
         session, _, url = await connected_prometheus(harness, client)
 
         shown = await preview(
-            client, session, url, SERIES | {"name": "busy", "tags": [], "bucket": "1m"}
+            client, session, url, PROMETHEUS_SERIES | {"name": "busy", "tags": [], "bucket": "1m"}
         )
 
         data = shown.json()["data"]
@@ -388,7 +335,7 @@ async def test_a_form_prometheus_cannot_answer_is_refused(harness: Harness) -> N
         session, _, url = await connected_prometheus(harness, client)
         asked = len(server.requests)
 
-        with_fields = await preview(client, session, url, SERIES | {"fields": ["p95"]})
+        with_fields = await preview(client, session, url, PROMETHEUS_SERIES | {"fields": ["p95"]})
         assert failure(with_fields) == (422, "VALIDATION_ERROR", None)
         for other in (
             {"type": "table", "schema": "default", "name": "latency"},
@@ -402,18 +349,25 @@ async def test_a_form_prometheus_cannot_answer_is_refused(harness: Harness) -> N
         # Refused before anything is on record, like any body that does not fit.
         assert await audit_events(harness, "connection.previewed") == []
 
-        raw = await preview(client, session, url, SERIES | {"bucket": None, "aggregate": None})
+        raw = await preview(
+            client, session, url, PROMETHEUS_SERIES | {"bucket": None, "aggregate": None}
+        )
         assert failure(raw) == (422, "SOURCE_INVALID", "unsupported_source")
         assert "bucket" in raw.json()["message"]
         wide = await preview(
-            client, session, url, SERIES | {"bucket": "1m", "end": "2026-10-09T00:00:00Z"}
+            client,
+            session,
+            url,
+            PROMETHEUS_SERIES | {"bucket": "1m", "end": "2026-10-09T00:00:00Z"},
         )
         assert failure(wide) == (422, "SOURCE_INVALID", "too_many_points")
-        unsafe = await preview(client, session, url, SERIES | {"name": 'latency"}[1h]) #'})
+        unsafe = await preview(
+            client, session, url, PROMETHEUS_SERIES | {"name": 'latency"}[1h]) #'}
+        )
         assert failure(unsafe) == (422, "SOURCE_INVALID", "source_not_found")
         assert len(server.requests) == asked
 
         server.fail_with = 400
-        rejected = await preview(client, session, url, SERIES)
+        rejected = await preview(client, session, url, PROMETHEUS_SERIES)
         assert failure(rejected) == (422, "SOURCE_INVALID", "query_failed")
         assert "own words" not in rejected.text

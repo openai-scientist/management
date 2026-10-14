@@ -10,8 +10,8 @@ from management.core.security import token_digest
 from management.identity.models import AuthSession, User, UserPlatformRole
 from management.monitoring.router.admin_log_monitoring import stream_monitoring
 from management.monitoring.stream import MonitoringHub, monitoring_changed
-from tests.conftest import Harness
-from tests.test_admin_log_monitoring_api import _login_admin, _request_event
+from tests.helpers.harness import Harness
+from tests.helpers.monitoring import login_admin, request_event
 
 
 @pytest.mark.asyncio
@@ -89,7 +89,7 @@ async def test_monitoring_stream_sends_snapshot_committed_events_and_access_end(
     harness: Harness,
 ) -> None:
     async with harness.client() as client:
-        await _login_admin(harness, client)
+        await login_admin(harness, client)
         cookie = client.cookies.get(harness.settings.session_cookie_name)
         assert cookie
         response = await stream_monitoring(
@@ -115,7 +115,7 @@ async def test_monitoring_stream_sends_snapshot_committed_events_and_access_end(
             assert "event: pipeline-status" in pipeline
             assert '"audit_pipeline_status":"unknown"' in pipeline
 
-            event = _request_event(created_at=datetime.now(UTC), status_code=503, duration_ms=25.0)
+            event = request_event(created_at=datetime.now(UTC), status_code=503, duration_ms=25.0)
             async with harness.factory() as db:
                 hub = harness.app.state.monitoring_hub
                 hub.bind(db)

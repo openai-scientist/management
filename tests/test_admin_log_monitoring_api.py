@@ -5,39 +5,12 @@ import pytest
 from sqlalchemy import func, select
 
 from management.audit.models import AuditEvent
-from management.identity.bootstrap_admin import bootstrap_admin
-from management.monitoring.models import MonitoringAlert, MonitoringEvent, MonitoringWorkerState
-from tests.conftest import Harness, login, mutation_headers
+from management.monitoring.models import MonitoringAlert, MonitoringWorkerState
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.monitoring import login_admin, request_event
 
 BASE = "/api/v1/admin/log-monitoring"
-ADMIN_EMAIL = "log-monitoring-admin@example.com"
-
-
-async def _login_admin(harness: Harness, client):
-    session = await login(harness, client, uid="log-monitoring-admin", email=ADMIN_EMAIL)
-    await bootstrap_admin(ADMIN_EMAIL, settings=harness.settings, session_factory=harness.factory)
-    return session
-
-
-def _request_event(
-    *, created_at: datetime, status_code: int, duration_ms: float
-) -> MonitoringEvent:
-    return MonitoringEvent(
-        id=uuid4(),
-        event_type="http.request.completed",
-        service="platform-api",
-        environment="test",
-        worker_id="api-worker-test",
-        level="error" if status_code >= 500 else "warning" if status_code >= 400 else "info",
-        message="HTTP request completed",
-        request_id=f"request-{uuid4()}",
-        method="GET",
-        route="/api/v1/projects/{project_id}",
-        status_code=status_code,
-        duration_ms=duration_ms,
-        attributes={"request_body": "must not escape", "password": "secret"},
-        created_at=created_at,
-    )
 
 
 async def _seed_coverage(harness: Harness, *, start: datetime, end: datetime) -> None:
@@ -63,7 +36,7 @@ async def test_monitoring_services_are_admin_only_and_unknown_without_measured_r
     harness: Harness,
 ) -> None:
     async with harness.client() as admin_client, harness.client() as member_client:
-        await _login_admin(harness, admin_client)
+        await login_admin(harness, admin_client)
         await login(harness, member_client, uid="member", email="monitoring-member@example.com")
 
         denied = await member_client.get(f"{BASE}/services")
@@ -118,12 +91,12 @@ async def test_events_filter_stably_and_detail_does_not_return_raw_attributes(
     harness: Harness,
 ) -> None:
     async with harness.client() as client:
-        await _login_admin(harness, client)
+        await login_admin(harness, client)
         now = datetime.now(UTC)
         events = [
-            _request_event(created_at=now - timedelta(seconds=20), status_code=200, duration_ms=12),
-            _request_event(created_at=now - timedelta(seconds=10), status_code=500, duration_ms=15),
-            _request_event(created_at=now - timedelta(seconds=5), status_code=404, duration_ms=18),
+            request_event(created_at=now - timedelta(seconds=20), status_code=200, duration_ms=12),
+            request_event(created_at=now - timedelta(seconds=10), status_code=500, duration_ms=15),
+            request_event(created_at=now - timedelta(seconds=5), status_code=404, duration_ms=18),
         ]
         async with harness.factory() as db:
             db.add_all(events)
@@ -159,14 +132,14 @@ async def test_service_metrics_use_persisted_events_and_enforce_capture_coverage
     harness: Harness,
 ) -> None:
     async with harness.client() as client:
-        await _login_admin(harness, client)
+        await login_admin(harness, client)
         end = datetime.now(UTC) - timedelta(seconds=45)
         start = end - timedelta(minutes=5)
         await _seed_coverage(harness, start=start, end=end)
         async with harness.factory() as db:
             db.add_all(
                 [
-                    _request_event(
+                    request_event(
                         created_at=start + timedelta(seconds=index * 10),
                         status_code=500 if index < 2 else 200,
                         duration_ms=float(index + 1),
@@ -221,7 +194,7 @@ async def test_alert_acknowledgement_is_csrf_protected_idempotent_and_audited(
     harness: Harness,
 ) -> None:
     async with harness.client() as client:
-        session = await _login_admin(harness, client)
+        session = await login_admin(harness, client)
         alert_id = uuid4()
         async with harness.factory() as db:
             db.add(

@@ -4,7 +4,7 @@ from pydantic import ValidationError
 
 from management.core.config import Settings
 from management.infra.secret_box import SecretBox, SecretBoxError
-from tests.conftest import CONNECTION_KEY
+from tests.helpers.harness import CONNECTION_KEY
 
 
 def test_a_sealed_secret_opens_only_with_the_same_key() -> None:

@@ -1,51 +1,31 @@
 import pytest
-from httpx import AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.audit.models import AuditEvent
 from management.core.errors import APIError
 from management.identity.bootstrap_admin import bootstrap_admin
-from management.identity.models import EmailOtp, User
-from tests.conftest import (
-    ORIGIN,
+from management.identity.models import EmailOtp
+from tests.helpers.harness import Harness
+from tests.helpers.identity import (
+    AUTH,
+    EMAIL,
     PASSWORD,
-    Harness,
+    USERS,
     emailed_code,
+    invalid,
     login,
     mutation_headers,
+    post,
+    register,
     sign_in,
+    user_row,
     verify,
+    wrong,
 )
-from tests.test_projects_api import PROJECTS, create_project
+from tests.helpers.projects import PROJECTS, create_project
 
-AUTH = "/api/v1/auth"
-USERS = "/api/v1/users"
-EMAIL = "new@example.com"
 PENDING = {"email": EMAIL, "expires_in_seconds": 600, "resend_after_seconds": 60}
-
-
-async def post(client: AsyncClient, name: str, **body: object):
-    return await client.post(f"{AUTH}/{name}", json=body, headers={"Origin": ORIGIN})
-
-
-async def register(client: AsyncClient, email: str = EMAIL, password: str = PASSWORD):
-    response = await post(client, "register", email=email, password=password)
-    assert response.status_code == 201, response.text
-    return response
-
-
-def invalid(response) -> bool:
-    return response.status_code == 400 and response.json()["error"]["code"] == "OTP_INVALID"
-
-
-def wrong(code: str) -> str:
-    return f"{(int(code) + 1) % 10**6:06d}"
-
-
-async def user_row(harness: Harness, email: str = EMAIL) -> User:
-    async with harness.factory() as db:
-        return await db.scalar(select(User).where(User.email_normalized == email))
 
 
 async def no_cooldown(harness: Harness) -> None:

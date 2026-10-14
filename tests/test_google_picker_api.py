@@ -6,17 +6,18 @@ from pydantic import SecretStr
 from sqlalchemy import update
 
 from management.connections.models import GoogleConnectionGrant
-from tests.conftest import Harness, login, mutation_headers
 from tests.fakes import access_token_for
-from tests.test_connection_browse_api import failure
-from tests.test_google_sheets_connection_api import (
+from tests.helpers.connections import (
     REFRESH_TOKEN,
     create_sheets_connection,
+    failure,
     google_grant,
     grant_ids,
     with_sheets,
 )
-from tests.test_projects_api import PROJECTS, add_member, create_project
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
 
 
 def configure_picker(harness: Harness) -> None:

@@ -4,10 +4,11 @@ import pytest
 from sqlalchemy import select
 
 from management.research.models import StageDecision
-from tests.conftest import login, mutation_headers, open_harness
-from tests.engine_fakes import engine_overrides, install_fake_engines, seed_models
-from tests.test_projects_api import PROJECTS, add_member, create_project
-from tests.test_runs_api import start_run
+from tests.fakes.engines import engine_overrides, install_fake_engines, seed_models
+from tests.helpers.harness import open_harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
+from tests.helpers.research import start_run
 
 
 @pytest.fixture

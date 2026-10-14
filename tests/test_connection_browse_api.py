@@ -8,61 +8,22 @@ from httpx import AsyncClient
 from management.connections.connectors.base import Column, ConnectorError
 from management.connections.connectors.gate import ConnectionGate
 from management.infra.secret_box import SecretBox
-from tests.conftest import Harness, login, mutation_headers
 from tests.fakes import FakeTable
-from tests.test_connections_api import SECRET, audit_events, create_connection, wait_until
-from tests.test_projects_api import PROJECTS, add_member, create_project
-
-ORDERS = FakeTable(
-    columns=[Column("id", "integer"), Column("note", "text"), Column("paid", "boolean")],
-    rows=[(n, f"note {n}", n % 2 == 0) for n in range(1, 151)],
+from tests.helpers.audit import audit_events
+from tests.helpers.connections import (
+    SECRET,
+    SERIES,
+    connected_project,
+    external_database,
+    failure,
+    preview,
+    wait_until,
 )
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
+
 TABLE = {"type": "table", "schema": "public", "name": "orders"}
-SERIES = {
-    "type": "timeseries",
-    "name": "orders",
-    "fields": ["id"],
-    "tags": [],
-    "start": "2026-10-01T00:00:00Z",
-    "end": "2026-10-02T00:00:00Z",
-    "bucket": "1h",
-    "aggregate": "mean",
-}
-
-
-def external_database(harness: Harness) -> None:
-    harness.connectors.tables = {
-        ("public", "orders"): ORDERS,
-        ("public", "order_lines"): FakeTable(columns=[Column("id", "integer")]),
-        ("public", "customers"): FakeTable(
-            columns=[Column("id", "integer"), Column("bio", "text")],
-            rows=[(1, "x" * 600), (2, None)],
-        ),
-        ("sales", "regions"): FakeTable(columns=[Column("code", "text")], rows=[("north",)]),
-    }
-
-
-async def connected_project(harness: Harness, client: AsyncClient, **who: str):
-    """A signed-in owner, their project and the URL of a saved connection in it."""
-    session = await login(
-        harness, client, **(who or {"uid": "owner", "email": "owner@example.com"})
-    )
-    project = await create_project(client, session)
-    created = await create_connection(client, session, project["id"])
-    assert created.status_code == 201, created.text
-    url = f"{PROJECTS}/{project['id']}/connections/{created.json()['data']['id']}"
-    return session, project, url
-
-
-async def preview(client: AsyncClient, session: dict, url: str, source: dict):
-    return await client.post(
-        f"{url}/preview", json={"source": source}, headers=mutation_headers(session["csrf_token"])
-    )
-
-
-def failure(response) -> tuple[int, str, str | None]:
-    error = response.json()["error"]
-    return response.status_code, error["code"], error.get("reason")
 
 
 @pytest.mark.asyncio

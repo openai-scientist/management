@@ -33,17 +33,11 @@ from management.connections.connectors import build_connector_factory
 from management.connections.connectors.timeseries import time_text
 from management.connections.google_drive_oauth import build_google_drive_oauth
 from management.connections.models import GoogleConnectionGrant
-from tests.conftest import (
-    APP_URL,
-    GOOGLE_CONNECTIONS_REDIRECT_URI,
-    Harness,
-    login,
-    mutation_headers,
-    open_harness,
-)
-from tests.test_connection_browse_api import failure, preview
-from tests.test_dataset_imports_api import import_dataset, import_version
-from tests.test_projects_api import PROJECTS, create_project
+from tests.helpers.connections import failure, preview
+from tests.helpers.datasets import import_dataset, import_version
+from tests.helpers.harness import APP_URL, GOOGLE_CONNECTIONS_REDIRECT_URI, Harness, open_harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, create_project
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("PLATFORM_LIVE_CONNECTOR_TESTS") != "1",

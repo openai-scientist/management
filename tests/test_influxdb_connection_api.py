@@ -2,73 +2,29 @@ import logging
 
 import httpx
 import pytest
-from httpx import AsyncClient
 
-from management.connections.connectors import build_connector_factory
 from management.infra.secret_box import SecretBox
-from tests.conftest import CONNECTION_KEY, Harness, login, mutation_headers
-from tests.fakes import FakeInfluxDB
-from tests.test_connection_browse_api import failure, preview
-from tests.test_connections_api import audit_events
-from tests.test_projects_api import PROJECTS, create_project
-from tests.test_prometheus_connection_api import (
-    IP,
+from tests.helpers.audit import audit_events, every_audit_detail
+from tests.helpers.connections import (
+    INFLUXDB_URL,
+    PROMETHEUS_SERIES,
+    at,
+    connected_influxdb,
     connected_prometheus,
     connections,
     create,
-    every_audit_detail,
+    failure,
+    influxdb_body,
+    preview,
+    with_influxdb,
     with_prometheus,
 )
-from tests.test_prometheus_connection_api import SERIES as PROMETHEUS_SERIES
-from tests.test_prometheus_connector import at
+from tests.helpers.harness import CONNECTION_KEY, Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, create_project
 
 TOKEN = "apiv3_s3cret-token-never-shown"
-URL = "https://influx.example.com:8086/influx"
 SERIES = PROMETHEUS_SERIES | {"fields": ["value"]}
-
-
-def with_influxdb(harness: Harness) -> FakeInfluxDB:
-    """Put a fake InfluxDB behind the real connector factory; the points of the fake
-    Prometheus are in it, as the field `value` of one measurement."""
-    server = FakeInfluxDB(base_path="/influx")
-    for host, moment, value in [
-        ("a", 0.25, 1.0),
-        ("a", 0.5, 2.0),
-        ("a", 1.5, 10.0),
-        ("b", 0.75, 5.0),
-        ("b", 2.5, 2.5),
-    ]:
-        server.write("latency", {"host": host}, {"value": value, "note": "ok"}, at(moment))
-    server.write("jobs", {}, {"done": 3}, at(0.5))
-
-    async def resolver(host: str, port: int) -> list[str]:
-        return {"influx.example.com": [IP], "internal.example.com": ["10.0.0.5"]}[host]
-
-    harness.app.state.connector_factory = build_connector_factory(
-        harness.settings, resolver, http_transport=server.transport
-    )
-    return server
-
-
-def influxdb_body(
-    name: str = "Benchmarks", url: str = URL, database: str = "bench", **secret: str
-) -> dict:
-    return {
-        "name": name,
-        "kind": "influxdb",
-        "config": {"url": url, "database": database},
-        "secret": secret,
-    }
-
-
-async def connected_influxdb(harness: Harness, client: AsyncClient, **secret: str):
-    """A signed-in owner, their project and the URL of a saved InfluxDB connection."""
-    session = await login(harness, client, uid="owner", email="owner@example.com")
-    project = await create_project(client, session)
-    created = await create(client, session, project["id"], influxdb_body(**secret))
-    assert created.status_code == 201, created.text
-    url = f"{PROJECTS}/{project['id']}/connections/{created.json()['data']['id']}"
-    return session, project, url
 
 
 async def test_an_influxdb_server_is_connected_tested_renamed_and_deleted(
@@ -93,7 +49,7 @@ async def test_an_influxdb_server_is_connected_tested_renamed_and_deleted(
         assert created["kind"] == "influxdb"
         # The address written one way, and the host and port it names.
         assert created["config"] == {
-            "url": URL,
+            "url": INFLUXDB_URL,
             "database": "bench",
             "host": "influx.example.com",
             "port": 8086,
@@ -222,24 +178,24 @@ async def test_a_server_that_fails_its_first_test_is_not_saved(harness: Harness)
 @pytest.mark.parametrize(
     ("body", "field"),
     [
-        ({"config": {"url": URL}}, "config.database"),
-        ({"config": {"url": URL, "database": ""}}, "config.database"),
-        ({"config": {"url": URL, "database": "a\nb"}}, "config.database"),
-        ({"config": {"url": URL, "database": "bench\n"}}, "config.database"),
+        ({"config": {"url": INFLUXDB_URL}}, "config.database"),
+        ({"config": {"url": INFLUXDB_URL, "database": ""}}, "config.database"),
+        ({"config": {"url": INFLUXDB_URL, "database": "a\nb"}}, "config.database"),
+        ({"config": {"url": INFLUXDB_URL, "database": "bench\n"}}, "config.database"),
         ({"secret": {"token": "token\n"}}, "secret.token"),
-        ({"config": {"url": URL, "database": "x" * 256}}, "config.database"),
+        ({"config": {"url": INFLUXDB_URL, "database": "x" * 256}}, "config.database"),
         ({"config": {"database": "bench"}}, "config.url"),
         (
             {"config": {"url": f"https://reader:{TOKEN}@influx.example.com", "database": "bench"}},
             "config.url",
         ),
-        ({"config": {"url": f"{URL}?db=other", "database": "bench"}}, "config.url"),
+        ({"config": {"url": f"{INFLUXDB_URL}?db=other", "database": "bench"}}, "config.url"),
         # The host and the port are read from the address, never taken beside it.
         (
-            {"config": {"url": URL, "database": "bench", "host": "internal.example.com"}},
+            {"config": {"url": INFLUXDB_URL, "database": "bench", "host": "internal.example.com"}},
             "config.host",
         ),
-        ({"config": {"url": URL, "database": "bench", "port": 22}}, "config.port"),
+        ({"config": {"url": INFLUXDB_URL, "database": "bench", "port": 22}}, "config.port"),
         ({"secret": {"password": "x"}}, "secret"),
         ({"secret": {"username": "admin", "token": "x"}}, "secret"),
         ({"secret": {"username": "reader"}}, "secret"),

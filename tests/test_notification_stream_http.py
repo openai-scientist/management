@@ -5,8 +5,9 @@ import pytest
 import uvicorn
 from httpx import AsyncClient
 
-from tests.conftest import ORIGIN, Harness, login
-from tests.test_notification_stream import STREAM
+from tests.helpers.harness import ORIGIN, Harness
+from tests.helpers.identity import login
+from tests.helpers.notifications import STREAM
 
 
 @pytest.mark.asyncio

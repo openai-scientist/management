@@ -3,29 +3,11 @@ import io
 
 import openpyxl
 import pytest
-from httpx import AsyncClient
 
-from tests.conftest import Harness, login, mutation_headers
-from tests.test_projects_api import PROJECTS, add_member, create_project
-
-CSV = b"student_id,school,exam_score\n1,A,70\n2,B,81\n"
-
-
-async def upload_dataset(
-    client: AsyncClient,
-    session: dict,
-    project_id: str,
-    *,
-    name: str = "Exam scores",
-    content: bytes = CSV,
-    filename: str = "scores.csv",
-):
-    return await client.post(
-        f"{PROJECTS}/{project_id}/datasets",
-        data={"name": name},
-        files={"file": (filename, content, "text/csv")},
-        headers=mutation_headers(session["csrf_token"]),
-    )
+from tests.helpers.datasets import CSV, upload_dataset
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
 
 
 @pytest.mark.asyncio

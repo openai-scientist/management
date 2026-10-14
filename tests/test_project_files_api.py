@@ -5,8 +5,9 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from management.audit.models import AuditEvent
-from tests.conftest import ORIGIN, Harness, login, mutation_headers
-from tests.test_projects_api import PROJECTS, add_member, create_project
+from tests.helpers.harness import ORIGIN, Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
 
 PDF = b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\n"
 CSV = b"student_id,score\n1,70\n"

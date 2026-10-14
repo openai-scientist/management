@@ -9,7 +9,7 @@ from management.research.engines.client import (
     EngineRejected,
     EngineUnavailable,
 )
-from tests.engine_fakes import make_request
+from tests.fakes.engines import make_request
 from tests.fakes.fake_engine import FakeEngine
 
 

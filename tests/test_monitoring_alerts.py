@@ -11,7 +11,7 @@ from management.monitoring.models import (
     MonitoringEvent,
     MonitoringWorkerState,
 )
-from tests.conftest import Harness
+from tests.helpers.harness import Harness
 
 
 @pytest.mark.asyncio

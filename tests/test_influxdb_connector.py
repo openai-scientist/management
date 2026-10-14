@@ -32,7 +32,7 @@ from management.connections.connectors.influxdb import (
 )
 from management.connections.connectors.network_guard import ResolvedHost
 from tests.fakes import FakeInfluxDB
-from tests.test_prometheus_connector import DAY, at
+from tests.helpers.connections import DAY, at
 
 HOST = ResolvedHost(hostname="influx.example.com", ip="203.0.113.7", port=8086)
 TOKEN = "s3cret-token"

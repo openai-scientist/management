@@ -4,7 +4,8 @@ from sqlalchemy import select
 from management.audit.models import AuditEvent
 from management.identity.bootstrap_admin import bootstrap_admin
 from management.identity.models import User, UserPlatformRole
-from tests.conftest import ORIGIN, PASSWORD, Harness, login, mutation_headers, sign_in, verify
+from tests.helpers.harness import ORIGIN, Harness
+from tests.helpers.identity import PASSWORD, login, mutation_headers, sign_in, verify
 
 USERS = "/api/v1/users"
 AUTH = "/api/v1/auth"

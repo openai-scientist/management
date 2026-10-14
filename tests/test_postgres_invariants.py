@@ -19,27 +19,20 @@ from management.identity.models import AuthSession, EmailOtp, User, UserStatus
 from management.main import create_app
 from management.notifications.service import notify_user
 from management.projects.models import Notification, ProjectMembership
-from tests.conftest import (
-    CALLBACK_KEY,
-    CONNECTION_KEY,
+from tests.fakes import FakeTable
+from tests.helpers.connections import create_connection, wait_until
+from tests.helpers.harness import CALLBACK_KEY, CONNECTION_KEY, Harness
+from tests.helpers.identity import (
     PASSWORD,
-    Harness,
     emailed_code,
     login,
     mutation_headers,
+    post,
+    register,
     verify,
 )
-from tests.fakes import FakeTable
-from tests.test_connections_api import create_connection, wait_until
-from tests.test_email_verification import post, register
-from tests.test_notification_stream import open_stream
-from tests.test_projects_api import (
-    INVITATIONS,
-    PROJECTS,
-    add_member,
-    create_project,
-    invite_member,
-)
+from tests.helpers.notifications import open_stream
+from tests.helpers.projects import INVITATIONS, PROJECTS, add_member, create_project, invite_member
 
 
 @pytest_asyncio.fixture
@@ -262,7 +255,7 @@ async def test_member_add_racing_a_suspension_never_adds_a_suspended_user(
 
 @pytest.mark.asyncio
 async def test_concurrent_run_starts_leave_one_run_in_progress(postgres_harness: Harness) -> None:
-    from tests.test_runs_api import ready_project, start_run
+    from tests.helpers.research import ready_project, start_run
 
     async with (
         postgres_harness.client() as manager_client,
@@ -296,7 +289,7 @@ async def test_concurrent_run_starts_leave_one_run_in_progress(postgres_harness:
 
 @pytest.mark.asyncio
 async def test_repeated_callbacks_arriving_together_apply_once(postgres_harness: Harness) -> None:
-    from tests.test_runs_api import REVIEW, ready_project, report, start_run
+    from tests.helpers.research import REVIEW, ready_project, report, start_run
 
     async with postgres_harness.client() as client, postgres_harness.client() as popper:
         manager = await login(
@@ -740,7 +733,7 @@ async def test_reading_through_a_connection_holds_no_database_connection(
 
 
 async def test_versions_added_together_get_consecutive_numbers(postgres_harness: Harness) -> None:
-    from tests.test_datasets_api import CSV, upload_dataset
+    from tests.helpers.datasets import CSV, upload_dataset
 
     harness = postgres_harness
     async with harness.client() as client:
@@ -776,7 +769,7 @@ async def test_versions_added_together_get_consecutive_numbers(postgres_harness:
 async def test_an_import_holds_no_database_connection_and_names_stay_unique(
     postgres_harness: Harness, tmp_path
 ) -> None:
-    from tests.test_dataset_imports_api import import_dataset, import_version, stored_files
+    from tests.helpers.datasets import import_dataset, import_version, stored_files
 
     harness = postgres_harness
     harness.connectors.tables = {("public", "scores"): FakeTable([Column("id", "integer")], [(1,)])}
@@ -836,8 +829,8 @@ async def test_a_real_table_is_imported_and_a_run_starts_from_it(
     from sqlalchemy.engine import make_url
 
     from management.connections.connectors import build_connector_factory
-    from tests.test_dataset_imports_api import import_dataset, import_version
-    from tests.test_postgres_connector import sample_schema
+    from tests.helpers.connections import sample_schema
+    from tests.helpers.datasets import import_dataset, import_version
 
     harness = postgres_harness
     url = make_url(os.environ["PLATFORM_POSTGRES_TEST_URL"])
@@ -927,7 +920,7 @@ async def test_two_returns_from_google_with_one_state_store_one_refresh_token(
     from management.connections.google_drive_oauth import GoogleGrant
     from management.connections.models import GoogleConnectionGrant
     from management.infra.secret_box import SecretBox
-    from tests.test_google_connection_grant import CALLBACK, STATE_COOKIE, start
+    from tests.helpers.connections import CALLBACK, STATE_COOKIE, start
 
     harness = postgres_harness
     harness.settings.app_url = "http://localhost:3000"
@@ -964,7 +957,7 @@ async def test_two_returns_from_google_with_one_state_store_one_refresh_token(
 async def test_two_connections_cannot_be_made_from_one_google_grant_at_once(
     postgres_harness: Harness,
 ) -> None:
-    from tests.test_google_sheets_connection_api import one_grant_makes_one_connection
+    from tests.helpers.connections import one_grant_makes_one_connection
 
     harness = postgres_harness
     harness.settings.app_url = "http://localhost:3000"

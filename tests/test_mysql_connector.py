@@ -29,7 +29,7 @@ from management.connections.connectors.gate import ConnectionGate
 from management.connections.connectors.mysql import MysqlConnector, map_error, map_query_error
 from management.connections.connectors.network_guard import ResolvedHost
 from management.connections.connectors.values import to_text
-from tests.test_postgres_connector import self_signed_certificate, tcp_server
+from tests.helpers.connections import self_signed_certificate, tcp_server
 
 PASSWORD = "s3cret-value"
 OK = b"\x00\x00\x00\x02\x00\x00\x00"

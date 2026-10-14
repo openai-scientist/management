@@ -1,9 +1,10 @@
 import pytest
 
 from management.identity.bootstrap_admin import bootstrap_admin
-from tests.conftest import Harness, login, mutation_headers
-from tests.test_datasets_api import upload_dataset
-from tests.test_projects_api import PROJECTS, add_member, create_project
+from tests.helpers.datasets import upload_dataset
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
 
 PROTEIN = "Protein Folding"
 CLIMATE = "Climate Risk"

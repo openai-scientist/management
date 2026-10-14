@@ -1,96 +1,21 @@
 import asyncio
 import json
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import asyncpg
 import pytest
-from httpx import AsyncClient
 from sqlalchemy import event, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from management.identity.models import AuthSession, User
 from management.notifications.notification_stream import notifications_changed
 from management.research.popper_client import PopperUnavailable
-from tests.conftest import ORIGIN, Harness, login, mutation_headers
-from tests.test_comments_and_notifications_api import NOTIFICATIONS, team
-from tests.test_projects_api import PROJECTS, add_member, create_project, invite_member
-from tests.test_runs_api import REVIEW, ready_project, report, start_run
-
-STREAM = f"{NOTIFICATIONS}/stream"
-
-
-class EventStream:
-    def __init__(self, messages: asyncio.Queue) -> None:
-        self.messages = messages
-        self.buffer = b""
-
-    async def frame(self) -> str:
-        while b"\n\n" not in self.buffer:
-            message = await asyncio.wait_for(self.messages.get(), timeout=2)
-            assert message["type"] == "http.response.body"
-            self.buffer += message.get("body", b"")
-            if not message.get("more_body", False) and b"\n\n" not in self.buffer:
-                raise AssertionError("Stream ended before another event")
-        frame, self.buffer = self.buffer.split(b"\n\n", 1)
-        return frame.decode()
-
-    async def snapshot(self, event_name: str = "notifications") -> dict:
-        frame = await self.frame()
-        assert frame.startswith(f"event: {event_name}\n"), frame
-        return json.loads(frame.split("data: ", 1)[1])
-
-
-@asynccontextmanager
-async def open_stream(
-    harness: Harness, client: AsyncClient, path: str = STREAM
-) -> AsyncIterator[tuple[dict, EventStream]]:
-    """Exercise the real ASGI stream; HTTPX's in-process transport buffers forever."""
-    request = client.build_request("GET", path, headers={"Origin": ORIGIN})
-    messages = asyncio.Queue()
-    disconnected = asyncio.Event()
-    request_received = False
-
-    async def receive() -> dict:
-        nonlocal request_received
-        if not request_received:
-            request_received = True
-            return {"type": "http.request", "body": b"", "more_body": False}
-        await disconnected.wait()
-        return {"type": "http.disconnect"}
-
-    async def send(message: dict) -> None:
-        await messages.put(message)
-
-    task = asyncio.create_task(
-        harness.app(
-            {
-                "type": "http",
-                "asgi": {"version": "3.0", "spec_version": "2.3"},
-                "http_version": "1.1",
-                "method": "GET",
-                "scheme": "http",
-                "path": request.url.path,
-                "raw_path": request.url.path.encode(),
-                "root_path": "",
-                "query_string": request.url.query,
-                "headers": [(name.lower(), value) for name, value in request.headers.raw],
-                "client": ("127.0.0.1", 12345),
-                "server": ("test", 80),
-            },
-            receive,
-            send,
-        )
-    )
-    try:
-        started = await asyncio.wait_for(messages.get(), timeout=2)
-        assert started["type"] == "http.response.start"
-        yield started, EventStream(messages)
-    finally:
-        disconnected.set()
-        await asyncio.wait_for(task, timeout=2)
+from tests.helpers.harness import ORIGIN, Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.notifications import NOTIFICATIONS, STREAM, open_stream, team
+from tests.helpers.projects import PROJECTS, add_member, create_project, invite_member
+from tests.helpers.research import REVIEW, ready_project, report, start_run
 
 
 @pytest.mark.asyncio

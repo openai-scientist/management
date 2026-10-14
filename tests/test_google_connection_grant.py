@@ -20,18 +20,17 @@ from management.connections.models import GoogleConnectionGrant
 from management.core.config import Settings
 from management.identity.google_oauth import AUTHORIZATION_URL, TOKEN_URL, GoogleOAuthError
 from management.infra.secret_box import SecretBox
-from tests.conftest import (
+from tests.helpers.connections import CALLBACK, STATE_COOKIE, start, start_path
+from tests.helpers.harness import (
     APP_URL,
     CONNECTION_KEY,
     GOOGLE_CLIENT_ID,
     GOOGLE_CONNECTIONS_REDIRECT_URI,
     Harness,
-    login,
-    mutation_headers,
     open_harness,
 )
-from tests.test_google_sign_in import CLIENT_SECRET, cookies_set, id_token
-from tests.test_projects_api import PROJECTS, add_member, create_project
+from tests.helpers.identity import CLIENT_SECRET, cookies_set, id_token, login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
 
 CODE = "one-use-code-that-must-never-be-logged"
 REFRESH_TOKEN = "refresh-token-that-must-never-be-logged"
@@ -39,9 +38,7 @@ ACCESS_TOKEN = "access-token-that-must-never-be-logged"
 EMAIL = "dat@gmail.com"
 GRANT = GoogleGrant(refresh_token=REFRESH_TOKEN, subject="google-sub-1", email=EMAIL)
 GRANTED_SCOPE = f"openid https://www.googleapis.com/auth/userinfo.email {DRIVE_SCOPE}"
-STATE_COOKIE = "platform_google_drive_state"
 SESSION_COOKIE = "platform_session"
-CALLBACK = "/api/v1/connections/google/callback"
 
 
 def google(handler) -> GoogleDriveOAuth:
@@ -63,19 +60,8 @@ def token_answer(**changes: object) -> dict:
     return {key: value for key, value in answer.items() if value is not None}
 
 
-def start_path(project_id: str) -> str:
-    return f"{PROJECTS}/{project_id}/connections/google/start"
-
-
 def connections_page(project_id: str) -> str:
     return f"{APP_URL}/projects/{project_id}/connections"
-
-
-async def start(client, project_id: str) -> str:
-    """Leave for Google from this browser; the state Google will hand back."""
-    started = await client.get(start_path(project_id))
-    assert started.status_code == 302, started.text
-    return parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
 
 
 async def grants(harness: Harness) -> list[GoogleConnectionGrant]:

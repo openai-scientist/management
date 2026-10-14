@@ -12,7 +12,7 @@ from management.infra.email_sender import (
     ResendEmailSender,
     build_email_sender,
 )
-from tests.conftest import Harness
+from tests.helpers.harness import Harness
 
 API_KEY = "re_test_key_that_must_never_be_logged"
 SENDER = "AI Research Platform <no-reply@beyond8.io.vn>"

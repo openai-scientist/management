@@ -10,23 +10,23 @@ from management.audit.models import AuditEvent
 from management.identity.bootstrap_admin import bootstrap_admin
 from management.infra.email_templates import local_time
 from management.projects.models import ProjectMembership
-from tests.conftest import Harness, login, mutation_headers
-from tests.test_comments_and_notifications_api import kinds
-from tests.test_projects_api import (
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.notifications import kinds
+from tests.helpers.projects import (
     INVITATIONS,
+    MISSING,
     PROJECTS,
     accept_invitation,
     add_member,
+    answer,
+    code,
     create_project,
     invite_member,
+    remove,
 )
 
 USERS = "/api/v1/users"
-MISSING = "00000000-0000-0000-0000-000000000000"
-
-
-def code(response) -> tuple[int, str]:
-    return response.status_code, response.json()["error"]["code"]
 
 
 async def expire(harness: Harness, membership_id: str) -> None:
@@ -51,22 +51,9 @@ async def members(client: AsyncClient, project_id: str, **params: object) -> lis
     return response.json()["data"]
 
 
-async def answer(client: AsyncClient, session: dict, membership_id: str, action: str):
-    return await client.post(
-        f"{INVITATIONS}/{membership_id}/{action}", headers=mutation_headers(session["csrf_token"])
-    )
-
-
 async def resend(client: AsyncClient, session: dict, project_id: str, membership_id: str):
     return await client.post(
         f"{PROJECTS}/{project_id}/members/{membership_id}/invite",
-        headers=mutation_headers(session["csrf_token"]),
-    )
-
-
-async def remove(client: AsyncClient, session: dict, project_id: str, membership_id: str):
-    return await client.delete(
-        f"{PROJECTS}/{project_id}/members/{membership_id}",
         headers=mutation_headers(session["csrf_token"]),
     )
 

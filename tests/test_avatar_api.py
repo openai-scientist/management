@@ -1,16 +1,15 @@
 import pytest
-from httpx import AsyncClient
 from sqlalchemy import select
 
 from management.audit.models import AuditEvent
 from management.identity import avatars
 from management.identity.bootstrap_admin import bootstrap_admin
-from tests.conftest import ORIGIN, Harness, login, mutation_headers
-from tests.test_comments_and_notifications_api import NOTIFICATIONS, team
-from tests.test_projects_api import PROJECTS
-from tests.test_runs_api import start_run
+from tests.helpers.harness import ORIGIN, Harness
+from tests.helpers.identity import AUTH, login, mutation_headers, upload
+from tests.helpers.notifications import NOTIFICATIONS, team
+from tests.helpers.projects import PROJECTS
+from tests.helpers.research import start_run
 
-AUTH = "/api/v1/auth"
 USERS = "/api/v1/users"
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
@@ -18,15 +17,6 @@ JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32
 WEBP = b"RIFF\x24\x00\x00\x00WEBPVP8 " + b"\x00" * 32
 GIF = b"GIF89a" + b"\x00" * 32
 SVG = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
-
-
-async def upload(client: AsyncClient, session: dict, content: bytes, *, url: str | None = None):
-    return await client.post(
-        url or f"{AUTH}/me/avatar",
-        # The name and content type lie on purpose: the server decides from the bytes.
-        files={"file": ("picture.txt", content, "text/plain")},
-        headers=mutation_headers(session["csrf_token"]),
-    )
 
 
 def stored_avatars(tmp_path) -> list[str]:

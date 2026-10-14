@@ -3,12 +3,10 @@ import io
 import threading
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime
 
 import httpx
 import openpyxl
 import pytest
-from openpyxl.chart import BarChart, Reference
 
 from management.connections.connectors import google_drive, header_rows
 from management.connections.connectors.base import (
@@ -40,6 +38,7 @@ from tests.fakes import (
     FakeSpreadsheet,
     access_token_for,
 )
+from tests.helpers.connections import workbook
 
 FOLDER_ID = "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"
 OTHER_FOLDER_ID = "1ZyXwVuTsRqPoNmLkJiHgFeDcBa987654"
@@ -49,26 +48,6 @@ MAX_FILE_BYTES = 20_000
 SCORES_CSV = b'student,school,score\r\nAn,A,7.5\r\nBinh,"B, north",8\r\nChi,,6.25\r\n'
 SCORES = [("An", "A", "7.5"), ("Binh", "B, north", "8"), ("Chi", None, "6.25")]
 TEXT = [Column("student", "text"), Column("school", "text"), Column("score", "text")]
-
-
-def workbook() -> bytes:
-    """A workbook as Excel saves one: two sheets of cells and a sheet that is a chart."""
-    book = openpyxl.Workbook()
-    scores = book.active
-    scores.title = "Scores"
-    scores.append(["student", "score", "taken", "day", "passed", "double", "group"])
-    scores.append(["An", 7.5, datetime(2026, 3, 1, 9, 30), date(2026, 3, 1), True, "=B2*2", "x"])
-    scores.append(["Binh", 8, None, None, False, None, None])
-    # Only the first cell of a merged range holds its value.
-    scores.merge_cells("G2:G3")
-    book.create_sheet("Second").append(["only"])
-    book["Second"].append([1])
-    chart = BarChart()
-    chart.add_data(Reference(scores, min_col=2, min_row=1, max_row=3), titles_from_data=True)
-    book.create_chartsheet("Chart").add_chart(chart)
-    saved = io.BytesIO()
-    book.save(saved)
-    return saved.getvalue()
 
 
 def folder(**files: FakeDriveFile) -> tuple[FakeGoogleDrive, FakeGoogleDriveOAuth]:

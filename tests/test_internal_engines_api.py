@@ -1,13 +1,18 @@
 import hashlib
 
+import pytest
 from sqlalchemy import select
 
 from management.research.contracts import ArtifactMeta, EventBatch
 from management.research.models import RunArtifact, RunEvent, StageRun
-from tests import test_orchestrator_flow as flow
+from tests.helpers.research import lifecycle, open_pipeline
 
-lifecycle = flow.lifecycle
-pipeline = flow.pipeline  # reuse the fixture
+
+@pytest.fixture
+async def pipeline(tmp_path):
+    async with open_pipeline(tmp_path) as state:
+        yield state
+
 
 KEY = {"X-Service-Key": "test-service-key"}
 

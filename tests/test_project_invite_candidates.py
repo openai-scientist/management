@@ -6,9 +6,17 @@ import pytest
 from management.identity.bootstrap_admin import bootstrap_admin
 from management.identity.models import User, UserPlatformRole, UserStatus
 from management.projects.models import ProjectMembership
-from tests.conftest import Harness, login, mutation_headers
-from tests.test_project_invitations import MISSING, code, remove
-from tests.test_projects_api import PROJECTS, add_member, create_project, invite_member
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import (
+    MISSING,
+    PROJECTS,
+    add_member,
+    code,
+    create_project,
+    invite_member,
+    remove,
+)
 
 
 @pytest.mark.asyncio

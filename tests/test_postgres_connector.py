@@ -1,20 +1,13 @@
 import asyncio
-import datetime
 import logging
 import os
 import ssl
 import struct
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
 from uuid import uuid4
 
 import asyncpg
 import pytest
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID
 from sqlalchemy.engine import make_url
 
 from management.connections.connectors.base import (
@@ -27,8 +20,7 @@ from management.connections.connectors.gate import ConnectionGate
 from management.connections.connectors.network_guard import ResolvedHost
 from management.connections.connectors.postgres import PostgresConnector
 from management.connections.connectors.values import to_text
-
-Handler = Callable[[asyncio.StreamReader, asyncio.StreamWriter], Awaitable[None]]
+from tests.helpers.connections import direct, sample_schema, self_signed_certificate, tcp_server
 
 
 def parameter_status(name: bytes, value: bytes) -> bytes:
@@ -54,15 +46,6 @@ def connector(
     )
 
 
-@asynccontextmanager
-async def tcp_server(handler: Handler) -> AsyncIterator[int]:
-    server = await asyncio.start_server(handler, "127.0.0.1", 0)
-    try:
-        yield server.sockets[0].getsockname()[1]
-    finally:
-        server.close()
-
-
 async def reason_of(target: PostgresConnector) -> str:
     with pytest.raises(ConnectorError) as raised:
         await target.test()
@@ -70,34 +53,6 @@ async def reason_of(target: PostgresConnector) -> str:
     assert "s3cret-value" not in raised.value.message
     assert raised.value.__cause__ is None
     return raised.value.reason
-
-
-def self_signed_certificate(directory, dns_name: str) -> tuple[str, str]:
-    key = ec.generate_private_key(ec.SECP256R1())
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, dns_name)])
-    now = datetime.datetime.now(datetime.UTC)
-    certificate = (
-        x509.CertificateBuilder()
-        .subject_name(name)
-        .issuer_name(name)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - datetime.timedelta(days=1))
-        .not_valid_after(now + datetime.timedelta(days=1))
-        .add_extension(x509.SubjectAlternativeName([x509.DNSName(dns_name)]), critical=False)
-        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
-        .sign(key, hashes.SHA256())
-    )
-    cert_path, key_path = directory / "server.pem", directory / "server.key"
-    cert_path.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
-    key_path.write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        )
-    )
-    return str(cert_path), str(key_path)
 
 
 def test_a_closed_port_is_unreachable_and_the_log_names_only_the_reason(run, caplog) -> None:
@@ -306,50 +261,6 @@ def test_a_real_server_accepts_good_details_and_names_what_is_wrong(
         assert raised.value.reason == "permission_denied"
 
     run(scenario())
-
-
-@asynccontextmanager
-async def direct(url) -> AsyncIterator[asyncpg.Connection]:
-    """A connection of the test's own, to set a scene and to look at what is left of it."""
-    connection = await asyncpg.connect(
-        host=url.host,
-        port=url.port or 5432,
-        user=url.username,
-        password=url.password,
-        database=url.database,
-    )
-    try:
-        yield connection
-    finally:
-        await connection.close()
-
-
-@asynccontextmanager
-async def sample_schema(url) -> AsyncIterator[str]:
-    schema = f"conn_test_{uuid4().hex}"
-    async with direct(url) as admin:
-        await admin.execute(
-            f"""
-            CREATE SCHEMA {schema};
-            SET search_path = {schema};
-            CREATE TABLE orders (
-                id integer PRIMARY KEY, note text, amount numeric(10, 2), tags text[],
-                payload jsonb, placed_on date
-            );
-            INSERT INTO orders
-            SELECT n, 'note ' || n, n * 1.5, ARRAY['a', 'b'], '{{"k": 1}}', DATE '2026-01-01' + n
-            FROM generate_series(1, 250) AS n;
-            CREATE VIEW big_orders AS SELECT id, amount FROM orders WHERE amount > 100;
-            CREATE MATERIALIZED VIEW order_totals AS SELECT count(*) AS orders FROM orders;
-            CREATE TABLE order_100_percent (id integer);
-            """
-        )
-        await admin.execute('CREATE TABLE "we""ird name" ("the ""col""" text)')
-        await admin.execute("""INSERT INTO "we""ird name" VALUES ('found')""")
-        try:
-            yield schema
-        finally:
-            await admin.execute(f"DROP SCHEMA {schema} CASCADE")
 
 
 async def read(target: PostgresConnector, source, *, max_rows: int | None):

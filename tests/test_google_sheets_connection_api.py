@@ -3,115 +3,44 @@ import csv
 import io
 import json
 from datetime import UTC, datetime, timedelta
-from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, update
 
-from management.connections.connectors import build_connector_factory
-from management.connections.google_drive_oauth import GoogleGrant
 from management.connections.models import DataConnection, GoogleConnectionGrant
 from management.datasets.models import DatasetVersion
-from management.infra.secret_box import SecretBox
-from tests.conftest import CONNECTION_KEY, Harness, login, mutation_headers
-from tests.fakes import FakeGoogleSheets, FakeSpreadsheet, access_token_for
-from tests.test_connection_browse_api import failure, preview
-from tests.test_connections_api import audit_events, create_connection, wait_until
-from tests.test_google_connection_grant import CALLBACK, start
-from tests.test_projects_api import PROJECTS, add_member, create_project
+from tests.fakes import access_token_for
+from tests.helpers.audit import audit_events
+from tests.helpers.connections import (
+    EMAIL,
+    PRIVATE_ID,
+    REFRESH_TOKEN,
+    SPREADSHEET_ID,
+    SUBJECT,
+    TITLE,
+    connections,
+    create_connection,
+    create_sheets_connection,
+    failure,
+    google_grant,
+    grant_ids,
+    preview,
+    reauthorize,
+    sheets_body,
+    start,
+    stored_token,
+    wait_until,
+    with_sheets,
+)
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
 
-SPREADSHEET_ID = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
-SPREADSHEET_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit?gid=0#gid=0"
-PRIVATE_ID = "1-a-spreadsheet-of-somebody-else-entirely"
-TITLE = "Survey 2026"
-SUBJECT = "google-sub-1"
-EMAIL = "dat@gmail.com"
-REFRESH_TOKEN = "refresh-token-that-must-never-be-shown"
 NEW_REFRESH_TOKEN = "second-refresh-token-never-shown-either"
 TAB = {"type": "table", "schema": TITLE, "name": "Answers"}
 ANSWERS_CSV = b'student,school,score\r\nAn,A,7.5\r\nBinh,"B, north",8\r\nChi,,6.25\r\n'
-
-
-def with_sheets(harness: Harness) -> FakeGoogleSheets:
-    """Put a fake Sheets API behind the real connector factory; one spreadsheet is in it."""
-    sheets = FakeGoogleSheets()
-    sheets.spreadsheets[SPREADSHEET_ID] = FakeSpreadsheet(
-        title=TITLE,
-        tabs={
-            "Answers": [
-                ["student", "school", "score"],
-                ["An", "A", 7.5],
-                ["Binh", "B, north", 8],
-                ["Chi", "", 6.25],
-            ],
-            "Notes": [["note"], ["first"]],
-            "Broken": [["a", ""], [1, "stray"]],
-        },
-        readers={REFRESH_TOKEN},
-    )
-    sheets.spreadsheets[PRIVATE_ID] = FakeSpreadsheet(title="Private", tabs={}, readers=set())
-    harness.app.state.connector_factory = build_connector_factory(
-        harness.settings, google_oauth=harness.google_drive, google_transport=sheets.transport
-    )
-    return sheets
-
-
-async def google_grant(
-    harness: Harness,
-    client: AsyncClient,
-    project_id: str,
-    *,
-    refresh_token: str = REFRESH_TOKEN,
-    subject: str = SUBJECT,
-) -> str:
-    """Give access as a Google account from this browser; the id the frontend is handed."""
-    harness.google_drive.grant = GoogleGrant(refresh_token, subject, EMAIL)
-    state = await start(client, project_id)
-    done = await client.get(CALLBACK, params={"code": "one-use-code", "state": state})
-    return parse_qs(urlsplit(done.headers["location"]).query)["google_grant"][0]
-
-
-def sheets_body(grant_id: str, name: str = "Survey", spreadsheet: str = SPREADSHEET_URL) -> dict:
-    return {
-        "name": name,
-        "kind": "google_sheets",
-        "config": {"spreadsheet": spreadsheet},
-        "grant_id": grant_id,
-    }
-
-
-async def create_sheets_connection(
-    client: AsyncClient, session: dict, project_id: str, grant_id: str, **body: str
-):
-    return await client.post(
-        f"{PROJECTS}/{project_id}/connections",
-        json=sheets_body(grant_id, **body),
-        headers=mutation_headers(session["csrf_token"]),
-    )
-
-
-async def reauthorize(client: AsyncClient, session: dict, url: str, grant_id: str):
-    return await client.post(
-        f"{url}/reauthorize",
-        json={"grant_id": grant_id},
-        headers=mutation_headers(session["csrf_token"]),
-    )
-
-
-async def grant_ids(harness: Harness) -> set[str]:
-    async with harness.factory() as db:
-        return {str(grant_id) for grant_id in await db.scalars(select(GoogleConnectionGrant.id))}
-
-
-async def connections(harness: Harness) -> list[DataConnection]:
-    async with harness.factory() as db:
-        return list(await db.scalars(select(DataConnection)))
-
-
-def stored_token(row: DataConnection) -> str:
-    return SecretBox(CONNECTION_KEY).open(row.secret_ciphertext)["refresh_token"]
 
 
 async def connected_spreadsheet(harness: Harness, client: AsyncClient):
@@ -349,37 +278,6 @@ async def test_a_grant_that_expires_while_the_spreadsheet_is_tried_makes_no_conn
 
         assert failure(await attempt) == (422, "GOOGLE_GRANT_INVALID", None)
         assert await connections(harness) == []
-
-
-async def one_grant_makes_one_connection(harness: Harness) -> None:
-    """Two requests with one grant, both past the first check before either saves.
-
-    For a harness on PostgreSQL: the in-memory SQLite one runs every request on a single
-    database connection, where one request's rollback undoes the other's work.
-    """
-    sheets = with_sheets(harness)
-    sheets.hold = asyncio.Event()
-    async with harness.client() as client:
-        session = await login(harness, client, uid="owner", email="owner@example.com")
-        project = await create_project(client, session)
-        grant_id = await google_grant(harness, client, project["id"])
-
-        # Both find the grant unused, and both are still asking Google about the spreadsheet.
-        attempts = [
-            asyncio.create_task(
-                create_sheets_connection(client, session, project["id"], grant_id, name=name)
-            )
-            for name in ("First", "Second")
-        ]
-        await wait_until(lambda: len(sheets.requests) == 2)
-        sheets.hold.set()
-        answers = await asyncio.gather(*attempts)
-
-    assert sorted(answer.status_code for answer in answers) == [201, 422]
-    refused = next(answer for answer in answers if answer.status_code == 422)
-    assert failure(refused) == (422, "GOOGLE_GRANT_INVALID", None)
-    assert len(await connections(harness)) == 1
-    assert await grant_ids(harness) == set()
 
 
 @pytest.mark.asyncio

@@ -14,19 +14,30 @@ from management.connections.connectors.base import Column, ConnectorError
 from management.connections.connectors.gate import ConnectionGate
 from management.datasets import dataset_ingest
 from management.datasets.models import Dataset, DatasetVersion
-from tests.conftest import ORIGIN, Harness, login, mutation_headers
 from tests.fakes import FakeTable
-from tests.test_connection_browse_api import (
+from tests.helpers.audit import audit_events
+from tests.helpers.connections import (
+    PROMETHEUS_SERIES,
     SERIES,
     connected_project,
+    connected_prometheus,
+    create_connection,
     external_database,
     failure,
+    wait_until,
+    with_prometheus,
 )
-from tests.test_connections_api import audit_events, create_connection, wait_until
-from tests.test_datasets_api import CSV, upload_dataset
-from tests.test_projects_api import PROJECTS, add_member, create_project
-from tests.test_prometheus_connection_api import SERIES as PROMETHEUS_SERIES
-from tests.test_prometheus_connection_api import connected_prometheus, with_prometheus
+from tests.helpers.datasets import (
+    CSV,
+    TABLE,
+    import_dataset,
+    import_version,
+    stored_files,
+    upload_dataset,
+)
+from tests.helpers.harness import ORIGIN, Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
 
 SCORES = FakeTable(
     columns=[
@@ -37,12 +48,7 @@ SCORES = FakeTable(
     rows=[(1, "A", 70), (2, "B, north", 81), (3, None, 64)],
 )
 SCORES_CSV = b'student_id,school,exam_score\r\n1,A,70\r\n2,"B, north",81\r\n3,,64\r\n'
-TABLE = {"type": "table", "schema": "public", "name": "scores"}
 QUERY = {"type": "query", "sql": "SELECT * FROM scores WHERE secret_code = 'k9-private'"}
-
-
-def stored_files(tmp_path) -> list:
-    return [path for path in (tmp_path / "storage").rglob("*") if path.is_file()]
 
 
 async def imported_project(harness: Harness, client: AsyncClient, **who: str):
@@ -51,38 +57,6 @@ async def imported_project(harness: Harness, client: AsyncClient, **who: str):
     harness.connectors.tables["public", "scores"] = SCORES
     session, project, url = await connected_project(harness, client, **who)
     return session, project, url.rsplit("/", 1)[-1]
-
-
-async def import_dataset(
-    client: AsyncClient,
-    session: dict,
-    project_id: str,
-    connection_id: str,
-    source: dict = TABLE,
-    *,
-    name: str = "Exam scores",
-    **more: object,
-):
-    return await client.post(
-        f"{PROJECTS}/{project_id}/datasets/from-connection",
-        json={"name": name, "connection_id": connection_id, "source": source, **more},
-        headers=mutation_headers(session["csrf_token"]),
-    )
-
-
-async def import_version(
-    client: AsyncClient,
-    session: dict,
-    project_id: str,
-    dataset_id: str,
-    connection_id: str,
-    source: dict = TABLE,
-):
-    return await client.post(
-        f"{PROJECTS}/{project_id}/datasets/{dataset_id}/versions/from-connection",
-        json={"connection_id": connection_id, "source": source},
-        headers=mutation_headers(session["csrf_token"]),
-    )
 
 
 @pytest.mark.asyncio

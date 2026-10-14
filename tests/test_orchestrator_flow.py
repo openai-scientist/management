@@ -1,61 +1,18 @@
-from datetime import UTC, datetime
 from decimal import Decimal
-from types import SimpleNamespace
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
 
 from management.core.errors import APIError
-from management.identity.models import User
-from management.projects.models import Project
-from management.research.contracts import EventEnvelope
-from management.research.models import RunArtifact, StageRun
-from management.research.orchestrator import accept_stage, apply_engine_event, start_research_run
-from tests.conftest import login, open_harness
-from tests.engine_fakes import engine_overrides, install_fake_engines, seed_models
-from tests.test_projects_api import create_project
-
-
-def lifecycle(kind, *, phase=None, payload=None, seq=1):
-    return EventEnvelope(
-        source_seq=seq,
-        type=kind,
-        event_class="lifecycle",
-        phase=phase,
-        payload=payload or {},
-        occurred_at=datetime.now(UTC),
-    )
+from management.research.models import RunArtifact
+from management.research.orchestrator import accept_stage, apply_engine_event
+from tests.helpers.research import lifecycle, open_pipeline
 
 
 @pytest.fixture
 async def pipeline(tmp_path):
-    async with open_harness(tmp_path, **engine_overrides()) as harness:
-        fakes = install_fake_engines(harness)
-        # Core state-machine checks precede the HTTP ingress task; replay events directly.
-        for fake in fakes.values():
-            fake.callback_transport = None
-        async with harness.client() as client:
-            session = await login(harness, client, uid="owner", email="owner@example.com")
-            project_data = await create_project(client, session)
-        await seed_models(harness, session["user"]["id"])
-        async with harness.factory() as db:
-            project = await db.get(Project, UUID(project_data["id"]))
-            user = await db.get(User, UUID(session["user"]["id"]))
-            run = await start_research_run(
-                db,
-                harness.app.state,
-                project=project,
-                principal=SimpleNamespace(user=user),
-                topic="Compare two retrieval methods",
-                interaction_mode="light",
-                budget_usd=5,
-                pipeline_key="default",
-                domains=["ml"],
-            )
-            await db.commit()
-            stage = await db.scalar(select(StageRun).where(StageRun.research_run_id == run.id))
-            yield harness, db, run, stage, fakes
+    async with open_pipeline(tmp_path) as state:
+        yield state
 
 
 async def publish(db, run, stage, schema="i2h.hypotheses/v1"):

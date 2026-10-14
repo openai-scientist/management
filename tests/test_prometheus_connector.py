@@ -29,15 +29,10 @@ from management.connections.connectors.prometheus import (
     promql,
 )
 from tests.fakes import FakePrometheus
+from tests.helpers.connections import DAY, at
 
 HOST = ResolvedHost(hostname="metrics.example.com", ip="203.0.113.7", port=9090)
 TOKEN = "s3cret-token"
-DAY = datetime(2026, 10, 1, tzinfo=UTC)
-
-
-def at(hours: float = 0, **more: float) -> int:
-    """A moment of the day the tests read, in milliseconds as a sample carries it."""
-    return round((DAY + timedelta(hours=hours, **more)).timestamp() * 1000)
 
 
 def connector(server: FakePrometheus, secret: dict | None = None) -> PrometheusConnector:

@@ -2,7 +2,6 @@ import asyncio
 import json
 
 import pytest
-from httpx import AsyncClient
 from sqlalchemy import select
 
 from management.audit.models import AuditEvent
@@ -11,50 +10,16 @@ from management.connections.connectors.base import ConnectorError
 from management.connections.connectors.gate import ConnectionGate
 from management.connections.models import DataConnection
 from management.infra.secret_box import SecretBox
-from tests.conftest import CONNECTION_KEY, ORIGIN, Harness, login, mutation_headers
-from tests.test_projects_api import PROJECTS, add_member, create_project
-
-SECRET = "s3cret-pass-w0rd"
-
-
-def connection_body(name: str = "Warehouse", **config: object) -> dict:
-    return {
-        "name": name,
-        "kind": "postgres",
-        "config": {
-            "host": "db.example.com",
-            "database": "analytics",
-            "username": "reader",
-            **config,
-        },
-        "secret": {"password": SECRET},
-    }
-
-
-async def create_connection(client: AsyncClient, session: dict, project_id: str, **kwargs):
-    return await client.post(
-        f"{PROJECTS}/{project_id}/connections",
-        json=connection_body(**kwargs),
-        headers=mutation_headers(session["csrf_token"]),
-    )
+from tests.helpers.audit import audit_events
+from tests.helpers.connections import SECRET, connection_body, create_connection, wait_until
+from tests.helpers.harness import CONNECTION_KEY, ORIGIN, Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
 
 
 def without_times(item: dict) -> dict:
     """SQLite gives times back without a zone, so a re-read item differs in those fields only."""
     return {key: value for key, value in item.items() if not key.endswith("_at")}
-
-
-async def audit_events(harness: Harness, action: str) -> list[AuditEvent]:
-    async with harness.factory() as db:
-        return list(await db.scalars(select(AuditEvent).where(AuditEvent.action == action)))
-
-
-async def wait_until(condition) -> None:
-    for _ in range(200):
-        if condition():
-            return
-        await asyncio.sleep(0.005)
-    raise AssertionError("condition was not reached")
 
 
 @pytest.mark.asyncio

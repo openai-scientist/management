@@ -8,10 +8,10 @@ from sqlalchemy import event
 from management.identity.bootstrap_admin import bootstrap_admin
 from management.identity.models import User
 from management.projects.models import ProjectMembership
-from tests.conftest import Harness, login, mutation_headers
-from tests.test_notification_stream import open_stream
-from tests.test_project_invitations import answer, remove
-from tests.test_projects_api import PROJECTS, create_project, invite_member
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.notifications import open_stream
+from tests.helpers.projects import PROJECTS, answer, create_project, invite_member, remove
 
 
 async def snapshot(stream):

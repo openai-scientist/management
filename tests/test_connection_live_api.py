@@ -11,13 +11,20 @@ from management.connections.connectors.gate import LIVE_VIEW_AUDIT_SECONDS, Conn
 from management.connections.connectors.timeseries import BUCKET_SECONDS, time_text
 from management.connections.router import connections as connections_api
 from management.datasets.models import Dataset
-from tests.conftest import Harness, login, mutation_headers
 from tests.fakes import FakeInfluxDB, FakePrometheus
-from tests.test_connection_browse_api import connected_project, external_database, failure
-from tests.test_connections_api import audit_events
-from tests.test_influxdb_connection_api import connected_influxdb, with_influxdb
-from tests.test_projects_api import PROJECTS, add_member, create_project
-from tests.test_prometheus_connection_api import connected_prometheus, with_prometheus
+from tests.helpers.audit import audit_events
+from tests.helpers.connections import (
+    connected_influxdb,
+    connected_project,
+    connected_prometheus,
+    external_database,
+    failure,
+    with_influxdb,
+    with_prometheus,
+)
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
 
 VIEW = {"name": "ticks", "fields": [], "tags": [], "aggregate": "count", "last": "1h"}
 TIME = {"name": "time", "type": "timestamp", "role": "time"}

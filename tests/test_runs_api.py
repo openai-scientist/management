@@ -13,45 +13,11 @@ from management.research.popper_client import (
     PopperUnavailable,
     PopperUncertain,
 )
-from tests.conftest import CALLBACK_KEY, Harness, login, mutation_headers
-from tests.test_datasets_api import upload_dataset
-from tests.test_projects_api import PROJECTS, add_member, create_project
-
-INTERNAL = "/api/v1/internal/popper/runs"
-SERVICE = {"X-Service-Key": CALLBACK_KEY}
-REVIEW = {
-    "frame": "Exam performance",
-    "items": {
-        "variables.exam_score.role": {"value": "outcome", "status": "proposed"},
-        "variables.school.role": {"value": "cluster", "status": "proposed"},
-        "questions.q1": {"value": {"text": "Does study time matter?"}, "status": "proposed"},
-    },
-}
-
-
-async def ready_project(client: AsyncClient, session: dict) -> tuple[dict, dict]:
-    """A project with one dataset version, ready for a topic run."""
-    project = await create_project(client, session)
-    dataset = (await upload_dataset(client, session, project["id"])).json()["data"]
-    return project, dataset["latest_version"]
-
-
-async def start_run(client: AsyncClient, session: dict, project_id: str, _version_id: str, **more):
-    body = {
-        "topic": "Does study time affect exam performance?",
-        "domains": ["education"],
-        "review_mode": "copilot",
-        **more,
-    }
-    return await client.post(
-        f"{PROJECTS}/{project_id}/runs",
-        json=body,
-        headers=mutation_headers(session["csrf_token"]),
-    )
-
-
-async def report(client: AsyncClient, run_id: str, **body: object):
-    return await client.post(f"{INTERNAL}/{run_id}/status", json=body, headers=SERVICE)
+from tests.helpers.datasets import upload_dataset
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login, mutation_headers
+from tests.helpers.projects import PROJECTS, add_member, create_project
+from tests.helpers.research import INTERNAL, REVIEW, SERVICE, ready_project, report, start_run
 
 
 async def project_status(client: AsyncClient, project_id: str) -> str:

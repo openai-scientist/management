@@ -9,7 +9,8 @@ from management.identity.bootstrap_admin import bootstrap_admin
 from management.identity.models import User
 from management.projects.models import Project
 from management.research.models import FrameReview, ResearchRun
-from tests.conftest import Harness, login
+from tests.helpers.harness import Harness
+from tests.helpers.identity import login
 
 OVERVIEW = "/api/v1/admin/overview"
 ADMIN_EMAIL = "overview-admin@example.com"
