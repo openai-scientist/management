@@ -1,5 +1,6 @@
 """Take a PI result and act on it: apply it, hand it to the researcher, or drop it as stale."""
 
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -9,6 +10,7 @@ from sqlalchemy import select
 from management.access.service import lock_project_scope
 from management.core.errors import APIError
 from management.research.contracts import (
+    I2H_HYPOTHESES,
     REVIEW_FINDINGS,
     AllowedAction,
     Charter,
@@ -93,8 +95,21 @@ async def is_current(db, run, consultation, stage_run) -> bool:
     return True
 
 
-async def _blocking_findings(db, app_state, stage_run) -> str | None:
-    """B5: the latest review of the stage run has blocking findings (fail closed if unreadable)."""
+async def _read_json(app_state, artifact) -> bytes:
+    return b"".join([chunk async for chunk in app_state.file_store.open(artifact.storage_key)])
+
+
+def _hypothesis_id(locator: str) -> str | None:
+    if not locator.startswith("hypothesis:"):
+        return None
+    return locator.removeprefix("hypothesis:").split("/", 1)[0]
+
+
+async def _blocking_scope(db, app_state, stage_run) -> tuple[str | None, set[str]]:
+    """B12: (reason the whole artifact is blocked or None, hypothesis ids with a blocking finding).
+
+    Unreadable review fails closed: the whole artifact is blocked.
+    """
     artifact = await db.scalar(
         select(RunArtifact)
         .where(RunArtifact.stage_run_id == stage_run.id, RunArtifact.schema_id == REVIEW_FINDINGS)
@@ -102,13 +117,55 @@ async def _blocking_findings(db, app_state, stage_run) -> str | None:
         .limit(1)
     )
     if artifact is None:
+        return None, set()
+    try:
+        review = ReviewFindings.model_validate_json(await _read_json(app_state, artifact))
+    except (OSError, ValueError, ValidationError):
+        return "The review findings cannot be read, so the PI cannot approve", set()
+    blocked: set[str] = set()
+    for finding in review.findings:
+        if finding.severity != "blocking":
+            continue
+        hypothesis_id = _hypothesis_id(finding.anchor.locator)
+        if hypothesis_id is None:
+            return "The review has a blocking finding on the whole artifact", set()
+        blocked.add(hypothesis_id)
+    if not review.passed and not blocked:
+        return "The review still has blocking findings", set()
+    return None, blocked
+
+
+async def _hypothesis_ids(db, app_state, stage_run) -> set[str] | None:
+    """Ids in the latest hypotheses artifact of the stage run; None when it has none."""
+    artifact = await db.scalar(
+        select(RunArtifact)
+        .where(
+            RunArtifact.stage_run_id == stage_run.id,
+            RunArtifact.is_primary.is_(True),
+            RunArtifact.schema_id == I2H_HYPOTHESES,
+        )
+        .order_by(RunArtifact.version.desc())
+        .limit(1)
+    )
+    if artifact is None:
         return None
     try:
-        body = b"".join([chunk async for chunk in app_state.file_store.open(artifact.storage_key)])
-        review = ReviewFindings.model_validate_json(body)
-    except (OSError, ValueError, ValidationError):
-        return "The review findings cannot be read, so the PI cannot approve"
-    return None if review.passed else "The review still has blocking findings"
+        body = json.loads(await _read_json(app_state, artifact))
+        return {item["id"] for item in body["hypotheses"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+async def _approval_blocked(db, app_state, stage_run) -> str | None:
+    whole, blocked = await _blocking_scope(db, app_state, stage_run)
+    if whole or not blocked:
+        return whole
+    ids = await _hypothesis_ids(db, app_state, stage_run)
+    if ids is None:
+        return "The review still has blocking findings"
+    if ids <= blocked:
+        return "Every hypothesis has a blocking finding"
+    return None
 
 
 async def check_decision(db, app_state, consultation, stage_run, result) -> Escalation | None:
@@ -138,9 +195,21 @@ async def check_decision(db, app_state, consultation, stage_run, result) -> Esca
     if decision.action == "send_back" and decision.target_stage_key not in rule.targets:
         return refuse("target stage is not allowed")
     if decision.action == "approve" and consultation.kind == "gate_review":
-        message = await _blocking_findings(db, app_state, stage_run)
+        message = await _approval_blocked(db, app_state, stage_run)
         if message:
             return Escalation(reason_code="integrity", message=message)
+    if decision.action == "accept" and consultation.kind == "stage_outcome":
+        whole, blocked = await _blocking_scope(db, app_state, stage_run)
+        chosen = (
+            set(decision.selection.get(rule.selection_key) or []) if rule.selection_key else set()
+        )
+        if whole:
+            return Escalation(reason_code="integrity", message=whole)
+        if chosen & blocked:
+            ids = ", ".join(sorted(chosen & blocked))
+            return Escalation(
+                reason_code="integrity", message=f"Blocking findings remain on: {ids}"
+            )
     return None
 
 

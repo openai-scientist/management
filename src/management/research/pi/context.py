@@ -20,9 +20,10 @@ from management.research.contracts import (
     Situation,
     paths,
 )
-from management.research.models import PiNote, RunArtifact, StageRun
+from management.research.models import PiConsultation, PiNote, RunArtifact, StageRun
 
 NOTEBOOK_LIMIT = 40
+MAX_PI_COMMENT_ROUNDS = 3
 
 
 def callback_base(app_state) -> str:
@@ -46,13 +47,18 @@ def artifact_url(app_state, artifact_id) -> str:
     )
 
 
-def allowed_actions(app_state, run, kind, stage_run, gate) -> list[AllowedAction]:
+def allowed_actions(
+    app_state, run, kind, stage_run, gate, *, comment_rounds=0
+) -> list[AllowedAction]:
     if kind == "charter":
         return [AllowedAction(action="charter")]
     if kind == "gate_question":
         return [AllowedAction(action="answer", option_ids=[o.option_id for o in gate.options])]
     if kind == "gate_review":
-        return [AllowedAction(action="approve"), AllowedAction(action="comment")]
+        actions = [AllowedAction(action="approve")]
+        if comment_rounds < MAX_PI_COMMENT_ROUNDS:
+            actions.append(AllowedAction(action="comment"))
+        return actions
     if kind == "failure":
         return [AllowedAction(action="rerun"), AllowedAction(action="stop")]
     if kind == "close":
@@ -140,6 +146,19 @@ async def artifact_catalogue(db, app_state, run, stage_run) -> list[ConsultArtif
     return catalogue
 
 
+async def comment_rounds(db, stage_run) -> int:
+    """Review comments already applied on this stage run, by the PI or on its advice."""
+    results = await db.scalars(
+        select(PiConsultation.result).where(
+            PiConsultation.stage_run_id == stage_run.id,
+            PiConsultation.kind == "gate_review",
+            PiConsultation.status.in_(("applied", "endorsed")),
+            PiConsultation.result.is_not(None),
+        )
+    )
+    return sum(1 for r in results if ((r.get("decision") or {}).get("action")) == "comment")
+
+
 async def notebook_entries(db, run) -> list[NotebookEntry]:
     notes = await db.scalars(
         select(PiNote)
@@ -192,7 +211,14 @@ async def build_request(
         situation=situation,
         gate=Gate.model_validate(gate) if gate else None,
         allowed=allowed_actions(
-            app_state, run, kind, stage_run, gate and Gate.model_validate(gate)
+            app_state,
+            run,
+            kind,
+            stage_run,
+            gate and Gate.model_validate(gate),
+            comment_rounds=await comment_rounds(db, stage_run)
+            if kind == "gate_review" and stage_run
+            else 0,
         ),
         artifacts=await artifact_catalogue(db, app_state, run, stage_run),
         notebook=await notebook_entries(db, run),

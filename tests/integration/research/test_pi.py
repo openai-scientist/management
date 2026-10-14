@@ -302,7 +302,7 @@ async def test_pi_cannot_approve_blocking(tmp_path):
                 findings=[
                     Finding(
                         finding_id="F1-1",
-                        anchor=Anchor(locator="hypothesis:H1"),
+                        anchor=Anchor(locator="methodology"),
                         severity="blocking",
                         issue="No falsification criterion",
                         author="reviewer",
@@ -928,3 +928,103 @@ async def test_retry_a_consultation_stuck_in_sent(tmp_path):
         old = await env.consultation(request)
         assert old.status == "failed" and old.failure["code"] == "pi_timeout"
         assert retry.json()["data"]["consultation_id"] != request.consultation_id
+
+
+def _blocking(locator: str) -> ReviewFindings:
+    return ReviewFindings(
+        round=1,
+        reviewed_artifact_id="x",
+        reviewer_model="review",
+        findings=[
+            Finding(
+                finding_id="F1-1",
+                anchor=Anchor(locator=locator),
+                severity="blocking",
+                issue="No falsification criterion",
+                author="reviewer",
+            )
+        ],
+        passed=False,
+    )
+
+
+async def _review_with(env, findings):
+    await env.settle_charter()
+    (engine_run_id,) = env.fakes["i2h"].states
+    await env.fakes["i2h"].open_review_gate(engine_run_id, findings=findings)
+    return env.pi.of_kind("gate_review")[0]
+
+
+async def test_pi_approves_when_blocking_is_on_one_hypothesis(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        request = await _review_with(env, _blocking("hypothesis:H1/falsification"))
+        await env.pi.respond(request, decided(request, {"action": "approve"}))
+        assert (await env.consultation(request)).status == "applied"
+        assert len(await env.rows(StageDecision, StageDecision.action == "approve")) == 1
+
+
+async def test_pi_cannot_approve_when_every_hypothesis_is_blocked(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        findings = _blocking("hypothesis:H1")
+        findings.findings.append(
+            findings.findings[0].model_copy(
+                update={"finding_id": "F1-2", "anchor": Anchor(locator="hypothesis:H2")}
+            )
+        )
+        request = await _review_with(env, findings)
+        await env.pi.respond(request, decided(request, {"action": "approve"}))
+        row = await env.consultation(request)
+        assert row.status == "awaiting_researcher"
+        assert row.result["escalate"]["reason_code"] == "integrity"
+
+
+async def _accept_after_partial_block(env, ids):
+    request = await _review_with(env, _blocking("hypothesis:H1"))
+    await env.pi.respond(request, decided(request, {"action": "approve"}))
+    outcome = env.pi.of_kind("stage_outcome")[0]
+    await env.pi.respond(
+        outcome, decided(outcome, {"action": "accept", "selection": {"hypothesis_ids": ids}})
+    )
+    return outcome
+
+
+async def test_pi_accept_of_a_blocked_hypothesis_escalates(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        outcome = await _accept_after_partial_block(env, ["H1", "H2"])
+        row = await env.consultation(outcome)
+        assert row.status == "awaiting_researcher"
+        assert row.result["escalate"]["reason_code"] == "integrity"
+        assert "H1" in row.result["escalate"]["message"]
+        assert await env.rows(StageDecision, StageDecision.action == "accept") == []
+
+
+async def test_pi_accept_of_clean_hypotheses_applies(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        outcome = await _accept_after_partial_block(env, ["H2"])
+        assert (await env.consultation(outcome)).status == "applied"
+        assert len(await env.rows(StageDecision, StageDecision.action == "accept")) == 1
+
+
+async def test_comment_is_not_offered_after_three_applied_comments(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        await env.settle_charter()
+        async with env.harness.factory() as db:
+            stage = (await db.scalars(select(StageRun))).one()
+            for n in range(3):
+                db.add(
+                    PiConsultation(
+                        research_run_id=env.run_id,
+                        stage_run_id=stage.id,
+                        kind="gate_review",
+                        gate_id=f"old-{n}",
+                        authority="pi",
+                        status="applied",
+                        request={},
+                        result={"decision": {"action": "comment"}},
+                    )
+                )
+            await db.commit()
+        (engine_run_id,) = env.fakes["i2h"].states
+        await env.fakes["i2h"].open_review_gate(engine_run_id)
+        request = env.pi.of_kind("gate_review")[0]
+        assert [a.action for a in request.allowed] == ["approve"]
