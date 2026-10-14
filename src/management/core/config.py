@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     engine_callback_base_url: str | None = None
     engines: dict[str, EngineSettings] = Field(default_factory=dict)
     pipelines: dict[str, list[PipelineStage]] = Field(default_factory=dict)
+    # The AI PI service. Unset: no PI, and the pipeline runs as before.
+    pi_service: EngineSettings | None = None
     default_pipeline: str = "default"
     max_auto_revisions: int = Field(2, ge=0)
     max_iterations: int = Field(3, ge=1)

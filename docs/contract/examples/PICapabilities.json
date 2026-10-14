@@ -1,0 +1,12 @@
+{
+  "contract_version": "1.2.0",
+  "kinds": [
+    "charter",
+    "stage_outcome"
+  ],
+  "providers": [
+    "openai_compatible"
+  ],
+  "service_key": "pi",
+  "service_version": "example"
+}

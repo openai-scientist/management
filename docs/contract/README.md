@@ -1,6 +1,6 @@
 # Research engine HTTP contract
 
-Contract version: **1.1.0** (semantic versioning). This directory is the public
+Contract version: **1.2.0** (semantic versioning). This directory is the public
 contract; Python implementations belong to each service. Engines copy `schema/`,
 `examples/`, and this README into `tests/contract/vendor/`, with the management
 commit in `vendor/SOURCE`. No service imports code from another repository.
@@ -42,6 +42,13 @@ Selection of hypotheses uses `{"hypothesis_ids": ["H1", "H2"]}`; values are each
 hypothesis's `id`. The `hypothesis` stage receives
 `inputs.params = {"topic": "12–2000 characters", "domains": []}` (at most six domains).
 Engine restart failure code: `engine_restarted`.
+
+Optional guidance: any stage may receive `inputs.params.guidance`, a list of at most 20
+strings of at most 500 characters. It carries the research lead's charter summary,
+directives and hand-off lines, one per line, each with a prefix (`Research question:`,
+`Objective:`, `Success criterion:`, `Directive:`, `Handoff:`). Platform recomputes it at
+every stage start and replaces any earlier value. An engine uses it as extra constraints
+and ignores it when absent. It never changes the engine contract otherwise.
 
 ## HTTP
 
@@ -137,6 +144,35 @@ exhaustion and resumes the same engine run after a budget increase.
 Platform timeline also has `class=platform`: `stage.status_changed`,
 `iteration.started`, `decision.recorded`, `budget.updated`, `engine.health_changed`,
 `attention.required`. Those events do not use the engine `EventEnvelope`.
+
+## PI contract
+
+The AI Principal Investigator (PI) is a separate service with its own contract. Platform
+owns the models (`schema/Consultation*.json`, `Charter`, `PIDecision`, and the models they
+use) and sends them with the same rules as engines: `X-Service-Key`, `X-Request-ID`,
+`traceparent`, same major `contract_version`. Return model bodies without wrappers.
+
+| Method | Relative path | Request / response |
+|---|---|---|
+| GET | `/health` | `PIHealth` |
+| GET | `/capabilities` | `PICapabilities` |
+| POST | `/consultations` | `ConsultationRequest` → 202 `ConsultationAccepted`; idempotent by `consultation_id` |
+| GET | `/consultations/{consultation_id}` | `ConsultationState` (reconciliation) |
+
+The PI answers by calling Platform with its service key:
+
+| Method | Platform path (under the API prefix) | Body |
+|---|---|---|
+| POST | `/internal/pi/consultations/{consultation_id}/result` | `ConsultationResult`; idempotent; 200 |
+| GET | `/internal/pi/artifacts/{artifact_id}` | artifact bytes (the `download_url` of a `ConsultArtifact`) |
+
+`ConsultationRequest.artifacts` lists every artifact the PI may need (`role`, `stage_key`,
+`size_bytes`). The PI reads what it chooses. `models` carries credentials for the call only;
+the PI must not write them to disk, logs or records. Platform does not store them.
+Kinds: `charter`, `gate_question`, `gate_review`, `stage_outcome`, `failure`, `close`.
+`authority = decide` means Platform applies the decision; `advise` means a researcher decides.
+On the engine wire, a PI decision has `actor=system` and `decided_by=pi:<consultation_id>`;
+PI findings have `author=researcher`. Platform stores the actor `pi`.
 
 ## Mandatory engine behavior tests
 

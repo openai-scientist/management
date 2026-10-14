@@ -1,0 +1,101 @@
+{
+  "allowed": [
+    {
+      "action": "accept",
+      "option_ids": [],
+      "selection_key": "hypothesis_ids",
+      "targets": []
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_id": "a1",
+      "download_url": "http://platform.test/internal/artifacts/a1",
+      "primary": true,
+      "role": "primary",
+      "schema": "i2h.hypotheses/v1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size_bytes": 1024,
+      "stage_key": "hypothesis",
+      "version": 1
+    }
+  ],
+  "authority": "decide",
+  "callback_url": "http://platform.test/api/v1/internal/pi/consultations/c1/result",
+  "charter": {
+    "constraints": [],
+    "kill_criteria": [],
+    "motivation": "",
+    "objectives": [
+      "Compare A and B"
+    ],
+    "profile": {
+      "domain": null,
+      "research_type": null
+    },
+    "question": "Does retrieval method A beat method B on long documents?",
+    "risk_posture": "exploratory",
+    "scope_in": [],
+    "scope_out": [],
+    "success_criteria": [
+      "A beats B by 3 points"
+    ]
+  },
+  "consultation_id": "c1",
+  "contract_version": "1.2.0",
+  "gate": null,
+  "interaction_mode": "light",
+  "kind": "stage_outcome",
+  "models": {
+    "critic": {
+      "api_key": "**********",
+      "base_url": null,
+      "extra": {},
+      "model": "critic-example",
+      "provider": "openai_compatible"
+    },
+    "lead": {
+      "api_key": "**********",
+      "base_url": null,
+      "extra": {},
+      "model": "draft-example",
+      "provider": "openai_compatible"
+    }
+  },
+  "notebook": [
+    {
+      "actor": "user",
+      "at": "2026-10-14T00:00:00Z",
+      "kind": "directive",
+      "stage_key": null,
+      "text": "Prefer small models"
+    }
+  ],
+  "platform_run_id": "r1",
+  "profile": {
+    "domain": null,
+    "research_type": null
+  },
+  "situation": {
+    "budget": {
+      "cost_unknown": false,
+      "limit_usd": "10",
+      "spent_usd": "0"
+    },
+    "failure": null,
+    "iteration": 1,
+    "max_iterations": 3,
+    "pipeline": [
+      {
+        "checkpoint": false,
+        "engine": "i2h",
+        "loop_back_to": [],
+        "stage_key": "hypothesis",
+        "status": "COMPLETED"
+      }
+    ],
+    "stage_key": "hypothesis",
+    "stage_run_id": "s1"
+  },
+  "topic": "Compare retrieval methods for research"
+}

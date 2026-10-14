@@ -1,0 +1,58 @@
+{
+  "$id": "urn:research-contract:1.2.0:NotebookEntry",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "actor": {
+      "enum": [
+        "pi",
+        "user"
+      ],
+      "title": "Actor",
+      "type": "string"
+    },
+    "at": {
+      "format": "date-time",
+      "title": "At",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "decision",
+        "lesson",
+        "risk",
+        "observation",
+        "question",
+        "directive",
+        "override",
+        "brief"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "stage_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Stage Key"
+    },
+    "text": {
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "text",
+    "actor",
+    "at"
+  ],
+  "title": "NotebookEntry",
+  "type": "object"
+}

@@ -1,0 +1,11 @@
+{
+  "artifact_id": "a1",
+  "download_url": "http://platform.test/internal/artifacts/a1",
+  "primary": true,
+  "role": "primary",
+  "schema": "i2h.hypotheses/v1",
+  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "size_bytes": 1024,
+  "stage_key": "hypothesis",
+  "version": 1
+}

@@ -1,0 +1,44 @@
+{
+  "$id": "urn:research-contract:1.2.0:PipelineStageView",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "checkpoint": {
+      "default": false,
+      "title": "Checkpoint",
+      "type": "boolean"
+    },
+    "engine": {
+      "title": "Engine",
+      "type": "string"
+    },
+    "loop_back_to": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Loop Back To",
+      "type": "array"
+    },
+    "stage_key": {
+      "title": "Stage Key",
+      "type": "string"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Status"
+    }
+  },
+  "required": [
+    "stage_key",
+    "engine"
+  ],
+  "title": "PipelineStageView",
+  "type": "object"
+}

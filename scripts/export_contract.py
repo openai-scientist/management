@@ -68,6 +68,48 @@ def example_payloads() -> tuple[dict[str, Any], dict[str, Any]]:
         "callback_url": "http://platform.test/api/v1/internal/engines/i2h/runs/s1",
         "inputs": {"params": {"topic": "Compare retrieval methods for research", "domains": []}},
     }
+    charter = {
+        "question": "Does retrieval method A beat method B on long documents?",
+        "objectives": ["Compare A and B"],
+        "success_criteria": ["A beats B by 3 points"],
+    }
+    consult_ref = ref | {"role": "primary", "stage_key": "hypothesis", "size_bytes": 1024}
+    pi_decision = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
+    pi_result = {
+        "consultation_id": "c1",
+        "status": "decided",
+        "decision": pi_decision,
+        "rationale": "H1 fits the charter",
+        "confidence": 0.7,
+        "handoff": ["Keep the baseline from the charter"],
+        "brief": "Accepted H1.",
+        "trace": [{"actor": "pi", "tool": "read_artifact", "summary": "Read hypothesis H1"}],
+    }
+    consult_request = {
+        "contract_version": c.CONTRACT_VERSION,
+        "consultation_id": "c1",
+        "platform_run_id": "r1",
+        "kind": "stage_outcome",
+        "interaction_mode": "light",
+        "authority": "decide",
+        "topic": "Compare retrieval methods for research",
+        "charter": charter,
+        "situation": {
+            "stage_key": "hypothesis",
+            "stage_run_id": "s1",
+            "iteration": 1,
+            "max_iterations": 3,
+            "pipeline": [{"stage_key": "hypothesis", "engine": "i2h", "status": "COMPLETED"}],
+            "budget": {"limit_usd": "10"},
+        },
+        "allowed": [{"action": "accept", "selection_key": "hypothesis_ids"}],
+        "artifacts": [consult_ref],
+        "notebook": [
+            {"kind": "directive", "text": "Prefer small models", "actor": "user", "at": now}
+        ],
+        "models": {"lead": model, "critic": model | {"model": "critic-example"}},
+        "callback_url": "http://platform.test/api/v1/internal/pi/consultations/c1/result",
+    }
     activity = {
         "source_seq": 1,
         "type": "i2h.screen.scored",
@@ -99,6 +141,35 @@ def example_payloads() -> tuple[dict[str, Any], dict[str, Any]]:
     }
     delivered = {"artifact_id": "a1", "schema": "i2h.hypotheses/v1", "version": 1, "primary": True}
     samples = {
+        "Charter": charter,
+        "PipelineStageView": {"stage_key": "hypothesis", "engine": "i2h", "status": None},
+        "BudgetView": {"limit_usd": "10"},
+        "Situation": consult_request["situation"],
+        "AllowedAction": {"action": "accept", "selection_key": "hypothesis_ids"},
+        "ConsultArtifact": consult_ref,
+        "NotebookEntry": consult_request["notebook"][0],
+        "PIModels": consult_request["models"],
+        "ConsultationRequest": consult_request,
+        "ConsultationAccepted": {"consultation_id": "c1", "created": True},
+        "PIDecision": pi_decision,
+        "ConsideredOption": {"action": "send_back", "summary": "Rework", "why_not": "No gap"},
+        "EvidencePoint": {"ref": "a1", "point": "H1 states a falsifiable criterion"},
+        "Critique": {"verdict": "upheld", "points": ["Baseline is named"]},
+        "Escalation": {"reason_code": "low_confidence", "message": "Two hypotheses tie"},
+        "NoteDraft": {"kind": "lesson", "text": "Name baselines early"},
+        "TraceStep": pi_result["trace"][0],
+        "ConsultationResult": pi_result,
+        "ConsultationState": {"consultation_id": "c1", "status": "decided", "result": pi_result},
+        "PIHealth": {
+            "status": "ok",
+            "service_version": "example",
+            "contract_version": c.CONTRACT_VERSION,
+        },
+        "PICapabilities": {
+            "service_version": "example",
+            "contract_version": c.CONTRACT_VERSION,
+            "kinds": ["charter", "stage_outcome"],
+        },
         "Anchor": anchor,
         "Finding": finding,
         "ReviewFindings": {

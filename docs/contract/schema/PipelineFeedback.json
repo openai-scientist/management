@@ -1,5 +1,5 @@
 {
-  "$id": "urn:research-contract:1.1.0:PipelineFeedback",
+  "$id": "urn:research-contract:1.2.0:PipelineFeedback",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "artifact_ids": {

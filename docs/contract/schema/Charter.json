@@ -1,0 +1,112 @@
+{
+  "$defs": {
+    "ResearchProfile": {
+      "properties": {
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "research_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Type"
+        }
+      },
+      "title": "ResearchProfile",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.2.0:Charter",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`pi.charter/v1`: fixed before results exist, in the spirit of a pre-registration.",
+  "properties": {
+    "constraints": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Constraints",
+      "type": "array"
+    },
+    "kill_criteria": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Kill Criteria",
+      "type": "array"
+    },
+    "motivation": {
+      "default": "",
+      "title": "Motivation",
+      "type": "string"
+    },
+    "objectives": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Objectives",
+      "type": "array"
+    },
+    "profile": {
+      "$ref": "#/$defs/ResearchProfile"
+    },
+    "question": {
+      "minLength": 1,
+      "title": "Question",
+      "type": "string"
+    },
+    "risk_posture": {
+      "default": "exploratory",
+      "enum": [
+        "exploratory",
+        "confirmatory"
+      ],
+      "title": "Risk Posture",
+      "type": "string"
+    },
+    "scope_in": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Scope In",
+      "type": "array"
+    },
+    "scope_out": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Scope Out",
+      "type": "array"
+    },
+    "success_criteria": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Success Criteria",
+      "type": "array"
+    }
+  },
+  "required": [
+    "question",
+    "objectives",
+    "success_criteria"
+  ],
+  "title": "Charter",
+  "type": "object"
+}

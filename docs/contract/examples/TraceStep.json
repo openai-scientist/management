@@ -1,0 +1,5 @@
+{
+  "actor": "pi",
+  "summary": "Read hypothesis H1",
+  "tool": "read_artifact"
+}

@@ -1,0 +1,762 @@
+{
+  "$defs": {
+    "AllowedAction": {
+      "description": "One action the PI may take. Constraints apply only to the action they name.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/PIAction"
+        },
+        "option_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Option Ids",
+          "type": "array"
+        },
+        "selection_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection Key"
+        },
+        "targets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Targets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "AllowedAction",
+      "type": "object"
+    },
+    "Authority": {
+      "description": "`decide`: the Platform applies the PI decision. `advise`: a researcher decides.",
+      "enum": [
+        "decide",
+        "advise"
+      ],
+      "title": "Authority",
+      "type": "string"
+    },
+    "BudgetView": {
+      "properties": {
+        "cost_unknown": {
+          "default": false,
+          "title": "Cost Unknown",
+          "type": "boolean"
+        },
+        "limit_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Limit Usd"
+        },
+        "spent_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Spent Usd"
+        }
+      },
+      "required": [
+        "limit_usd"
+      ],
+      "title": "BudgetView",
+      "type": "object"
+    },
+    "Charter": {
+      "description": "`pi.charter/v1`: fixed before results exist, in the spirit of a pre-registration.",
+      "properties": {
+        "constraints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Constraints",
+          "type": "array"
+        },
+        "kill_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Kill Criteria",
+          "type": "array"
+        },
+        "motivation": {
+          "default": "",
+          "title": "Motivation",
+          "type": "string"
+        },
+        "objectives": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Objectives",
+          "type": "array"
+        },
+        "profile": {
+          "$ref": "#/$defs/ResearchProfile"
+        },
+        "question": {
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        },
+        "risk_posture": {
+          "default": "exploratory",
+          "enum": [
+            "exploratory",
+            "confirmatory"
+          ],
+          "title": "Risk Posture",
+          "type": "string"
+        },
+        "scope_in": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scope In",
+          "type": "array"
+        },
+        "scope_out": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scope Out",
+          "type": "array"
+        },
+        "success_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Success Criteria",
+          "type": "array"
+        }
+      },
+      "required": [
+        "question",
+        "objectives",
+        "success_criteria"
+      ],
+      "title": "Charter",
+      "type": "object"
+    },
+    "ConsultArtifact": {
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "download_url": {
+          "title": "Download Url",
+          "type": "string"
+        },
+        "primary": {
+          "default": false,
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "role": {
+          "enum": [
+            "primary",
+            "review",
+            "recommendation",
+            "input",
+            "history",
+            "other"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "schema": {
+          "title": "Schema",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Bytes"
+        },
+        "stage_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage Key"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "schema",
+        "version",
+        "sha256",
+        "download_url",
+        "role"
+      ],
+      "title": "ConsultArtifact",
+      "type": "object"
+    },
+    "ConsultationKind": {
+      "enum": [
+        "charter",
+        "gate_question",
+        "gate_review",
+        "stage_outcome",
+        "failure",
+        "close"
+      ],
+      "title": "ConsultationKind",
+      "type": "string"
+    },
+    "FailureInfo": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "FailureInfo",
+      "type": "object"
+    },
+    "Gate": {
+      "properties": {
+        "artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifact Ids",
+          "type": "array"
+        },
+        "default_option_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Option Id"
+        },
+        "gate_id": {
+          "title": "Gate Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/GateKind"
+        },
+        "opened_at": {
+          "format": "date-time",
+          "title": "Opened At",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/GateOption"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "step_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Step Key"
+        }
+      },
+      "required": [
+        "gate_id",
+        "kind",
+        "step_key",
+        "prompt",
+        "opened_at"
+      ],
+      "title": "Gate",
+      "type": "object"
+    },
+    "GateKind": {
+      "enum": [
+        "question",
+        "artifact_review"
+      ],
+      "title": "GateKind",
+      "type": "string"
+    },
+    "GateOption": {
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "option_id": {
+          "title": "Option Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "option_id",
+        "label"
+      ],
+      "title": "GateOption",
+      "type": "object"
+    },
+    "InteractionMode": {
+      "enum": [
+        "auto",
+        "light",
+        "copilot",
+        "full"
+      ],
+      "title": "InteractionMode",
+      "type": "string"
+    },
+    "ModelConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "format": "password",
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        },
+        "extra": {
+          "additionalProperties": true,
+          "title": "Extra",
+          "type": "object"
+        },
+        "model": {
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "openai_compatible",
+            "bedrock"
+          ],
+          "title": "Provider",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ],
+      "title": "ModelConfig",
+      "type": "object"
+    },
+    "NotebookEntry": {
+      "properties": {
+        "actor": {
+          "enum": [
+            "pi",
+            "user"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "decision",
+            "lesson",
+            "risk",
+            "observation",
+            "question",
+            "directive",
+            "override",
+            "brief"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "stage_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage Key"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "text",
+        "actor",
+        "at"
+      ],
+      "title": "NotebookEntry",
+      "type": "object"
+    },
+    "PIAction": {
+      "enum": [
+        "charter",
+        "answer",
+        "approve",
+        "comment",
+        "accept",
+        "send_back",
+        "stop",
+        "rerun",
+        "report"
+      ],
+      "title": "PIAction",
+      "type": "string"
+    },
+    "PIModels": {
+      "additionalProperties": false,
+      "properties": {
+        "critic": {
+          "$ref": "#/$defs/ModelConfig"
+        },
+        "lead": {
+          "$ref": "#/$defs/ModelConfig"
+        }
+      },
+      "required": [
+        "lead",
+        "critic"
+      ],
+      "title": "PIModels",
+      "type": "object"
+    },
+    "PipelineStageView": {
+      "properties": {
+        "checkpoint": {
+          "default": false,
+          "title": "Checkpoint",
+          "type": "boolean"
+        },
+        "engine": {
+          "title": "Engine",
+          "type": "string"
+        },
+        "loop_back_to": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Loop Back To",
+          "type": "array"
+        },
+        "stage_key": {
+          "title": "Stage Key",
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        }
+      },
+      "required": [
+        "stage_key",
+        "engine"
+      ],
+      "title": "PipelineStageView",
+      "type": "object"
+    },
+    "ResearchProfile": {
+      "properties": {
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "research_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Type"
+        }
+      },
+      "title": "ResearchProfile",
+      "type": "object"
+    },
+    "Situation": {
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/BudgetView"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FailureInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "iteration": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Iteration",
+          "type": "integer"
+        },
+        "max_iterations": {
+          "minimum": 1,
+          "title": "Max Iterations",
+          "type": "integer"
+        },
+        "pipeline": {
+          "items": {
+            "$ref": "#/$defs/PipelineStageView"
+          },
+          "minItems": 1,
+          "title": "Pipeline",
+          "type": "array"
+        },
+        "stage_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage Key"
+        },
+        "stage_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage Run Id"
+        }
+      },
+      "required": [
+        "max_iterations",
+        "pipeline",
+        "budget"
+      ],
+      "title": "Situation",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.2.0:ConsultationRequest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "allowed": {
+      "items": {
+        "$ref": "#/$defs/AllowedAction"
+      },
+      "title": "Allowed",
+      "type": "array"
+    },
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/ConsultArtifact"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "authority": {
+      "$ref": "#/$defs/Authority"
+    },
+    "callback_url": {
+      "title": "Callback Url",
+      "type": "string"
+    },
+    "charter": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Charter"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "consultation_id": {
+      "title": "Consultation Id",
+      "type": "string"
+    },
+    "contract_version": {
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "gate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Gate"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "interaction_mode": {
+      "$ref": "#/$defs/InteractionMode"
+    },
+    "kind": {
+      "$ref": "#/$defs/ConsultationKind"
+    },
+    "models": {
+      "$ref": "#/$defs/PIModels"
+    },
+    "notebook": {
+      "items": {
+        "$ref": "#/$defs/NotebookEntry"
+      },
+      "title": "Notebook",
+      "type": "array"
+    },
+    "platform_run_id": {
+      "title": "Platform Run Id",
+      "type": "string"
+    },
+    "profile": {
+      "$ref": "#/$defs/ResearchProfile"
+    },
+    "situation": {
+      "$ref": "#/$defs/Situation"
+    },
+    "topic": {
+      "title": "Topic",
+      "type": "string"
+    }
+  },
+  "required": [
+    "contract_version",
+    "consultation_id",
+    "platform_run_id",
+    "kind",
+    "interaction_mode",
+    "authority",
+    "topic",
+    "situation",
+    "models",
+    "callback_url"
+  ],
+  "title": "ConsultationRequest",
+  "type": "object"
+}
