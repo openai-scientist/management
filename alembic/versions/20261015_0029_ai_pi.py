@@ -42,7 +42,7 @@ def upgrade() -> None:
             sa.ForeignKey("stage_decisions.id", ondelete="SET NULL"),
         ),
         sa.Column("cost_usd", sa.Numeric(12, 4), nullable=False, server_default="0"),
-        sa.Column("created_at", sa.DateTime(timezone=True)),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("sent_at", sa.DateTime(timezone=True)),
         sa.Column("decided_at", sa.DateTime(timezone=True)),
         sa.Column("resolved_at", sa.DateTime(timezone=True)),
@@ -81,7 +81,7 @@ def upgrade() -> None:
         sa.Column("text", sa.Text(), nullable=False),
         sa.Column("stage_key", sa.String(100)),
         sa.Column("actor", sa.String(8), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True)),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
             "kind IN ('decision','lesson','risk','observation','question','directive',"
             "'override','brief')",
