@@ -1,0 +1,21 @@
+{
+  "actor": null,
+  "class": "lifecycle",
+  "occurred_at": "2026-10-14T00:00:00Z",
+  "payload": {
+    "artifact_ids": [
+      "a1"
+    ],
+    "gate_id": "g1",
+    "kind": "artifact_review",
+    "opened_at": "2026-10-14T00:00:00Z",
+    "prompt": "Review result",
+    "step_key": "work"
+  },
+  "phase": "awaiting_researcher",
+  "refs": [],
+  "source_seq": 1,
+  "step_key": "work",
+  "summary": null,
+  "type": "run.gate_opened"
+}

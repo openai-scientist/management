@@ -1,0 +1,198 @@
+{
+  "$defs": {
+    "Anchor": {
+      "properties": {
+        "artifact_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Id"
+        },
+        "locator": {
+          "minLength": 1,
+          "title": "Locator",
+          "type": "string"
+        }
+      },
+      "required": [
+        "locator"
+      ],
+      "title": "Anchor",
+      "type": "object"
+    },
+    "Finding": {
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/Anchor"
+        },
+        "author": {
+          "enum": [
+            "reviewer",
+            "researcher"
+          ],
+          "title": "Author",
+          "type": "string"
+        },
+        "category": {
+          "$ref": "#/$defs/FindingCategory",
+          "default": "other"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "finding_id": {
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "issue": {
+          "minLength": 1,
+          "title": "Issue",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FindingKind",
+          "default": "fix"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "suggestion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggestion"
+        }
+      },
+      "required": [
+        "finding_id",
+        "anchor",
+        "severity",
+        "issue",
+        "author"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "FindingCategory": {
+      "enum": [
+        "leakage",
+        "baseline",
+        "control",
+        "statistics",
+        "reproducibility",
+        "evidence",
+        "other"
+      ],
+      "title": "FindingCategory",
+      "type": "string"
+    },
+    "FindingKind": {
+      "enum": [
+        "fix",
+        "needs_evidence"
+      ],
+      "title": "FindingKind",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "blocking",
+        "major",
+        "minor"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "$id": "urn:research-contract:1.1.0:GateAnswer",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "enum": [
+        "answer",
+        "approve",
+        "comment"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "actor": {
+      "enum": [
+        "user",
+        "system"
+      ],
+      "title": "Actor",
+      "type": "string"
+    },
+    "decided_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decided By"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "option_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Option Id"
+    },
+    "params": {
+      "additionalProperties": true,
+      "title": "Params",
+      "type": "object"
+    },
+    "text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Text"
+    }
+  },
+  "required": [
+    "action",
+    "actor"
+  ],
+  "title": "GateAnswer",
+  "type": "object"
+}

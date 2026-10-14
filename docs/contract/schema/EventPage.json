@@ -1,0 +1,706 @@
+{
+  "$defs": {
+    "ArtifactDelivered": {
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "primary": {
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "schema": {
+          "title": "Schema",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "schema",
+        "version",
+        "primary"
+      ],
+      "title": "ArtifactDelivered",
+      "type": "object"
+    },
+    "EmptyPayload": {
+      "properties": {},
+      "title": "EmptyPayload",
+      "type": "object"
+    },
+    "EventClass": {
+      "enum": [
+        "lifecycle",
+        "activity"
+      ],
+      "title": "EventClass",
+      "type": "string"
+    },
+    "EventEnvelope": {
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "run.phase_changed"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/PhaseChanged"
+              },
+              "phase": {
+                "$ref": "#/$defs/Phase"
+              }
+            },
+            "required": [
+              "payload",
+              "phase"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "run.step_changed"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/StepChanged"
+              },
+              "step_key": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "step_key"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "run.gate_opened"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/Gate"
+              },
+              "phase": {
+                "$ref": "#/$defs/Phase"
+              }
+            },
+            "required": [
+              "payload",
+              "phase"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "run.gate_closed"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/GateClosed"
+              }
+            },
+            "required": [
+              "payload"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "review.completed"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/ReviewCompleted"
+              }
+            },
+            "required": [
+              "payload"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "artifact.delivered"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/ArtifactDelivered"
+              }
+            },
+            "required": [
+              "payload"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "run.published"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/RunPublished"
+              },
+              "phase": {
+                "const": "published"
+              }
+            },
+            "required": [
+              "payload",
+              "phase"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "run.failed"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/FailureInfo"
+              },
+              "phase": {
+                "const": "failed"
+              }
+            },
+            "required": [
+              "payload",
+              "phase"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "run.cancelled"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/EmptyPayload"
+              },
+              "phase": {
+                "const": "cancelled"
+              }
+            },
+            "required": [
+              "payload",
+              "phase"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "run.cost"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/RunCost"
+              }
+            },
+            "required": [
+              "payload"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor"
+        },
+        "class": {
+          "$ref": "#/$defs/EventClass"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "phase": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Phase"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Refs",
+          "type": "array"
+        },
+        "source_seq": {
+          "minimum": 1,
+          "title": "Source Seq",
+          "type": "integer"
+        },
+        "step_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step Key"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_seq",
+        "type",
+        "class",
+        "occurred_at"
+      ],
+      "title": "EventEnvelope",
+      "type": "object"
+    },
+    "FailureInfo": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "FailureInfo",
+      "type": "object"
+    },
+    "Gate": {
+      "properties": {
+        "artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifact Ids",
+          "type": "array"
+        },
+        "default_option_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Option Id"
+        },
+        "gate_id": {
+          "title": "Gate Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/GateKind"
+        },
+        "opened_at": {
+          "format": "date-time",
+          "title": "Opened At",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/GateOption"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "step_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Step Key"
+        }
+      },
+      "required": [
+        "gate_id",
+        "kind",
+        "step_key",
+        "prompt",
+        "opened_at"
+      ],
+      "title": "Gate",
+      "type": "object"
+    },
+    "GateClosed": {
+      "properties": {
+        "action": {
+          "enum": [
+            "answer",
+            "approve",
+            "comment"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "actor": {
+          "enum": [
+            "user",
+            "system"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "gate_id": {
+          "title": "Gate Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "gate_id",
+        "action",
+        "actor"
+      ],
+      "title": "GateClosed",
+      "type": "object"
+    },
+    "GateKind": {
+      "enum": [
+        "question",
+        "artifact_review"
+      ],
+      "title": "GateKind",
+      "type": "string"
+    },
+    "GateOption": {
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "option_id": {
+          "title": "Option Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "option_id",
+        "label"
+      ],
+      "title": "GateOption",
+      "type": "object"
+    },
+    "ModelRole": {
+      "enum": [
+        "stage",
+        "review"
+      ],
+      "title": "ModelRole",
+      "type": "string"
+    },
+    "Phase": {
+      "enum": [
+        "drafting",
+        "reviewing",
+        "revising",
+        "awaiting_researcher",
+        "published",
+        "failed",
+        "cancelled",
+        "paused"
+      ],
+      "title": "Phase",
+      "type": "string"
+    },
+    "PhaseChanged": {
+      "properties": {
+        "from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Phase"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "from"
+      ],
+      "title": "PhaseChanged",
+      "type": "object"
+    },
+    "ReviewCompleted": {
+      "properties": {
+        "artifact_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Artifact Id"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "round": {
+          "minimum": 1,
+          "title": "Round",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "round",
+        "passed",
+        "artifact_id"
+      ],
+      "title": "ReviewCompleted",
+      "type": "object"
+    },
+    "RunCost": {
+      "properties": {
+        "cost_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost Usd"
+        },
+        "usage": {
+          "additionalProperties": {
+            "$ref": "#/$defs/TokenUsage"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ModelRole"
+          },
+          "title": "Usage",
+          "type": "object"
+        }
+      },
+      "title": "RunCost",
+      "type": "object"
+    },
+    "RunPublished": {
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id"
+      ],
+      "title": "RunPublished",
+      "type": "object"
+    },
+    "StepChanged": {
+      "properties": {
+        "from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "From"
+        }
+      },
+      "required": [
+        "from"
+      ],
+      "title": "StepChanged",
+      "type": "object"
+    },
+    "TokenUsage": {
+      "properties": {
+        "input_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        }
+      },
+      "title": "TokenUsage",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.1.0:EventPage",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "events": {
+      "items": {
+        "$ref": "#/$defs/EventEnvelope"
+      },
+      "title": "Events",
+      "type": "array"
+    }
+  },
+  "required": [
+    "events"
+  ],
+  "title": "EventPage",
+  "type": "object"
+}

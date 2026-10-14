@@ -1,0 +1,189 @@
+{
+  "$defs": {
+    "LlmCall": {
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Input Tokens"
+        },
+        "latency_ms": {
+          "minimum": 0,
+          "title": "Latency Ms",
+          "type": "integer"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "ok",
+            "error",
+            "timeout"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Output Tokens"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/ModelRole"
+        }
+      },
+      "required": [
+        "role",
+        "provider",
+        "model",
+        "input_tokens",
+        "output_tokens",
+        "latency_ms",
+        "outcome"
+      ],
+      "title": "LlmCall",
+      "type": "object"
+    },
+    "ModelRole": {
+      "enum": [
+        "stage",
+        "review"
+      ],
+      "title": "ModelRole",
+      "type": "string"
+    },
+    "Phase": {
+      "enum": [
+        "drafting",
+        "reviewing",
+        "revising",
+        "awaiting_researcher",
+        "published",
+        "failed",
+        "cancelled",
+        "paused"
+      ],
+      "title": "Phase",
+      "type": "string"
+    },
+    "TelemetryRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "engine_run_id": {
+          "title": "Engine Run Id",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "DEBUG",
+            "INFO",
+            "WARN",
+            "ERROR"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "llm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LlmCall"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "message": {
+          "maxLength": 500,
+          "title": "Message",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "phase": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Phase"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "platform_run_id": {
+          "title": "Platform Run Id",
+          "type": "string"
+        },
+        "stage_run_id": {
+          "title": "Stage Run Id",
+          "type": "string"
+        },
+        "step_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step Key"
+        }
+      },
+      "required": [
+        "occurred_at",
+        "level",
+        "message",
+        "platform_run_id",
+        "stage_run_id",
+        "engine_run_id"
+      ],
+      "title": "TelemetryRecord",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.1.0:TelemetryBatch",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "records": {
+      "items": {
+        "$ref": "#/$defs/TelemetryRecord"
+      },
+      "maxItems": 500,
+      "minItems": 1,
+      "title": "Records",
+      "type": "array"
+    }
+  },
+  "required": [
+    "records"
+  ],
+  "title": "TelemetryBatch",
+  "type": "object"
+}

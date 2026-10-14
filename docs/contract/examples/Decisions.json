@@ -1,0 +1,11 @@
+{
+  "actor": "user",
+  "decided_by": "u1",
+  "note": null,
+  "selection": {
+    "hypothesis_ids": [
+      "H1",
+      "H2"
+    ]
+  }
+}

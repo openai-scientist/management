@@ -1,0 +1,57 @@
+{
+  "$id": "urn:research-contract:1.1.0:ModelConfig",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "api_key": {
+      "anyOf": [
+        {
+          "format": "password",
+          "type": "string",
+          "writeOnly": true
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Api Key"
+    },
+    "base_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Base Url"
+    },
+    "extra": {
+      "additionalProperties": true,
+      "title": "Extra",
+      "type": "object"
+    },
+    "model": {
+      "minLength": 1,
+      "title": "Model",
+      "type": "string"
+    },
+    "provider": {
+      "enum": [
+        "openai_compatible",
+        "bedrock"
+      ],
+      "title": "Provider",
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider",
+    "model"
+  ],
+  "title": "ModelConfig",
+  "type": "object"
+}

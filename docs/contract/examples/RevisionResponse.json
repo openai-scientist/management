@@ -1,0 +1,12 @@
+{
+  "artifact_after": "a2",
+  "artifact_before": "a1",
+  "items": [
+    {
+      "finding_id": "F1-1",
+      "note": null,
+      "outcome": "fixed"
+    }
+  ],
+  "round": 1
+}

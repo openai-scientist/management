@@ -1,0 +1,42 @@
+{
+  "$id": "urn:research-contract:1.1.0:ArtifactRef",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifact_id": {
+      "title": "Artifact Id",
+      "type": "string"
+    },
+    "download_url": {
+      "title": "Download Url",
+      "type": "string"
+    },
+    "primary": {
+      "default": false,
+      "title": "Primary",
+      "type": "boolean"
+    },
+    "schema": {
+      "title": "Schema",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "artifact_id",
+    "schema",
+    "version",
+    "sha256",
+    "download_url"
+  ],
+  "title": "ArtifactRef",
+  "type": "object"
+}

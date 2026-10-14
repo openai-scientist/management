@@ -1,0 +1,59 @@
+{
+  "$id": "urn:research-contract:1.1.0:ArtifactMeta",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "filename": {
+      "title": "Filename",
+      "type": "string"
+    },
+    "media_type": {
+      "title": "Media Type",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "primary": {
+      "default": false,
+      "title": "Primary",
+      "type": "boolean"
+    },
+    "review_round": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Review Round"
+    },
+    "schema": {
+      "title": "Schema",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "filename",
+    "media_type",
+    "sha256"
+  ],
+  "title": "ArtifactMeta",
+  "type": "object"
+}

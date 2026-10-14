@@ -1,0 +1,20 @@
+{
+  "$id": "urn:research-contract:1.1.0:TokenUsage",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "input_tokens": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Input Tokens",
+      "type": "integer"
+    },
+    "output_tokens": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Output Tokens",
+      "type": "integer"
+    }
+  },
+  "title": "TokenUsage",
+  "type": "object"
+}

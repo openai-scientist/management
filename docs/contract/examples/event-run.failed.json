@@ -1,0 +1,15 @@
+{
+  "actor": null,
+  "class": "lifecycle",
+  "occurred_at": "2026-10-14T00:00:00Z",
+  "payload": {
+    "code": "engine_restarted",
+    "message": "Engine restarted before completion"
+  },
+  "phase": "failed",
+  "refs": [],
+  "source_seq": 1,
+  "step_key": "work",
+  "summary": null,
+  "type": "run.failed"
+}

@@ -1,0 +1,37 @@
+{
+  "$id": "urn:research-contract:1.1.0:RevisionDiff",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifact_after": {
+      "title": "Artifact After",
+      "type": "string"
+    },
+    "artifact_before": {
+      "title": "Artifact Before",
+      "type": "string"
+    },
+    "format": {
+      "const": "unified",
+      "default": "unified",
+      "title": "Format",
+      "type": "string"
+    },
+    "patch": {
+      "title": "Patch",
+      "type": "string"
+    },
+    "round": {
+      "minimum": 1,
+      "title": "Round",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "round",
+    "artifact_before",
+    "artifact_after",
+    "patch"
+  ],
+  "title": "RevisionDiff",
+  "type": "object"
+}

@@ -1,0 +1,9 @@
+{
+  "cost_usd": null,
+  "usage": {
+    "stage": {
+      "input_tokens": 10,
+      "output_tokens": 2
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "budget_usd": "10",
+  "callback_url": "http://platform.test/api/v1/internal/engines/i2h/runs/s1",
+  "contract_version": "1.1.0",
+  "inputs": {
+    "artifacts": [],
+    "decisions": null,
+    "feedback": [],
+    "history": [],
+    "params": {
+      "domains": [],
+      "topic": "Compare retrieval methods for research"
+    },
+    "prior_engine_run_id": null
+  },
+  "integrations": {},
+  "interaction_mode": "light",
+  "iteration": 1,
+  "models": {
+    "review": {
+      "api_key": "**********",
+      "base_url": null,
+      "extra": {},
+      "model": "review-example",
+      "provider": "openai_compatible"
+    },
+    "stage": {
+      "api_key": "**********",
+      "base_url": null,
+      "extra": {},
+      "model": "draft-example",
+      "provider": "openai_compatible"
+    }
+  },
+  "platform_run_id": "r1",
+  "profile": {
+    "domain": null,
+    "research_type": null
+  },
+  "review_policy": {
+    "max_auto_revisions": 2
+  },
+  "stage_key": "hypothesis",
+  "stage_run_id": "s1"
+}

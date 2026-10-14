@@ -1,0 +1,212 @@
+{
+  "$defs": {
+    "InteractionMode": {
+      "enum": [
+        "auto",
+        "light",
+        "copilot",
+        "full"
+      ],
+      "title": "InteractionMode",
+      "type": "string"
+    },
+    "OutputDecl": {
+      "properties": {
+        "primary": {
+          "default": false,
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "schema": {
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema"
+      ],
+      "title": "OutputDecl",
+      "type": "object"
+    },
+    "ResearchProfile": {
+      "properties": {
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "research_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Type"
+        }
+      },
+      "title": "ResearchProfile",
+      "type": "object"
+    },
+    "StepInfo": {
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "order": {
+          "minimum": 1,
+          "title": "Order",
+          "type": "integer"
+        },
+        "step_key": {
+          "title": "Step Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_key",
+        "label",
+        "order"
+      ],
+      "title": "StepInfo",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.1.0:Capabilities",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "activity_types": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Activity Types",
+      "type": "array"
+    },
+    "auto_revision": {
+      "title": "Auto Revision",
+      "type": "boolean"
+    },
+    "contract_version": {
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "engine_key": {
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "title": "Engine Key",
+      "type": "string"
+    },
+    "engine_version": {
+      "title": "Engine Version",
+      "type": "string"
+    },
+    "feedback_schemas": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Feedback Schemas",
+      "type": "array"
+    },
+    "input_schemas": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Input Schemas",
+      "type": "array"
+    },
+    "integrations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Integrations",
+      "type": "array"
+    },
+    "optional_integrations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Optional Integrations",
+      "type": "array"
+    },
+    "output_schemas": {
+      "items": {
+        "$ref": "#/$defs/OutputDecl"
+      },
+      "title": "Output Schemas",
+      "type": "array"
+    },
+    "profiles": {
+      "items": {
+        "$ref": "#/$defs/ResearchProfile"
+      },
+      "title": "Profiles",
+      "type": "array"
+    },
+    "providers": {
+      "items": {
+        "enum": [
+          "openai_compatible",
+          "bedrock"
+        ],
+        "type": "string"
+      },
+      "title": "Providers",
+      "type": "array"
+    },
+    "question_gates": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/InteractionMode"
+      },
+      "title": "Question Gates",
+      "type": "object"
+    },
+    "reuses_prior_run": {
+      "default": false,
+      "title": "Reuses Prior Run",
+      "type": "boolean"
+    },
+    "stage_keys": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Stage Keys",
+      "type": "array"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/StepInfo"
+      },
+      "title": "Steps",
+      "type": "array"
+    }
+  },
+  "required": [
+    "engine_key",
+    "engine_version",
+    "contract_version",
+    "stage_keys",
+    "output_schemas",
+    "steps",
+    "auto_revision",
+    "profiles"
+  ],
+  "title": "Capabilities",
+  "type": "object"
+}

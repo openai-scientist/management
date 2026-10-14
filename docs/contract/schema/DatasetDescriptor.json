@@ -1,0 +1,54 @@
+{
+  "$id": "urn:research-contract:1.1.0:DatasetDescriptor",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "dataset_version_id": {
+      "title": "Dataset Version Id",
+      "type": "string"
+    },
+    "download_url": {
+      "title": "Download Url",
+      "type": "string"
+    },
+    "original_filename": {
+      "title": "Original Filename",
+      "type": "string"
+    },
+    "row_count": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Row Count"
+    },
+    "sha256": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "source_type": {
+      "title": "Source Type",
+      "type": "string"
+    },
+    "version_number": {
+      "minimum": 1,
+      "title": "Version Number",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "dataset_version_id",
+    "version_number",
+    "original_filename",
+    "sha256",
+    "source_type",
+    "download_url"
+  ],
+  "title": "DatasetDescriptor",
+  "type": "object"
+}

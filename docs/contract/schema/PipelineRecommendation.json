@@ -1,0 +1,114 @@
+{
+  "$defs": {
+    "ResearchProfile": {
+      "properties": {
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "research_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Type"
+        }
+      },
+      "title": "ResearchProfile",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.1.0:PipelineRecommendation",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "enum": [
+        "proceed",
+        "refine",
+        "pivot"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "evidence_artifact_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Artifact Ids",
+      "type": "array"
+    },
+    "outcome": {
+      "anyOf": [
+        {
+          "enum": [
+            "positive",
+            "negative",
+            "inconclusive"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Outcome"
+    },
+    "profile": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResearchProfile"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "selection": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Selection",
+      "type": "object"
+    },
+    "target_stage_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Stage Key"
+    }
+  },
+  "required": [
+    "action",
+    "reason"
+  ],
+  "title": "PipelineRecommendation",
+  "type": "object"
+}
