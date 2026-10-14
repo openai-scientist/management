@@ -42,7 +42,11 @@ async def smoke(client, project, csrf_token, *, timeout=600, poll_interval=1, to
         while monotonic() < deadline:
             current = data(await client.get(run_url))
             if current["status"] in {"failed", "stopped", "budget_exceeded"}:
-                raise SmokeError(f"Run {current['id']} ended with {current['status']}")
+                stage = current.get("current_stage") or {}
+                raise SmokeError(
+                    f"Run {current['id']} ended with {current['status']} while waiting for "
+                    f"{label} (stage {stage.get('stage_key')}, step {stage.get('step_key')})"
+                )
             if predicate(current):
                 return current
             await asyncio.sleep(poll_interval)
@@ -132,7 +136,11 @@ if __name__ == "__main__":
         parser.error("timeout must be positive; poll-interval must be nonnegative")
     try:
         asyncio.run(main(args))
-    except (SmokeError, httpx.HTTPError, ValueError, KeyError, TypeError):
+    except SmokeError as exc:
+        # SmokeError text holds only ids, statuses and paths, never bodies or credentials.
+        print(f"Smoke failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
         # Keep errors useful without dumping credentials, body content or transport internals.
         print(
             "Smoke failed; check service readiness, run state and configuration.", file=sys.stderr
