@@ -5,7 +5,7 @@ from jsonschema import Draft202012Validator
 
 from scripts.export_contract import WIRE_MODELS, render_contract
 
-DOCS = Path(__file__).resolve().parents[2] / "docs" / "contract"
+DOCS = Path(__file__).resolve().parents[4] / "docs" / "contract"
 
 
 def test_export_is_current():

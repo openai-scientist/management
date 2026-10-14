@@ -741,6 +741,7 @@ def database(mysql_url) -> Iterator[str]:
             admin.execute(f"DROP DATABASE {name}")
 
 
+@pytest.mark.live
 def test_a_real_server_accepts_good_details_and_names_what_is_wrong(run, pool, mysql_url) -> None:
     async def scenario() -> None:
         # Without TLS the password still does not travel in the clear, and with it the
@@ -761,6 +762,7 @@ def test_a_real_server_accepts_good_details_and_names_what_is_wrong(run, pool, m
     run(scenario())
 
 
+@pytest.mark.live
 def test_the_first_sign_in_of_an_account_works_without_tls(run, pool, mysql_url) -> None:
     """Until an account has signed in once, the server asks for its password under an RSA key.
 
@@ -782,6 +784,7 @@ def test_the_first_sign_in_of_an_account_works_without_tls(run, pool, mysql_url)
             admin.execute(f"DROP USER '{user}'@'%'")
 
 
+@pytest.mark.live
 def test_browsing_lists_the_database_and_the_tables_and_columns_in_it(
     run, pool, mysql_url, database
 ) -> None:
@@ -844,6 +847,7 @@ def test_browsing_lists_the_database_and_the_tables_and_columns_in_it(
     run(scenario())
 
 
+@pytest.mark.live
 def test_rows_are_read_from_a_table_or_a_query_and_nothing_can_be_written(
     run, pool, mysql_url, database
 ) -> None:
@@ -924,6 +928,7 @@ def test_rows_are_read_from_a_table_or_a_query_and_nothing_can_be_written(
     run(scenario())
 
 
+@pytest.mark.live
 def test_values_of_every_kind_come_out_as_the_text_a_dataset_keeps(
     run, pool, mysql_url, database
 ) -> None:
@@ -968,6 +973,7 @@ def test_values_of_every_kind_come_out_as_the_text_a_dataset_keeps(
     run(scenario())
 
 
+@pytest.mark.live
 def test_rows_are_fetched_in_batches_that_shrink_as_rows_get_wider(
     run, pool, mysql_url, database, monkeypatch
 ) -> None:
@@ -1020,6 +1026,7 @@ def test_rows_are_fetched_in_batches_that_shrink_as_rows_get_wider(
     run(scenario())
 
 
+@pytest.mark.live
 def test_a_database_user_sees_and_reads_only_what_it_was_granted(
     run, pool, mysql_url, database
 ) -> None:
@@ -1064,6 +1071,7 @@ def test_a_database_user_sees_and_reads_only_what_it_was_granted(
             admin.execute(f"DROP USER '{user}'@'%'")
 
 
+@pytest.mark.live
 def test_a_statement_that_takes_too_long_is_stopped_here_and_on_the_server(
     run, pool, mysql_url
 ) -> None:
@@ -1124,6 +1132,7 @@ def big_table(mysql_url) -> Iterator[TableSource]:
             admin.execute(f"DROP DATABASE {name}")
 
 
+@pytest.mark.live
 @pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning")
 def test_a_reader_that_stops_early_does_not_read_the_rest_of_a_large_table(
     run, pool, mysql_url, big_table

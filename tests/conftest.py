@@ -1,6 +1,7 @@
 import asyncio
 import sys
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -12,6 +13,17 @@ from tests.helpers.harness import (
     Harness,
     open_harness,
 )
+
+LANES = {"unit", "integration", "e2e"}
+
+
+def pytest_collection_modifyitems(items):
+    """Mark each test with its lane: the first folder under tests/ it lives in."""
+    for item in items:
+        lane = item.path.relative_to(Path(__file__).parent).parts[0]
+        if lane in LANES:
+            item.add_marker(getattr(pytest.mark, lane))
+
 
 # Production runs on uvloop and the rest of the suite on asyncio. TLS, timeouts and the
 # hand-over between a thread and the loop depend on the loop, so a test that asks for this is

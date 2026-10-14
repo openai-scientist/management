@@ -116,6 +116,7 @@ async def _active_managers(harness: Harness, project_id: str) -> int:
         return len(rows)
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_concurrent_manager_suspensions_keep_one_active_manager(
     postgres_harness: Harness,
@@ -150,6 +151,7 @@ async def test_concurrent_manager_suspensions_keep_one_active_manager(
     assert await _active_managers(harness, project["id"]) == 1
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_concurrent_manager_demotions_leave_one_manager(postgres_harness: Harness) -> None:
     harness = postgres_harness
@@ -179,6 +181,7 @@ async def test_concurrent_manager_demotions_leave_one_manager(postgres_harness: 
     assert await _active_managers(harness, project["id"]) == 1
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_concurrent_adds_of_one_user_create_one_membership(
     postgres_harness: Harness,
@@ -214,6 +217,7 @@ async def test_concurrent_adds_of_one_user_create_one_membership(
         assert len(memberships) == 1
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_member_add_racing_a_suspension_never_adds_a_suspended_user(
     postgres_harness: Harness,
@@ -253,6 +257,7 @@ async def test_member_add_racing_a_suspension_never_adds_a_suspended_user(
         assert added.json()["error"]["code"] == "USER_SUSPENDED"
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_concurrent_run_starts_leave_one_run_in_progress(postgres_harness: Harness) -> None:
     from tests.helpers.research import ready_project, start_run
@@ -287,6 +292,7 @@ async def test_concurrent_run_starts_leave_one_run_in_progress(postgres_harness:
         assert [run["status"] for run in runs] == ["running"]
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_repeated_callbacks_arriving_together_apply_once(postgres_harness: Harness) -> None:
     from tests.helpers.research import REVIEW, ready_project, report, start_run
@@ -315,6 +321,7 @@ async def test_repeated_callbacks_arriving_together_apply_once(postgres_harness:
         assert [item["kind"] for item in notifications.json()["data"]] == ["run_awaiting_review"]
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_postgres_notification_stream_delivers_across_workers_after_commit(
     postgres_harness: Harness,
@@ -364,6 +371,7 @@ async def test_postgres_notification_stream_delivers_across_workers_after_commit
         await reader_app.state.notification_hub.close()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_postgres_listener_disconnect_closes_stream_and_reconnect_restores_state(
     postgres_harness: Harness,
@@ -392,6 +400,7 @@ async def test_postgres_listener_disconnect_closes_stream_and_reconnect_restores
             assert await stream.snapshot() == {"items": [], "unread_count": 0}
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_an_invitation_is_answered_once_under_concurrency(
     postgres_harness: Harness,
@@ -468,6 +477,7 @@ async def _let_another_code_go(harness: Harness) -> None:
         await db.commit()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_concurrent_code_checks_and_sends_respect_the_limits(
     postgres_harness: Harness,
@@ -501,6 +511,7 @@ async def test_concurrent_code_checks_and_sends_respect_the_limits(
             assert (await db.scalar(select(EmailOtp))).send_count == 2
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_registering_again_racing_a_verification_never_swaps_the_password(
     postgres_harness: Harness,
@@ -533,6 +544,7 @@ async def test_registering_again_racing_a_verification_never_swaps_the_password(
             harness.emails.sent.clear()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_a_reset_outlasts_a_sign_in_or_a_change_racing_it(
     postgres_harness: Harness,
@@ -590,6 +602,7 @@ async def test_a_reset_outlasts_a_sign_in_or_a_change_racing_it(
                 client.cookies.clear()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_candidate_stream_delivers_across_workers_after_commit(postgres_harness: Harness):
     writer = postgres_harness
@@ -639,6 +652,7 @@ async def test_candidate_stream_delivers_across_workers_after_commit(postgres_ha
         await reader_app.state.invite_candidates_hub.close()
 
 
+@pytest.mark.live
 async def test_connection_attempts_hold_no_database_connection_and_names_stay_unique(
     postgres_harness: Harness,
 ) -> None:
@@ -683,6 +697,7 @@ async def test_connection_attempts_hold_no_database_connection_and_names_stay_un
         assert (await client.get(url)).json()["data"] == tested.json()["data"]
 
 
+@pytest.mark.live
 async def test_reading_through_a_connection_holds_no_database_connection(
     postgres_harness: Harness,
 ) -> None:
@@ -732,6 +747,7 @@ async def test_reading_through_a_connection_holds_no_database_connection(
         ]
 
 
+@pytest.mark.live
 async def test_versions_added_together_get_consecutive_numbers(postgres_harness: Harness) -> None:
     from tests.helpers.datasets import CSV, upload_dataset
 
@@ -766,6 +782,7 @@ async def test_versions_added_together_get_consecutive_numbers(postgres_harness:
         assert [item["version_number"] for item in listed["data"]] == [5, 4, 3, 2, 1]
 
 
+@pytest.mark.live
 async def test_an_import_holds_no_database_connection_and_names_stay_unique(
     postgres_harness: Harness, tmp_path
 ) -> None:
@@ -823,6 +840,7 @@ async def test_an_import_holds_no_database_connection_and_names_stay_unique(
         assert len(events.all()) == 4
 
 
+@pytest.mark.live
 async def test_a_real_table_is_imported_and_a_run_starts_from_it(
     postgres_harness: Harness,
 ) -> None:
@@ -913,6 +931,7 @@ async def test_a_real_table_is_imported_and_a_run_starts_from_it(
         assert [item["version_number"] for item in versions] == [2, 1]
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_two_returns_from_google_with_one_state_store_one_refresh_token(
     postgres_harness: Harness,
@@ -953,6 +972,7 @@ async def test_two_returns_from_google_with_one_state_store_one_refresh_token(
     }
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_two_connections_cannot_be_made_from_one_google_grant_at_once(
     postgres_harness: Harness,

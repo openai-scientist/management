@@ -1050,6 +1050,7 @@ async def test_every_call_closes_its_client(pool: ThreadPoolExecutor, api: BigQu
 LIVE_KEY = os.environ.get("PLATFORM_BIGQUERY_TEST_SERVICE_ACCOUNT")
 
 
+@pytest.mark.live
 @pytest.mark.skipif(not LIVE_KEY, reason="PLATFORM_BIGQUERY_TEST_SERVICE_ACCOUNT is not set")
 @pytest.mark.asyncio
 async def test_the_real_bigquery_answers(pool: ThreadPoolExecutor) -> None:

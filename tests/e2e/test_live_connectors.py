@@ -39,10 +39,13 @@ from tests.helpers.harness import APP_URL, GOOGLE_CONNECTIONS_REDIRECT_URI, Harn
 from tests.helpers.identity import login, mutation_headers
 from tests.helpers.projects import PROJECTS, create_project
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("PLATFORM_LIVE_CONNECTOR_TESTS") != "1",
-    reason="PLATFORM_LIVE_CONNECTOR_TESTS is not 1",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        os.environ.get("PLATFORM_LIVE_CONNECTOR_TESTS") != "1",
+        reason="PLATFORM_LIVE_CONNECTOR_TESTS is not 1",
+    ),
+    pytest.mark.live,
+]
 
 # Published at https://rnacentral.org/help/public-database; kept out of the repository anyway.
 RNACENTRAL_PASSWORD = os.environ.get("PLATFORM_LIVE_RNACENTRAL_PASSWORD")

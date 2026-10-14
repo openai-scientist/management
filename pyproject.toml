@@ -45,6 +45,12 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "unit: no app, no database, no network",
+    "integration: the app on SQLite, or fake and real servers",
+    "e2e: flows across features over HTTP or real servers",
+    "live: needs an external service, skipped unless its environment variable is set",
+]
 
 [tool.ruff]
 line-length = 100

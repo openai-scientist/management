@@ -239,6 +239,7 @@ def real_connector(url, query_timeout: float = 5, **overrides: str) -> PostgresC
     )
 
 
+@pytest.mark.live
 def test_a_real_server_accepts_good_details_and_names_what_is_wrong(
     run, postgres_url, monkeypatch
 ) -> None:
@@ -279,6 +280,7 @@ def query(sql: str) -> QuerySource:
     return QuerySource(type="query", sql=sql)
 
 
+@pytest.mark.live
 def test_browsing_lists_the_schemas_tables_and_columns_the_user_can_read(run, postgres_url) -> None:
     async def scenario() -> None:
         target = real_connector(postgres_url)
@@ -335,6 +337,7 @@ def test_browsing_lists_the_schemas_tables_and_columns_the_user_can_read(run, po
     run(scenario())
 
 
+@pytest.mark.live
 def test_values_of_unusual_types_and_names_at_the_limits_are_handled(run, postgres_url) -> None:
     async def scenario() -> None:
         async with sample_schema(postgres_url) as schema, direct(postgres_url) as admin:
@@ -396,6 +399,7 @@ def test_values_of_unusual_types_and_names_at_the_limits_are_handled(run, postgr
     run(scenario())
 
 
+@pytest.mark.live
 def test_rows_are_fetched_in_batches_that_shrink_as_rows_get_wider(
     run, postgres_url, monkeypatch
 ) -> None:
@@ -443,6 +447,7 @@ def test_rows_are_fetched_in_batches_that_shrink_as_rows_get_wider(
     run(scenario())
 
 
+@pytest.mark.live
 def test_a_database_user_sees_and_reads_only_what_it_was_granted(run, postgres_url) -> None:
     async def scenario() -> None:
         role, password = f"conn_test_{uuid4().hex}", uuid4().hex
@@ -494,6 +499,7 @@ def test_a_database_user_sees_and_reads_only_what_it_was_granted(run, postgres_u
     run(scenario())
 
 
+@pytest.mark.live
 def test_rows_are_read_from_a_table_or_a_query_and_nothing_can_be_written(
     run, postgres_url
 ) -> None:
@@ -568,6 +574,7 @@ def test_rows_are_read_from_a_table_or_a_query_and_nothing_can_be_written(
     run(scenario())
 
 
+@pytest.mark.live
 def test_a_slow_or_abandoned_query_is_stopped_and_leaves_no_connection(run, postgres_url) -> None:
     async def scenario() -> None:
         marker = f"marker_{uuid4().hex}"
