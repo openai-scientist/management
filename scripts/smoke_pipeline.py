@@ -103,7 +103,11 @@ async def main(args):
         raise SmokeError("Set SMOKE_EMAIL and SMOKE_PASSWORD in the process environment")
     async with httpx.AsyncClient(base_url=args.base_url.rstrip("/"), timeout=30) as client:
         session = data(
-            await client.post("/api/v1/auth/login", json={"email": email, "password": password})
+            await client.post(
+                "/api/v1/auth/login",
+                json={"email": email, "password": password},
+                headers={"Origin": str(client.base_url).rstrip("/")},
+            )
         )
         result = await smoke(
             client,
