@@ -27,7 +27,7 @@ async def test_health_probes_answer_and_openapi_keeps_its_guards(harness: Harnes
     assert ready.status_code == 200
     assert ready.json()["data"] == {"status": "ready"}
     schema = harness.app.openapi()
-    # Listed even while the feature is off, like the sign-in pair above.
+    # Listed even while the feature is off.
     assert {
         "/api/v1/projects/{project_id}/connections/google/start",
         "/api/v1/connections/google/callback",

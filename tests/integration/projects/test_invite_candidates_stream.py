@@ -201,7 +201,7 @@ async def test_stream_stops_after_access_or_session_ends(harness: Harness, monke
 
 
 @pytest.mark.asyncio
-async def test_keep_alive_revalidates_access_without_polling_or_extending_session(
+async def test_keep_alive_neither_extends_the_session_nor_polls_users(
     harness: Harness, monkeypatch
 ):
     monkeypatch.setattr(

@@ -50,7 +50,7 @@ async def test_monitoring_services_are_admin_only_and_unknown_without_measured_r
 
 
 @pytest.mark.asyncio
-async def test_events_filter_stably_and_detail_does_not_return_raw_attributes(
+async def test_events_filter_and_detail_does_not_return_raw_attributes(
     harness: Harness,
 ) -> None:
     async with harness.client() as client:

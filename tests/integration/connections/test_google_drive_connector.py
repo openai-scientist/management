@@ -284,7 +284,7 @@ async def test_a_csv_file_is_read_as_utf8_text_with_a_header_row(executor, tempo
     assert all(handle.closed for handle in temporary_files)
 
 
-async def test_many_rows_are_handed_over_a_batch_at_a_time(executor, monkeypatch) -> None:
+async def test_rows_past_one_batch_are_all_handed_over(executor, monkeypatch) -> None:
     monkeypatch.setattr(google_drive, "ROWS_PER_BATCH", 3)
     lines = b"n\n" + b"".join(b"%d\n" % n for n in range(10))
     drive, oauth = folder(**{"f-csv": csv_file("numbers.csv", lines)})

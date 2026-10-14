@@ -196,7 +196,7 @@ async def test_startup_records_time_after_the_last_worker_stopped(tmp_path) -> N
 
 
 @pytest.mark.asyncio
-async def test_expired_events_are_removed_in_bounded_cleanup_batches(tmp_path) -> None:
+async def test_expired_events_are_removed_by_cleanup(tmp_path) -> None:
     async with open_harness(tmp_path) as harness:
         now = datetime.now(UTC)
         async with harness.factory() as db:

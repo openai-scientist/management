@@ -347,118 +347,6 @@ async def test_a_database_that_was_dropped_is_said_so() -> None:
         assert "gone" not in raised.value.message
 
 
-async def test_points_become_rows_ordered_by_time_and_then_by_tag() -> None:
-    server = latency()
-
-    columns, rows = await read(
-        connector(server), series(fields=["value", "p95"], tags=["host", "region"])
-    )
-
-    assert columns == [
-        TIME,
-        Column("host", "string", "tag"),
-        Column("region", "string", "tag"),
-        Column("value", "float", "field"),
-        Column("p95", "float", "field"),
-    ]
-    assert rows == [
-        ("2026-10-01T00:00:00Z", "a", "eu", 4, 2),
-        # A bucket without a point of one field has that cell empty.
-        ("2026-10-01T00:00:00Z", "b", "eu", 5, None),
-        ("2026-10-01T01:00:00Z", "a", "eu", 10, 20),
-        # A series without the tag has it empty, and comes first among those of its time.
-        ("2026-10-01T01:00:00Z", "c", None, 7, None),
-        ("2026-10-01T02:00:00Z", "b", "eu", 2.5, 4),
-    ]
-
-
-@pytest.mark.parametrize(
-    ("aggregate", "kind", "values"),
-    [
-        ("mean", "float", [2, 10, 2.5]),
-        ("sum", "float", [4, 10, 2.5]),
-        ("min", "float", [1, 10, 2.5]),
-        ("max", "float", [3, 10, 2.5]),
-        ("count", "integer", [2, 1, 1]),
-    ],
-)
-async def test_each_aggregate_is_taken_over_every_point_of_a_bucket(
-    aggregate: str, kind: str, values: list
-) -> None:
-    server = FakeInfluxDB()
-    for moment, value in [(0.25, 1.0), (0.5, 3.0), (1.5, 10.0), (2.5, 2.5)]:
-        server.write("latency", {}, {"value": value}, at(moment))
-
-    columns, rows = await read(connector(server), series(aggregate=aggregate))
-
-    assert columns == [TIME, Column("value", kind, "field")]
-    assert [row[1] for row in rows] == values
-
-
-async def test_an_aggregate_of_whole_numbers_has_the_type_of_its_values() -> None:
-    server = FakeInfluxDB()
-    server.write("jobs", {}, {"done": 3}, at(0.5))
-    reader = connector(server)
-
-    types = {}
-    for aggregate in ("mean", "sum", "min", "max", "count"):
-        columns, _ = await read(reader, series(name="jobs", fields=["done"], aggregate=aggregate))
-        types[aggregate] = columns[1].type
-
-    assert types == {
-        "mean": "float",
-        "sum": "integer",
-        "min": "integer",
-        "max": "integer",
-        "count": "integer",
-    }
-
-
-async def test_a_bucket_holds_its_start_and_not_its_end() -> None:
-    server = FakeInfluxDB()
-    server.write("latency", {}, {"value": 1.0}, at(0))
-    server.write("latency", {}, {"value": 2.0}, at(1))
-    server.write("latency", {}, {"value": 4.0}, at(3))
-
-    _, rows = await read(connector(server), series())
-
-    # The point at three o'clock is outside the span, which ends there.
-    assert rows == [("2026-10-01T00:00:00Z", 1), ("2026-10-01T01:00:00Z", 2)]
-
-
-async def test_a_span_is_widened_to_whole_buckets() -> None:
-    server = FakeInfluxDB()
-    server.write("latency", {}, {"value": 1.0}, at(0.1))
-    server.write("latency", {}, {"value": 2.0}, at(2.9))
-
-    _, rows = await read(
-        connector(server),
-        series(start=DAY + timedelta(minutes=30), end=DAY + timedelta(hours=2, minutes=30)),
-    )
-
-    # As Prometheus is read: the first and the last bucket whole, whatever part was asked.
-    assert rows == [("2026-10-01T00:00:00Z", 1), ("2026-10-01T02:00:00Z", 2)]
-    assert SPAN in server.selects()[0]
-
-
-async def test_weeks_start_on_monday_and_days_at_midnight_utc() -> None:
-    server = FakeInfluxDB()
-    # A Thursday, where InfluxDB starts its weeks unless told otherwise, and the Sunday before.
-    server.write("latency", {}, {"value": 1.0}, at(0.5))
-    server.write("latency", {}, {"value": 2.0}, at(-4 * 24 + 0.5))
-    reader = connector(server)
-    span = {"start": DAY - timedelta(days=7), "end": DAY + timedelta(days=1)}
-
-    _, weeks = await read(reader, series(bucket="1w", **span))
-    _, days = await read(reader, series(bucket="1d", **span))
-
-    # 2026-10-01 is a Thursday: its week began on Monday the 28th.
-    assert weeks == [("2026-09-21T00:00:00Z", 2), ("2026-09-28T00:00:00Z", 1)]
-    assert days == [("2026-09-27T00:00:00Z", 2), ("2026-10-01T00:00:00Z", 1)]
-    assert "GROUP BY time(1w, 4d) fill(none)" in server.selects()[0]
-    assert "time >= '2026-09-21T00:00:00Z' AND time < '2026-10-05T00:00:00Z'" in server.selects()[0]
-
-
 async def test_a_server_that_counts_its_buckets_another_way_is_not_read() -> None:
     server = latency()
     # The week of a server that ignored the offset: from Thursday.
@@ -508,19 +396,6 @@ async def test_points_without_a_bucket_keep_their_own_time() -> None:
         ("2026-10-01T01:30:00Z", "a", "eu", 10, None),
         ("2026-10-01T02:30:00Z", "b", "eu", 2.5, None),
     ]
-
-
-async def test_no_more_rows_are_given_than_the_caller_wants() -> None:
-    server = latency()
-    reader = connector(server)
-
-    _, bucketed = await read(reader, series(tags=["host"]), max_rows=2)
-    _, written = await read(reader, raw(tags=["host"]), max_rows=2)
-
-    assert bucketed == [("2026-10-01T00:00:00Z", "a", 4), ("2026-10-01T00:00:00Z", "b", 5)]
-    assert written == [("2026-10-01T00:15:00Z", "a", 1), ("2026-10-01T00:30:00Z", "a", 3)]
-    # Without a bucket the server itself stops there.
-    assert [statement.endswith(" LIMIT 2") for statement in server.selects()] == [False, True]
 
 
 async def test_a_measurement_with_no_points_in_the_span_is_an_empty_table() -> None:

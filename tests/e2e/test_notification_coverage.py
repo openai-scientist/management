@@ -115,7 +115,9 @@ async def test_each_membership_change_tells_the_one_person_concerned(harness: Ha
 
 
 @pytest.mark.asyncio
-async def test_nothing_is_sent_to_the_actor_or_to_a_suspended_inviter(harness: Harness) -> None:
+async def test_notice_counts_hold_after_a_suspension_and_the_remover_is_not_told(
+    harness: Harness,
+) -> None:
     async with (
         harness.client() as manager_client,
         harness.client() as member_client,

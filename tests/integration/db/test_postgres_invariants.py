@@ -219,7 +219,7 @@ async def test_concurrent_adds_of_one_user_create_one_membership(
 
 @pytest.mark.live
 @pytest.mark.asyncio
-async def test_member_add_racing_a_suspension_never_adds_a_suspended_user(
+async def test_member_add_racing_a_suspension_is_refused_when_it_comes_second(
     postgres_harness: Harness,
 ) -> None:
     harness = postgres_harness
