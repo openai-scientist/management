@@ -25,6 +25,12 @@ def _models(parent: type[c.ContractModel]) -> dict[str, type[c.ContractModel]]:
 
 
 WIRE_MODELS = _models(c.ContractModel)
+DIRECTORIES = ("schema", "examples", "pi/schema", "pi/examples")
+
+
+def folder(model: type[c.ContractModel]) -> str:
+    """The PI contract has its own folder so engines vendor only what they implement."""
+    return "pi/" if model.__module__ == "management.research.contracts.pi" else ""
 
 
 def example_payloads() -> tuple[dict[str, Any], dict[str, Any]]:
@@ -370,8 +376,8 @@ def render_contract() -> dict[str, str]:
 
     for name, model in sorted(WIRE_MODELS.items()):
         example = model.model_validate(samples[name]).model_dump(mode="json", by_alias=True)
-        output[f"schema/{name}.json"] = render(wire_schema(model))
-        output[f"examples/{name}.json"] = render(example)
+        output[f"{folder(model)}schema/{name}.json"] = render(wire_schema(model))
+        output[f"{folder(model)}examples/{name}.json"] = render(example)
     for kind, event in sorted(events.items()):
         output[f"examples/event-{kind}.json"] = render(
             c.EventEnvelope.model_validate(event).model_dump(mode="json", by_alias=True)
@@ -388,7 +394,7 @@ def main() -> None:
     output = render_contract()
     existing = {
         p.relative_to(DOCS).as_posix()
-        for directory in ("schema", "examples")
+        for directory in DIRECTORIES
         for p in (DOCS / directory).glob("*.json")
     }
     if args.check:

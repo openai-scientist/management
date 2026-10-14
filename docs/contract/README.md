@@ -3,7 +3,7 @@
 Contract version: **1.2.0** (semantic versioning). This directory is the public
 contract; Python implementations belong to each service. Engines copy `schema/`,
 `examples/`, and this README into `tests/contract/vendor/`, with the management
-commit in `vendor/SOURCE`. No service imports code from another repository.
+commit in `vendor/SOURCE`. The PI service copies `pi/` and this README the same way. No service imports code from another repository.
 
 Regenerate with `uv run python scripts/export_contract.py`. Verify with
 `uv run python scripts/export_contract.py --check` and
@@ -148,8 +148,8 @@ Platform timeline also has `class=platform`: `stage.status_changed`,
 ## PI contract
 
 The AI Principal Investigator (PI) is a separate service with its own contract. Platform
-owns the models (`schema/Consultation*.json`, `Charter`, `PIDecision`, and the models they
-use) and sends them with the same rules as engines: `X-Service-Key`, `X-Request-ID`,
+owns the models (`pi/schema/` and `pi/examples/`; shared models such as `Finding` stay in
+`schema/`) and sends them with the same rules as engines: `X-Service-Key`, `X-Request-ID`,
 `traceparent`, same major `contract_version`. Return model bodies without wrappers.
 
 | Method | Relative path | Request / response |
