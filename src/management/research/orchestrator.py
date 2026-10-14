@@ -211,8 +211,15 @@ async def start_stage(
         row.engine_unreachable_since = datetime.now(UTC)
         await db.flush()
         return row
-    await db.refresh(row)
-    await db.refresh(run)
+    # Callbacks can still be committing when create returns. Lock the rows as callbacks do and
+    # re-read them, so the seq and status below come from committed state.
+    for model, key in ((ResearchRun, run.id), (StageRun, row.id)):
+        await db.scalar(
+            select(model)
+            .where(model.id == key)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     row.engine_run_id = response.engine_run_id
     if row.status == "PENDING":
         row.status = "RUNNING"
