@@ -1,0 +1,541 @@
+"""Take a PI result and act on it: apply it, hand it to the researcher, or drop it as stale."""
+
+from datetime import UTC, datetime
+from uuid import UUID
+
+from pydantic import ValidationError
+from sqlalchemy import select
+
+from management.access.service import lock_project_scope
+from management.core.errors import APIError
+from management.research.contracts import (
+    REVIEW_FINDINGS,
+    AllowedAction,
+    Charter,
+    ConsultationResult,
+    Escalation,
+    GateAnswer,
+    ReviewFindings,
+)
+from management.research.models import (
+    PiConsultation,
+    ResearchRun,
+    RunArtifact,
+    StageDecision,
+    StageRun,
+)
+from management.research.orchestrator import (
+    _relock,
+    accept_stage,
+    answer_stage_gate,
+    first_stage_inputs,
+    rerun_stage,
+    send_back,
+    start_stage,
+    stop_research_run,
+    validate_selection,
+)
+from management.research.pi.authority import escalation_stops, run_mode
+from management.research.pi.service import (
+    add_note,
+    emit_attention,
+    fail_consultation,
+    mark_overridden,
+    request_consultation,
+    result_cost,
+)
+from management.research.reviews import normalize_comment
+from management.research.stage_runs import append_run_event, recompute_run_cost
+
+GATE_KINDS = ("gate_question", "gate_review")
+FIRST_STAGE_DONE = ("COMPLETED", "ACCEPTED", "SUPERSEDED")
+
+
+def _dump(result: ConsultationResult) -> dict:
+    return result.model_dump(mode="json")
+
+
+async def is_current(db, run, consultation, stage_run) -> bool:
+    """Whether the situation the PI was asked about still holds."""
+    kind = consultation.kind
+    if kind == "charter":
+        return run.charter_status == "pending"
+    if stage_run is None:
+        return False
+    if kind in GATE_KINDS:
+        return (
+            stage_run.status == "RUNNING"
+            and (stage_run.open_gate or {}).get("gate_id") == consultation.gate_id
+        )
+    if kind == "stage_outcome":
+        return stage_run.status == "COMPLETED"
+    if kind == "failure":
+        return (
+            stage_run.status == "FAILED"
+            and stage_run.iteration == run.iteration
+            and await db.scalar(
+                select(StageRun.id).where(StageRun.prior_stage_run_id == stage_run.id)
+            )
+            is None
+        )
+    return True
+
+
+async def _blocking_findings(db, app_state, stage_run) -> str | None:
+    """B5: the latest review of the stage run has blocking findings (fail closed if unreadable)."""
+    artifact = await db.scalar(
+        select(RunArtifact)
+        .where(RunArtifact.stage_run_id == stage_run.id, RunArtifact.schema_id == REVIEW_FINDINGS)
+        .order_by(RunArtifact.version.desc())
+        .limit(1)
+    )
+    if artifact is None:
+        return None
+    try:
+        body = b"".join([chunk async for chunk in app_state.file_store.open(artifact.storage_key)])
+        review = ReviewFindings.model_validate_json(body)
+    except (OSError, ValueError, ValidationError):
+        return "The review findings cannot be read, so the PI cannot approve"
+    return None if review.passed else "The review still has blocking findings"
+
+
+async def check_decision(db, app_state, consultation, stage_run, result) -> Escalation | None:
+    """Guards in code: the action is allowed here, and no approval over blocking findings."""
+    decision = result.decision
+    allowed = {
+        a.action: a
+        for a in (AllowedAction.model_validate(x) for x in consultation.request["allowed"])
+    }
+    rule = allowed.get(decision.action)
+
+    def refuse(message):
+        return Escalation(
+            reason_code="cannot_decide", message=f"Not a valid decision here: {message}"
+        )
+
+    if rule is None:
+        return refuse(f"{decision.action} is not allowed")
+    if decision.action == "answer" and decision.option_id not in rule.option_ids:
+        return refuse("unknown option")
+    if (
+        decision.action == "accept"
+        and rule.selection_key
+        and not decision.selection.get(rule.selection_key)
+    ):
+        return refuse(f"select at least one {rule.selection_key}")
+    if decision.action == "send_back" and decision.target_stage_key not in rule.targets:
+        return refuse("target stage is not allowed")
+    if decision.action == "approve" and consultation.kind == "gate_review":
+        message = await _blocking_findings(db, app_state, stage_run)
+        if message:
+            return Escalation(reason_code="integrity", message=message)
+    return None
+
+
+async def settle_charter(
+    db, app_state, run, charter: Charter, *, author, reason=None, consultation_id=None
+):
+    """Store the charter (a new version) and, the first time, start the first stage."""
+    first_key = app_state.settings.pipelines[run.pipeline_key][0].stage_key
+    post_hoc = (
+        await db.scalar(
+            select(StageRun.id)
+            .where(
+                StageRun.research_run_id == run.id,
+                StageRun.stage_key == first_key,
+                StageRun.status.in_(FIRST_STAGE_DONE),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+    version = ((run.charter or {}).get("version") or 0) + 1
+    starting = run.charter_status == "pending"
+    run.charter = charter.model_dump(mode="json") | {
+        "version": version,
+        "author": author,
+        "post_hoc": post_hoc,
+        "reason": reason,
+    }
+    run.charter_status = "settled"
+    append_run_event(
+        db,
+        run,
+        None,
+        "pi.charter_settled",
+        {"version": version, "author": author, "post_hoc": post_hoc}
+        | ({"consultation_id": str(consultation_id)} if consultation_id else {}),
+        actor="pi" if author == "pi" else "user",
+    )
+    add_note(
+        db,
+        run,
+        "decision",
+        f"Charter v{version} settled by {author}{' (after results)' if post_hoc else ''}: "
+        f"{charter.question}" + (f" Reason: {reason}" if reason else ""),
+        "pi" if author == "pi" else "user",
+        consultation_id=consultation_id,
+    )
+    if starting:
+        await start_stage(
+            db,
+            app_state,
+            run,
+            app_state.settings.pipelines[run.pipeline_key][0],
+            inputs=first_stage_inputs(run),
+        )
+
+
+async def apply_decision(
+    db, app_state, run, consultation, stage_run, result, *, actor, user_id, reason=None
+):
+    """Run the PI decision through the same functions a researcher uses. Returns the decision id."""
+    decision = result.decision
+    action = decision.action
+    cid = consultation.id
+    common = {"actor": actor, "user_id": user_id, "consultation_id": cid, "reason": reason}
+    if actor == "pi":
+        common["decided_by"] = f"pi:{cid}"
+    if action == "charter":
+        await settle_charter(
+            db, app_state, run, decision.charter, author="pi", consultation_id=cid, reason=reason
+        )
+        return None
+    if action in {"answer", "approve", "comment"}:
+        try:
+            if action == "comment":
+                payload = await normalize_comment(
+                    db,
+                    stage_run,
+                    {
+                        "action": "comment",
+                        "findings": [f.model_dump(mode="json") for f in decision.findings],
+                        "text": decision.note,
+                    },
+                )
+                answer = GateAnswer(**payload, actor="system")
+            else:
+                answer = GateAnswer(
+                    action=action,
+                    option_id=decision.option_id if action == "answer" else None,
+                    text=decision.note,
+                    actor="system",
+                )
+        except ValidationError:
+            raise APIError(422, "VALIDATION_ERROR", "Invalid gate answer") from None
+        row = await answer_stage_gate(
+            db, app_state, stage_run, answer, gate_id=consultation.gate_id, **common
+        )
+        return row.id
+    if action == "accept":
+        await validate_selection(db, app_state, stage_run, decision.selection)
+        await accept_stage(
+            db, app_state, stage_run, selection=decision.selection, note=decision.note, **common
+        )
+        return await db.scalar(
+            select(StageDecision.id)
+            .where(StageDecision.stage_run_id == stage_run.id, StageDecision.action == "accept")
+            .order_by(StageDecision.decided_at.desc())
+            .limit(1)
+        )
+    if action == "send_back":
+        note = "\n".join(filter(None, [decision.note, *result.handoff])) or None
+        row = await send_back(
+            db,
+            app_state,
+            stage_run,
+            target_stage_key=decision.target_stage_key,
+            note=note,
+            artifact_ids=[],
+            **common,
+        )
+        return row.id
+    if action == "stop":
+        row = await stop_research_run(db, app_state, run, **common)
+        return row.id
+    if action == "rerun":
+        row = await rerun_stage(db, app_state, stage_run, **common)
+        return row.id
+    raise APIError(409, "CONSULTATION_NOT_ACTIONABLE", "This PI result has no action to apply")
+
+
+def _hand_over(db, run, consultation, stage_run, result):
+    consultation.status = "awaiting_researcher"
+    consultation.result = _dump(result)
+    escalate = result.escalate
+    append_run_event(
+        db,
+        run,
+        stage_run,
+        "pi.recommendation",
+        {
+            "consultation_id": str(consultation.id),
+            "kind": consultation.kind,
+            "action": result.decision.action if result.decision else None,
+            "escalation": escalate.model_dump(mode="json") if escalate else None,
+        },
+        actor="pi",
+    )
+
+
+async def _failed_to_apply(db, run_id, consultation_id, stage_run_id, exc: APIError) -> None:
+    """The decision could not be applied: nothing of it stays, and the researcher decides."""
+    await db.rollback()
+    run = await db.get(ResearchRun, run_id, populate_existing=True)
+    consultation = await db.get(PiConsultation, consultation_id, populate_existing=True)
+    stage_run = (
+        await db.get(StageRun, stage_run_id, populate_existing=True) if stage_run_id else None
+    )
+    result = ConsultationResult.model_validate(consultation.result).model_copy(
+        update={
+            "escalate": Escalation(
+                reason_code="cannot_decide",
+                message=f"Applying the PI decision failed: {exc.message}",
+            )
+        }
+    )
+    _hand_over(db, run, consultation, stage_run, result)
+    await emit_attention(
+        db,
+        run,
+        stage_run,
+        {
+            "consultation_id": str(consultation_id),
+            "kind": consultation.kind,
+            "reason": "apply_failed",
+            "code": exc.code,
+        },
+    )
+
+
+async def _store(db, run, consultation, result):
+    """The result and its cost, kept even when the answer comes too late to act on."""
+    consultation.result = _dump(result)
+    consultation.decided_at = datetime.now(UTC)
+    cost, known = await result_cost(db, result)
+    consultation.cost_usd = cost
+    if not known:
+        run.cost_unknown = True
+    await recompute_run_cost(db, run)
+
+
+async def _record(db, run, consultation, stage_run, result):
+    """Notebook and timeline event: written once, when the result is still wanted."""
+    stage_key = stage_run.stage_key if stage_run else None
+    for draft in result.notebook:
+        add_note(
+            db,
+            run,
+            draft.kind,
+            draft.text,
+            "pi",
+            consultation_id=consultation.id,
+            stage_key=stage_key,
+        )
+    if result.brief:
+        add_note(
+            db,
+            run,
+            "brief",
+            result.brief,
+            "pi",
+            consultation_id=consultation.id,
+            stage_key=stage_key,
+        )
+    decision = result.decision
+    if decision.action != "report":
+        target = f" to {decision.target_stage_key}" if decision.target_stage_key else ""
+        add_note(
+            db,
+            run,
+            "decision",
+            f"{decision.action}{target}: {result.rationale or result.brief or 'no rationale'}",
+            "pi",
+            consultation_id=consultation.id,
+            stage_key=stage_key,
+        )
+    append_run_event(
+        db,
+        run,
+        stage_run,
+        "pi.decision",
+        {
+            "consultation_id": str(consultation.id),
+            "kind": consultation.kind,
+            "action": decision.action,
+            "confidence": result.confidence,
+        },
+        actor="pi",
+        event_class="activity",
+        summary=result.brief or None,
+    )
+
+
+async def handle_result(db, app_state, consultation_id: UUID, result: ConsultationResult) -> bool:
+    """Process a PI callback. Returns False when this result was already processed."""
+    consultation = await db.get(PiConsultation, consultation_id)
+    if consultation is None:
+        raise APIError(404, "NOT_FOUND", "Consultation was not found")
+    run_id, stage_run_id = consultation.research_run_id, consultation.stage_run_id
+    project_id = (await db.get(ResearchRun, run_id)).project_id
+    await lock_project_scope(db, project_id)
+    run = await _relock(db, ResearchRun, run_id)
+    consultation = await _relock(db, PiConsultation, consultation_id)
+    if consultation.result is not None:
+        return False
+    stage_run = (
+        await db.get(StageRun, stage_run_id, populate_existing=True) if stage_run_id else None
+    )
+    await _store(db, run, consultation, result)
+    if result.status == "failed":
+        if consultation.status in {"queued", "sent"}:
+            await fail_consultation(db, consultation, "pi_failed", result.failure.message[:500])
+        return True
+    if consultation.status not in {"queued", "sent"}:
+        # Overridden, stale or failed while the PI was thinking: kept for the record only.
+        return True
+    await _record(db, run, consultation, stage_run, result)
+    consultation.status = "decided"
+    if not await is_current(db, run, consultation, stage_run):
+        consultation.status, consultation.resolved_at = "stale", datetime.now(UTC)
+        return True
+    guard = await check_decision(db, app_state, consultation, stage_run, result)
+    if guard is not None:
+        result = result.model_copy(update={"escalate": guard})
+    stops = result.escalate is not None and escalation_stops(
+        run_mode(run), result.escalate.reason_code.value
+    )
+    if result.escalate is not None and not stops:
+        add_note(
+            db,
+            run,
+            "observation",
+            f"The PI decided despite {result.escalate.reason_code.value}: "
+            f"{result.escalate.message}",
+            "pi",
+            consultation_id=consultation.id,
+            stage_key=stage_run.stage_key if stage_run else None,
+        )
+    if consultation.kind == "close":
+        consultation.status, consultation.resolved_at = "applied", datetime.now(UTC)
+        return True
+    if consultation.authority != "pi" or stops:
+        _hand_over(db, run, consultation, stage_run, result)
+        if consultation.authority == "pi":
+            await emit_attention(
+                db,
+                run,
+                stage_run,
+                {
+                    "consultation_id": str(consultation.id),
+                    "kind": consultation.kind,
+                    "reason": "escalation",
+                    "code": result.escalate.reason_code.value if result.escalate else None,
+                },
+            )
+        return True
+    # Keep what is recorded before a function that commits halfway can fail.
+    consultation.result = _dump(result)
+    await db.commit()
+    run = await _relock(db, ResearchRun, run_id)
+    if stage_run_id:
+        stage_run = await _relock(db, StageRun, stage_run_id)
+    try:
+        decision_id = await apply_decision(
+            db,
+            app_state,
+            run,
+            consultation,
+            stage_run,
+            result,
+            actor="pi",
+            user_id=None,
+            reason=result.rationale or None,
+        )
+    except APIError as exc:
+        await _failed_to_apply(db, run_id, consultation_id, stage_run_id, exc)
+        return True
+    consultation = await _relock(db, PiConsultation, consultation_id)
+    consultation.status, consultation.resolved_at = "applied", datetime.now(UTC)
+    consultation.applied_decision_id = decision_id
+    return True
+
+
+async def endorse(db, app_state, consultation_id: UUID, *, user_id, project_id, reason=None):
+    consultation = await _consultation(db, consultation_id, project_id)
+    run_id, stage_run_id = consultation.research_run_id, consultation.stage_run_id
+    run = await _relock(db, ResearchRun, run_id)
+    consultation = await _relock(db, PiConsultation, consultation_id)
+    if consultation.status != "awaiting_researcher" or not consultation.result:
+        raise APIError(409, "CONSULTATION_NOT_AWAITING", "The PI has no recommendation to use")
+    result = ConsultationResult.model_validate(consultation.result)
+    if result.decision is None or result.decision.action == "report":
+        raise APIError(409, "CONSULTATION_NOT_ACTIONABLE", "This PI result has no action to use")
+    stage_run = await _relock(db, StageRun, stage_run_id) if stage_run_id else None
+    if not await is_current(db, run, consultation, stage_run):
+        consultation.status, consultation.resolved_at = "stale", datetime.now(UTC)
+        await db.commit()
+        raise APIError(409, "CONSULTATION_STALE", "The situation changed after the PI answered")
+    decision_id = await apply_decision(
+        db,
+        app_state,
+        run,
+        consultation,
+        stage_run,
+        result,
+        actor="user",
+        user_id=user_id,
+        reason=reason,
+    )
+    consultation = await _relock(db, PiConsultation, consultation_id)
+    consultation.status, consultation.resolved_at = "endorsed", datetime.now(UTC)
+    consultation.applied_decision_id = decision_id
+    if reason:
+        add_note(
+            db,
+            run,
+            "decision",
+            f"The researcher used the PI recommendation. {reason}",
+            "user",
+            consultation_id=consultation_id,
+            stage_key=stage_run.stage_key if stage_run else None,
+        )
+    return consultation
+
+
+async def retry(db, app_state, consultation_id: UUID, *, project_id):
+    """Ask again after a failed or stale consultation: a new consultation with a new id."""
+    consultation = await _consultation(db, consultation_id, project_id)
+    run = await _relock(db, ResearchRun, consultation.research_run_id)
+    consultation = await _relock(db, PiConsultation, consultation_id)
+    if consultation.status not in {"failed", "stale"}:
+        raise APIError(409, "CONSULTATION_NOT_RETRYABLE", "Only a failed or stale consultation")
+    stage_run = (
+        await _relock(db, StageRun, consultation.stage_run_id)
+        if consultation.stage_run_id
+        else None
+    )
+    if not await is_current(db, run, consultation, stage_run):
+        raise APIError(409, "CONSULTATION_STALE", "The situation changed; there is nothing to ask")
+    gate = stage_run.open_gate if consultation.kind in GATE_KINDS else None
+    return await request_consultation(
+        db, app_state, run, consultation.kind, stage_run=stage_run, gate=gate
+    )
+
+
+async def put_charter(db, app_state, run, charter: Charter, *, reason=None):
+    if run.charter_status == "none":
+        raise APIError(409, "PI_NOT_ACTIVE", "This run has no PI charter")
+    await mark_overridden(
+        db, app_state, run, kinds=("charter",), what="wrote the charter", reason=reason
+    )
+    await settle_charter(db, app_state, run, charter, author="researcher", reason=reason)
+
+
+async def _consultation(db, consultation_id, project_id) -> PiConsultation:
+    consultation = await db.get(PiConsultation, consultation_id)
+    run = await db.get(ResearchRun, consultation.research_run_id) if consultation else None
+    if run is None or run.project_id != project_id:
+        raise APIError(404, "NOT_FOUND", "Consultation was not found")
+    await lock_project_scope(db, project_id)
+    return consultation

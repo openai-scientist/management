@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from management.access.service import ensure_writable_project, lock_project_scope
 from management.core.errors import APIError
@@ -40,8 +40,11 @@ from management.research.models import (
     StageRun,
     active_run_filter,
 )
+from management.research.pi.authority import engine_mode
+from management.research.pi.guidance import build_guidance, with_guidance
+from management.research.pi.service import pi_active, request_consultation
 from management.research.reviews import validate_gate_action
-from management.research.stage_runs import append_run_event, sync_run_status
+from management.research.stage_runs import append_run_event, recompute_run_cost, sync_run_status
 
 Actor = Literal["user", "pi", "system"]
 
@@ -121,18 +124,21 @@ async def start_research_run(
         budget_usd=Decimal(str(budget_usd)),
         started_at=datetime.now(UTC),
         review_mode="auto" if interaction_mode == "auto" else "copilot",
+        charter_status="pending" if settings.pi_service else "none",
     )
     db.add(run)
     await db.flush()
-    await start_stage(
-        db,
-        app_state,
-        run,
-        pipeline[0],
-        inputs=Inputs(params={"topic": topic, "domains": run.domains}),
-    )
+    if run.charter_status == "pending":
+        # The first stage starts when the charter is settled.
+        await request_consultation(db, app_state, run, "charter")
+    else:
+        await start_stage(db, app_state, run, pipeline[0], inputs=first_stage_inputs(run))
     await refresh_project_status(db, project)
     return run
+
+
+def first_stage_inputs(run) -> Inputs:
+    return Inputs(params={"topic": run.topic, "domains": run.domains})
 
 
 async def start_stage(
@@ -141,6 +147,9 @@ async def start_stage(
     settings = app_state.settings
     caps = await _capabilities(app_state, stage.engine)
     models = await load_models(db, app_state.secret_box)
+    pi = pi_active(app_state, run)
+    if pi:
+        inputs = with_guidance(inputs, await build_guidance(db, run))
     if any(model.provider not in caps.providers for model in (models.stage, models.review)):
         raise APIError(
             422, "PROVIDER_NOT_SUPPORTED", "Engine does not support a configured model provider"
@@ -207,7 +216,7 @@ async def start_stage(
         stage_run_id=str(row.id),
         stage_key=row.stage_key,
         iteration=run.iteration,
-        interaction_mode=run.interaction_mode,
+        interaction_mode=engine_mode(run) if pi else run.interaction_mode,
         models=models,
         integrations=integrations,
         inputs=inputs,
@@ -244,9 +253,10 @@ async def start_stage(
     return row
 
 
-async def apply_engine_event(db, stage_run, event):
+async def apply_engine_event(db, stage_run, event, app_state=None):
     run = await db.get(ResearchRun, stage_run.research_run_id)
     old_status = stage_run.status
+    opened_gate = None
     if event.step_key is not None:
         stage_run.step_key = event.step_key
     if event.type == "run.phase_changed":
@@ -255,6 +265,7 @@ async def apply_engine_event(db, stage_run, event):
             stage_run.status = "RUNNING"
     elif event.type == "run.gate_opened":
         gate = Gate.model_validate(event.payload)
+        opened_gate = gate
         stage_run.open_gate = gate.model_dump(mode="json", by_alias=True)
         stage_run.waiting_input = True
         stored = await db.scalar(
@@ -306,12 +317,7 @@ async def apply_engine_event(db, stage_run, event):
                 stage_run.cost_usd = total
             else:
                 run.cost_unknown = True
-        await db.flush()
-        run.cost_usd = await db.scalar(
-            select(func.coalesce(func.sum(StageRun.cost_usd), 0)).where(
-                StageRun.research_run_id == run.id
-            )
-        )
+        await recompute_run_cost(db, run)
     elif event.type == "run.published":
         artifact = await db.get(RunArtifact, UUID(event.payload["artifact_id"]))
         if artifact is None or artifact.stage_run_id != stage_run.id or not artifact.is_primary:
@@ -333,9 +339,24 @@ async def apply_engine_event(db, stage_run, event):
     await sync_run_status(db, run, stage=stage_run)
     if old_status != stage_run.status:
         append_run_event(db, run, stage_run, "stage.status_changed", {"status": stage_run.status})
-    if run.interaction_mode != "auto" and (
-        event.type == "run.gate_opened"
-        or (old_status != stage_run.status and stage_run.status in {"COMPLETED", "FAILED"})
+    changed = old_status != stage_run.status
+    if app_state is not None and pi_active(app_state, run):
+        if opened_gate is not None:
+            kind = "gate_question" if opened_gate.kind == "question" else "gate_review"
+            await request_consultation(
+                db,
+                app_state,
+                run,
+                kind,
+                stage_run=stage_run,
+                gate=stage_run.open_gate,
+            )
+        elif changed and stage_run.status == "COMPLETED":
+            await request_consultation(db, app_state, run, "stage_outcome", stage_run=stage_run)
+        elif changed and stage_run.status == "FAILED":
+            await request_consultation(db, app_state, run, "failure", stage_run=stage_run)
+    elif run.interaction_mode != "auto" and (
+        event.type == "run.gate_opened" or (changed and stage_run.status in {"COMPLETED", "FAILED"})
     ):
         append_run_event(
             db,
@@ -379,7 +400,17 @@ def artifact_ref(app_state, engine_key, artifact, *, primary=True):
 
 
 async def accept_stage(
-    db, app_state, stage_run, *, selection, note, actor, user_id, reason=None, decided_by=None
+    db,
+    app_state,
+    stage_run,
+    *,
+    selection,
+    note,
+    actor,
+    user_id,
+    reason=None,
+    decided_by=None,
+    consultation_id=None,
 ):
     if stage_run.status != "COMPLETED":
         raise APIError(409, "STAGE_STATE_CONFLICT", "Stage is not completed")
@@ -406,7 +437,7 @@ async def accept_stage(
         actor=actor,
         decided_by_user_id=user_id,
         reason=reason,
-        payload={"selection": selection, "note": note},
+        payload={"selection": selection, "note": note} | _consultation_payload(consultation_id),
     )
     db.add(decision)
     append_run_event(
@@ -414,13 +445,17 @@ async def accept_stage(
         run,
         stage_run,
         "decision.recorded",
-        {"action": "accept", "selection": selection} | ({"reason": reason} if reason else {}),
+        {"action": "accept", "selection": selection}
+        | ({"reason": reason} if reason else {})
+        | _consultation_payload(consultation_id),
         actor=actor,
     )
     append_run_event(db, run, stage_run, "stage.status_changed", {"status": "ACCEPTED"})
     if next_config is None:
         await sync_run_status(db, run, stage=stage_run)
         await db.flush()
+        if pi_active(app_state, run):
+            await request_consultation(db, app_state, run, "close", stage_run=stage_run)
         return None
     ref = artifact_ref(app_state, next_config.engine, artifact)
     wire, by = wire_actor(actor, user_id, decided_by)
@@ -469,8 +504,16 @@ async def _relock(db, model, key):
     )
 
 
+def _consultation_payload(consultation_id) -> dict:
+    return {"consultation_id": str(consultation_id)} if consultation_id else {}
+
+
 def _decision_event(db, run, stage_run, decision, extra=None, *, actor):
-    payload = {"action": decision.action} | (extra or {})
+    payload = (
+        {"action": decision.action}
+        | (extra or {})
+        | _consultation_payload(decision.payload.get("consultation_id"))
+    )
     if decision.reason:
         payload["reason"] = decision.reason
     append_run_event(db, run, stage_run, "decision.recorded", payload, actor=actor)
@@ -487,6 +530,7 @@ async def answer_stage_gate(
     reason=None,
     decided_by=None,
     gate_id=None,
+    consultation_id=None,
 ):
     """Record a gate answer and send it to the engine. Researcher and PI share this path.
 
@@ -506,7 +550,7 @@ async def answer_stage_gate(
     )
     if decision is not None:
         # The same answer again is a retry; a different one cannot reopen the gate.
-        if decision.payload != payload:
+        if {k: v for k, v in decision.payload.items() if k != "consultation_id"} != payload:
             raise APIError(409, "GATE_NOT_OPEN", "Gate was already answered")
         if decision.actor == "user":
             # A retry reaches the engine as the original decision maker: the same answer.
@@ -521,7 +565,7 @@ async def answer_stage_gate(
             stage_run_id=stage_run.id,
             gate_id=gate_id,
             action=DECISION_ACTION[answer.action],
-            payload=payload,
+            payload=payload | _consultation_payload(consultation_id),
             actor=actor,
             reason=reason,
             status="pending",
@@ -584,6 +628,7 @@ async def send_back(
     user_id,
     reason=None,
     decided_by=None,
+    consultation_id=None,
 ):
     """Send a COMPLETED stage back to `target_stage_key`: a new iteration (B6).
 
@@ -622,7 +667,8 @@ async def send_back(
             "note": note,
             "artifact_ids": artifact_ids,
         }
-        | ({"decided_by": decided_by} if decided_by else {}),
+        | ({"decided_by": decided_by} if decided_by else {})
+        | _consultation_payload(consultation_id),
     )
     db.add(decision)
     for row in superseded:
@@ -676,7 +722,15 @@ async def send_back(
 
 
 async def rerun_stage(
-    db, app_state, stage_run, *, actor: Actor, user_id, reason=None, decided_by=None
+    db,
+    app_state,
+    stage_run,
+    *,
+    actor: Actor,
+    user_id,
+    reason=None,
+    decided_by=None,
+    consultation_id=None,
 ):
     """Start a FAILED stage again in the same iteration with the same inputs."""
     if stage_run.status != "FAILED":
@@ -705,7 +759,8 @@ async def rerun_stage(
         actor=actor,
         decided_by_user_id=user_id,
         reason=reason,
-        payload={"decided_by": decided_by} if decided_by else {},
+        payload=({"decided_by": decided_by} if decided_by else {})
+        | _consultation_payload(consultation_id),
     )
     db.add(decision)
     await db.flush()
@@ -724,7 +779,15 @@ async def rerun_stage(
 
 
 async def stop_research_run(
-    db, app_state, run, *, actor: Actor, user_id, reason=None, decided_by=None
+    db,
+    app_state,
+    run,
+    *,
+    actor: Actor,
+    user_id,
+    reason=None,
+    decided_by=None,
+    consultation_id=None,
 ):
     """Cancel the open stage on its engine; the stage becomes STOPPED and the run `stopped`."""
     stage = await db.scalar(
@@ -763,7 +826,8 @@ async def stop_research_run(
         actor=actor,
         decided_by_user_id=user_id,
         reason=reason,
-        payload={"decided_by": decided_by} if decided_by else {},
+        payload=({"decided_by": decided_by} if decided_by else {})
+        | _consultation_payload(consultation_id),
     )
     db.add(decision)
     _decision_event(db, run, stage, decision, actor=actor)

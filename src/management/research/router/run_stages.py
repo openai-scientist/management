@@ -29,6 +29,7 @@ from management.research.orchestrator import (
     validate_selection,
 )
 from management.research.orchestrator import answer_stage_gate as answer_gate_service
+from management.research.pi.service import flush_consultations, mark_overridden, pi_active
 from management.research.reviews import normalize_comment, review_history
 from management.research.schemas.reviews import ReviewRoundItem
 from management.research.schemas.runs import RUN_ERRORS, CurrentStage
@@ -159,6 +160,16 @@ async def answer_stage_gate(
         reason=body.reason,
         gate_id=gate_id,
     )
+    await mark_overridden(
+        db,
+        request.app.state,
+        run,
+        kinds=("gate_question", "gate_review"),
+        stage_run_id=stage.id,
+        gate_id=gate_id,
+        what=f"{body.action} at the gate",
+        reason=body.reason,
+    )
     return ok({"gate_id": gate_id, "status": "applied"}, "Answer recorded")
 
 
@@ -208,6 +219,17 @@ async def accept(
         user_id=principal.user.id,
         reason=body.reason,
     )
+    await mark_overridden(
+        db,
+        request.app.state,
+        run,
+        kinds=("stage_outcome",),
+        stage_run_id=stage.id,
+        what="accepted the stage",
+        reason=body.reason,
+    )
+    if pi_active(request.app.state, run):
+        await flush_consultations(db, request.app.state, run.id)
     return ok(
         {
             "stage_run_id": str(stage_run_id),
@@ -252,6 +274,15 @@ async def send_back_stage(
         user_id=principal.user.id,
         reason=body.reason,
     )
+    await mark_overridden(
+        db,
+        request.app.state,
+        run,
+        kinds=("stage_outcome",),
+        stage_run_id=stage.id,
+        what=f"sent the stage back to {body.target_stage_key}",
+        reason=body.reason,
+    )
     new = await _started_by(db, decision)
     return ok(
         {
@@ -284,6 +315,15 @@ async def rerun(
     stage = await _stage(db, run, stage_run_id, lock=True)
     decision = await rerun_stage(
         db, request.app.state, stage, actor="user", user_id=principal.user.id, reason=body.reason
+    )
+    await mark_overridden(
+        db,
+        request.app.state,
+        run,
+        kinds=("failure",),
+        stage_run_id=stage.id,
+        what="started the stage again",
+        reason=body.reason,
     )
     new = await _started_by(db, decision)
     return ok(

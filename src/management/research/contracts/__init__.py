@@ -37,6 +37,7 @@ from .events import (
     TokenUsage,
 )
 from .pi import (
+    PI_CHARTER,
     AllowedAction,
     Authority,
     BudgetView,
@@ -52,14 +53,13 @@ from .pi import (
     Escalation,
     EscalationReason,
     EvidencePoint,
-    NoteDraft,
     NotebookEntry,
+    NoteDraft,
     PIAction,
     PICapabilities,
     PIDecision,
     PIHealth,
     PIModels,
-    PI_CHARTER,
     PipelineStageView,
     Situation,
     TraceStep,

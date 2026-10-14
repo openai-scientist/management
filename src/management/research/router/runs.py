@@ -37,6 +37,7 @@ from management.research.models import (
     RunGate,
 )
 from management.research.orchestrator import start_research_run, stop_research_run
+from management.research.pi.service import flush_consultations, mark_overridden
 from management.research.popper_client import (
     PopperClient,
     PopperNotFound,
@@ -209,6 +210,8 @@ async def create_run(
                 "budget_usd": str(budget),
             },
         )
+        if run.charter_status == "pending":
+            await flush_consultations(db, request.app.state, run.id)
         return ok(await _item(db, run), "Run started")
 
     auto_review = body.review_mode == "auto"
@@ -761,6 +764,14 @@ async def stop_run(
         run,
         actor="user",
         user_id=principal.user.id,
+        reason=body.reason if body else None,
+    )
+    await mark_overridden(
+        db,
+        request.app.state,
+        run,
+        kinds=("charter", "gate_question", "gate_review", "stage_outcome", "failure"),
+        what="stopped the run",
         reason=body.reason if body else None,
     )
     return ok(await _item(db, run), "Run stopped")

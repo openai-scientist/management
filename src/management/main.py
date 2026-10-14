@@ -54,12 +54,15 @@ from management.projects.router.invitations import router as invitations_router
 from management.projects.router.project_files import router as project_files_router
 from management.projects.router.projects import router as projects_router
 from management.research.engines.registry import build_engine_registry
+from management.research.pi.client import build_pi_client
 from management.research.popper_client import build_popper_client
 from management.research.router.admin_models import router as admin_models_router
 from management.research.router.frame_reviews import router as frame_reviews_router
 from management.research.router.internal_engines import router as internal_engines_router
+from management.research.router.internal_pi import router as internal_pi_router
 from management.research.router.internal_popper import router as internal_popper_router
 from management.research.router.run_artifacts import router as run_artifacts_router
+from management.research.router.run_pi import router as run_pi_router
 from management.research.router.run_stages import router as run_stages_router
 from management.research.router.runs import router as runs_router
 from management.research.run_event_stream import RunEventHub
@@ -93,6 +96,8 @@ v1_router.include_router(admin_log_monitoring_router)
 v1_router.include_router(admin_models_router)
 v1_router.include_router(internal_popper_router)
 v1_router.include_router(internal_engines_router)
+v1_router.include_router(internal_pi_router)
+v1_router.include_router(run_pi_router)
 
 
 def create_app(
@@ -177,6 +182,7 @@ def create_app(
     app.state.file_store = build_file_store(settings)
     app.state.popper_client = build_popper_client(settings)
     app.state.engines = build_engine_registry(settings)
+    app.state.pi_client = build_pi_client(settings)
     app.state.email_sender = build_email_sender(settings)
     app.state.google_oauth = build_google_oauth(settings)
     app.state.google_drive_oauth = build_google_drive_oauth(settings)
@@ -205,7 +211,10 @@ def create_app(
     app.add_middleware(RequestProtectionMiddleware, settings=settings)
 
     def engine_internal(request):
-        return request.url.path.startswith(f"{settings.api_prefix}/internal/engines/")
+        path = request.url.path
+        return path.startswith(
+            (f"{settings.api_prefix}/internal/engines/", f"{settings.api_prefix}/internal/pi/")
+        )
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):
