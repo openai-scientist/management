@@ -105,5 +105,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     raise RuntimeError(
-        "Monitoring tables contain retained telemetry. Roll back application code and keep the schema."
+        "Monitoring tables contain retained telemetry. "
+        "Roll back application code and keep the schema."
     )

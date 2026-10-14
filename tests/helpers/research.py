@@ -93,3 +93,29 @@ async def open_pipeline(tmp_path):
             await db.commit()
             stage = await db.scalar(select(StageRun).where(StageRun.research_run_id == run.id))
             yield harness, db, run, stage, fakes
+
+
+@asynccontextmanager
+async def open_pipeline_api(tmp_path, *, scripted=False):
+    """Public API fixture shared by timeline and researcher-interaction checks."""
+    async with open_harness(tmp_path, **engine_overrides()) as harness:
+        fakes = install_fake_engines(harness)
+        if scripted:
+            for fake in fakes.values():
+                fake.scripted()
+        async with harness.client() as client:
+            session = await login(harness, client, uid="owner", email="owner@example.com")
+            project = await create_project(client, session)
+            await seed_models(harness, session["user"]["id"])
+            response = await client.post(
+                f"{PROJECTS}/{project['id']}/runs",
+                json={
+                    "topic": "Compare two retrieval methods",
+                    "domains": ["ml"],
+                    "interaction_mode": "copilot",
+                },
+                headers=mutation_headers(session["csrf_token"]),
+            )
+            assert response.status_code == 201, response.text
+            run = response.json()["data"]
+            yield harness, client, session, project, run, fakes
