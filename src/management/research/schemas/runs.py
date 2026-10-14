@@ -99,11 +99,22 @@ class RunItem(BaseModel):
 
 
 class RunEventItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     seq: int
     run_id: str
     ts: datetime
     type: str
     stage_key: str | None = None
+    stage_run_id: str | None = None
+    step_key: str | None = None
+    iteration: int = 1
+    phase: str | None = None
+    event_class: Literal["lifecycle", "activity", "platform"] = Field(
+        default="lifecycle", alias="class"
+    )
+    summary: str | None = None
+    refs: list[str] = Field(default_factory=list)
     actor: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 

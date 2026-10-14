@@ -44,7 +44,7 @@ from management.research.popper_client import (
     PopperUncertain,
     get_popper_client,
 )
-from management.research.run_event_stream import RunEventHub, run_events_changed
+from management.research.run_event_stream import RunEventHub, event_item, run_events_changed
 from management.research.schemas.runs import (
     RUN_ERRORS,
     GateAnswer,
@@ -302,43 +302,26 @@ async def get_run_events(
     run_id: UUID,
     after: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=1000),
+    stage_run_id: UUID | None = None,
     principal: Principal = Depends(require_active_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[list[RunEventItem]]:
     await require_project_access(db, principal, project_id)
     run = await get_run(db, project_id, run_id)
-    total = int(
-        await db.scalar(
-            select(func.count())
-            .select_from(RunEvent)
-            .where(RunEvent.run_id == run.id, RunEvent.seq > after)
-        )
-        or 0
-    )
+    filters = [RunEvent.run_id == run.id, RunEvent.seq > after]
+    if stage_run_id is not None:
+        filters.append(RunEvent.stage_run_id == stage_run_id)
+    total = int(await db.scalar(select(func.count()).select_from(RunEvent).where(*filters)) or 0)
     rows = (
         (
             await db.execute(
-                select(RunEvent)
-                .where(RunEvent.run_id == run.id, RunEvent.seq > after)
-                .order_by(RunEvent.seq.asc())
-                .limit(limit)
+                select(RunEvent).where(*filters).order_by(RunEvent.seq.asc()).limit(limit)
             )
         )
         .scalars()
         .all()
     )
-    items = [
-        RunEventItem(
-            seq=e.seq,
-            run_id=str(e.run_id),
-            ts=e.created_at,
-            type=e.type,
-            stage_key=e.stage_key,
-            actor=e.actor,
-            payload=e.payload or {},
-        )
-        for e in rows
-    ]
+    items = [event_item(event) for event in rows]
     return paginated(items, total=total, limit=limit, offset=0)
 
 
@@ -351,6 +334,7 @@ async def stream_run_events(
     run_id: UUID,
     request: Request,
     after: int | None = Query(default=None, ge=0),
+    stage_run_id: UUID | None = None,
 ) -> StreamingResponse:
     if request.headers.get("Origin") is not None:
         require_origin(request)
@@ -378,34 +362,24 @@ async def stream_run_events(
         yield "retry: 3000\n\n"
         current_seq = start_seq
 
+        def event_query():
+            query = select(RunEvent).where(RunEvent.run_id == run_id, RunEvent.seq > current_seq)
+            if stage_run_id is not None:
+                query = query.where(RunEvent.stage_run_id == stage_run_id)
+            return query.order_by(RunEvent.seq.asc())
+
         # Historical events stream without pacing
+        # Read the status first: a terminal status then means the query saw every event.
         async with factory() as db:
-            historical = (
-                (
-                    await db.execute(
-                        select(RunEvent)
-                        .where(RunEvent.run_id == run_id, RunEvent.seq > current_seq)
-                        .order_by(RunEvent.seq.asc())
-                    )
-                )
-                .scalars()
-                .all()
-            )
+            run_status = await db.scalar(select(ResearchRun.status).where(ResearchRun.id == run_id))
+            historical = (await db.execute(event_query())).scalars().all()
             for evt in historical:
                 current_seq = evt.seq
-                item = RunEventItem(
-                    seq=evt.seq,
-                    run_id=str(evt.run_id),
-                    ts=evt.created_at,
-                    type=evt.type,
-                    stage_key=evt.stage_key,
-                    actor=evt.actor,
-                    payload=evt.payload or {},
-                )
-                yield f"event: run-event\nid: {evt.seq}\ndata: {item.model_dump_json()}\n\n"
+                item = event_item(evt)
+                data = item.model_dump_json(by_alias=True)
+                yield f"event: run-event\nid: {evt.seq}\ndata: {data}\n\n"
 
-            run_status = await db.scalar(select(ResearchRun.status).where(ResearchRun.id == run_id))
-            if run_status in ("completed", "failed", "budget_exceeded"):
+            if run_status in ("completed", "failed", "budget_exceeded", "stopped"):
                 yield f'event: run-ended\ndata: {{"status":"{run_status}"}}\n\n'
                 return
 
@@ -424,39 +398,18 @@ async def stream_run_events(
                 try:
                     async with factory() as db:
                         await get_principal(request, db)
-                        new_events = (
-                            (
-                                await db.execute(
-                                    select(RunEvent)
-                                    .where(RunEvent.run_id == run_id, RunEvent.seq > current_seq)
-                                    .order_by(RunEvent.seq.asc())
-                                )
-                            )
-                            .scalars()
-                            .all()
-                        )
-                        for evt in new_events:
-                            current_seq = evt.seq
-                            had_new_events = True
-                            item = RunEventItem(
-                                seq=evt.seq,
-                                run_id=str(evt.run_id),
-                                ts=evt.created_at,
-                                type=evt.type,
-                                stage_key=evt.stage_key,
-                                actor=evt.actor,
-                                payload=evt.payload or {},
-                            )
-                            data = item.model_dump_json()
-                            yield f"event: run-event\nid: {evt.seq}\ndata: {data}\n\n"
-
                         run_status = await db.scalar(
                             select(ResearchRun.status).where(ResearchRun.id == run_id)
                         )
-                        if (
-                            run_status in ("completed", "failed", "budget_exceeded")
-                            and not had_new_events
-                        ):
+                        new_events = (await db.execute(event_query())).scalars().all()
+                        for evt in new_events:
+                            current_seq = evt.seq
+                            had_new_events = True
+                            item = event_item(evt)
+                            data = item.model_dump_json(by_alias=True)
+                            yield f"event: run-event\nid: {evt.seq}\ndata: {data}\n\n"
+
+                        if run_status in ("completed", "failed", "budget_exceeded", "stopped"):
                             yield f'event: run-ended\ndata: {{"status":"{run_status}"}}\n\n'
                             return
                 except APIError as exc:

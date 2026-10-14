@@ -83,6 +83,7 @@ async def events(engine_key: str, stage_run_id: UUID, body: EventBatch, db=Depen
             event.payload,
             actor=event.actor,
             source_seq=event.source_seq,
+            envelope=event,
         )
         await apply_engine_event(db, stage, event)
         stage.last_source_seq = event.source_seq
