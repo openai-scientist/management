@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -16,13 +17,19 @@ from management.research.contracts import (
     ArtifactRef,
     Decisions,
     Gate,
+    GateAnswer,
     Inputs,
+    PipelineFeedback,
     RunCost,
     RunCreateRequest,
     parse_schema_id,
     paths,
 )
-from management.research.engines.client import EngineContractMismatch, EngineUnavailable
+from management.research.engines.client import (
+    EngineContractMismatch,
+    EngineRejected,
+    EngineUnavailable,
+)
 from management.research.model_profiles import load_integrations, load_models
 from management.research.models import (
     ModelProfile,
@@ -33,7 +40,12 @@ from management.research.models import (
     StageRun,
     active_run_filter,
 )
+from management.research.reviews import validate_gate_action
 from management.research.stage_runs import append_run_event, sync_run_status
+
+Actor = Literal["user", "pi", "system"]
+
+DECISION_ACTION = {"answer": "answer_gate", "approve": "approve", "comment": "comment"}
 
 ALLOWED = {
     ("RUNNING", "publish"): "COMPLETED",
@@ -42,6 +54,8 @@ ALLOWED = {
     ("RUNNING", "cancel"): "STOPPED",
     ("PENDING", "cancel"): "STOPPED",
     ("COMPLETED", "accept"): "ACCEPTED",
+    ("COMPLETED", "supersede"): "SUPERSEDED",
+    ("ACCEPTED", "supersede"): "SUPERSEDED",
 }
 
 
@@ -343,7 +357,30 @@ async def apply_engine_event(db, stage_run, event):
     await db.flush()
 
 
-async def accept_stage(db, app_state, stage_run, *, selection, note, actor, user_id):
+def wire_actor(actor: Actor, user_id, decided_by: str | None = None):
+    """The engine knows `user` and `system`. The PI acts as `system` and names itself."""
+    if actor == "user":
+        return "user", decided_by or (str(user_id) if user_id else None)
+    return "system", decided_by or ("pi" if actor == "pi" else None)
+
+
+def artifact_ref(app_state, engine_key, artifact, *, primary=True):
+    base = (
+        app_state.settings.engine_callback_base_url or app_state.settings.public_base_url
+    ).rstrip("/")
+    return ArtifactRef(
+        artifact_id=str(artifact.id),
+        schema=artifact.schema_id,
+        version=artifact.version,
+        sha256=artifact.sha256,
+        primary=primary,
+        download_url=f"{base}{app_state.settings.api_prefix}/internal/engines/{engine_key}/artifacts/{artifact.id}",
+    )
+
+
+async def accept_stage(
+    db, app_state, stage_run, *, selection, note, actor, user_id, reason=None, decided_by=None
+):
     if stage_run.status != "COMPLETED":
         raise APIError(409, "STAGE_STATE_CONFLICT", "Stage is not completed")
     run = await db.get(ResearchRun, stage_run.research_run_id)
@@ -368,6 +405,7 @@ async def accept_stage(db, app_state, stage_run, *, selection, note, actor, user
         action="accept",
         actor=actor,
         decided_by_user_id=user_id,
+        reason=reason,
         payload={"selection": selection, "note": note},
     )
     db.add(decision)
@@ -376,7 +414,7 @@ async def accept_stage(db, app_state, stage_run, *, selection, note, actor, user
         run,
         stage_run,
         "decision.recorded",
-        {"action": "accept", "selection": selection},
+        {"action": "accept", "selection": selection} | ({"reason": reason} if reason else {}),
         actor=actor,
     )
     append_run_event(db, run, stage_run, "stage.status_changed", {"status": "ACCEPTED"})
@@ -384,17 +422,8 @@ async def accept_stage(db, app_state, stage_run, *, selection, note, actor, user
         await sync_run_status(db, run, stage=stage_run)
         await db.flush()
         return None
-    base = (
-        app_state.settings.engine_callback_base_url or app_state.settings.public_base_url
-    ).rstrip("/")
-    ref = ArtifactRef(
-        artifact_id=str(artifact.id),
-        schema=artifact.schema_id,
-        version=artifact.version,
-        sha256=artifact.sha256,
-        primary=True,
-        download_url=f"{base}{app_state.settings.api_prefix}/internal/engines/{next_config.engine}/artifacts/{artifact.id}",
-    )
+    ref = artifact_ref(app_state, next_config.engine, artifact)
+    wire, by = wire_actor(actor, user_id, decided_by)
     return await start_stage(
         db,
         app_state,
@@ -402,12 +431,7 @@ async def accept_stage(db, app_state, stage_run, *, selection, note, actor, user
         next_config,
         inputs=Inputs(
             artifacts=[ref],
-            decisions=Decisions(
-                selection=selection,
-                note=note,
-                actor=actor,
-                decided_by=str(user_id) if user_id else None,
-            ),
+            decisions=Decisions(selection=selection, note=note, actor=wire, decided_by=by),
         ),
     )
 
@@ -433,3 +457,315 @@ async def validate_selection(db, app_state, stage_run, selection):
         ) from None
     if not set(ids) <= known:
         raise APIError(422, "INVALID_SELECTION", "Selection contains an unknown hypothesis id")
+
+
+async def _relock(db, model, key):
+    """Re-read a row under lock after an engine call, so callbacks that committed are visible."""
+    return await db.scalar(
+        select(model)
+        .where(model.id == key)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+def _decision_event(db, run, stage_run, decision, extra=None, *, actor):
+    payload = {"action": decision.action} | (extra or {})
+    if decision.reason:
+        payload["reason"] = decision.reason
+    append_run_event(db, run, stage_run, "decision.recorded", payload, actor=actor)
+
+
+async def answer_stage_gate(
+    db,
+    app_state,
+    stage_run,
+    answer: GateAnswer,
+    *,
+    actor: Actor,
+    user_id,
+    reason=None,
+    decided_by=None,
+    gate_id=None,
+):
+    """Record a gate answer and send it to the engine. Researcher and PI share this path.
+
+    `answer.actor` and `answer.decided_by` are replaced: the engine hears `user`, or `system`
+    with `decided_by` for the PI. `gate_id` defaults to the stage's open gate.
+    """
+    gate_id = gate_id or (stage_run.open_gate or {}).get("gate_id")
+    if gate_id is None:
+        raise APIError(409, "GATE_NOT_OPEN", "Gate is not open")
+    wire, by = wire_actor(actor, user_id, decided_by)
+    payload = answer.model_dump(mode="json", exclude={"actor", "decided_by"})
+    answer = answer.model_copy(update={"actor": wire, "decided_by": by})
+    decision = await db.scalar(
+        select(StageDecision).where(
+            StageDecision.stage_run_id == stage_run.id, StageDecision.gate_id == gate_id
+        )
+    )
+    if decision is not None:
+        # The same answer again is a retry; a different one cannot reopen the gate.
+        if decision.payload != payload:
+            raise APIError(409, "GATE_NOT_OPEN", "Gate was already answered")
+        if decision.actor == "user":
+            # A retry reaches the engine as the original decision maker: the same answer.
+            answer = answer.model_copy(update={"decided_by": str(decision.decided_by_user_id)})
+        if decision.status == "applied":
+            return decision
+    else:
+        if not stage_run.open_gate or stage_run.open_gate.get("gate_id") != gate_id:
+            raise APIError(409, "GATE_NOT_OPEN", "Gate is not open")
+        validate_gate_action(stage_run.open_gate, answer)
+        decision = StageDecision(
+            stage_run_id=stage_run.id,
+            gate_id=gate_id,
+            action=DECISION_ACTION[answer.action],
+            payload=payload,
+            actor=actor,
+            reason=reason,
+            status="pending",
+            decided_by_user_id=user_id,
+        )
+        db.add(decision)
+        await db.flush()
+    if not stage_run.engine_run_id:
+        raise APIError(409, "STAGE_STATE_CONFLICT", "Stage has not started on the engine")
+    decision_id, run_id, stage_id = decision.id, stage_run.research_run_id, stage_run.id
+    engine_key, engine_run_id = stage_run.engine_key, stage_run.engine_run_id
+    # The engine calls back while it answers; commit first so the callback sees the stage.
+    await db.commit()
+    try:
+        await app_state.engines.get(engine_key).answer_gate(engine_run_id, gate_id, answer)
+    except EngineUnavailable:
+        raise APIError(503, "ENGINE_UNAVAILABLE", "Engine could not be reached") from None
+    except EngineRejected as exc:
+        await db.delete(await db.get(StageDecision, decision_id))
+        await db.commit()
+        message = "Engine rejected the answer"
+        raise APIError(
+            409 if exc.status_code == 409 else 422,
+            exc.code,
+            f"{message}: {exc.detail}" if exc.detail else message,
+        ) from None
+    run = await _relock(db, ResearchRun, run_id)
+    stage_run = await _relock(db, StageRun, stage_id)
+    decision = await db.get(StageDecision, decision_id, populate_existing=True)
+    decision.status = "applied"
+    _decision_event(db, run, stage_run, decision, {"gate_id": gate_id}, actor=actor)
+    return decision
+
+
+def _pipeline_config(app_state, run, stage_key):
+    pipeline = app_state.settings.pipelines[run.pipeline_key]
+    index = next(i for i, config in enumerate(pipeline) if config.stage_key == stage_key)
+    return pipeline[index], index, pipeline
+
+
+async def _stage_runs(db, run):
+    return list(
+        await db.scalars(
+            select(StageRun)
+            .where(StageRun.research_run_id == run.id)
+            .order_by(StageRun.iteration, StageRun.created_at)
+        )
+    )
+
+
+async def send_back(
+    db,
+    app_state,
+    stage_run,
+    *,
+    target_stage_key,
+    note,
+    artifact_ids,
+    actor: Actor,
+    user_id,
+    reason=None,
+    decided_by=None,
+):
+    """Send a COMPLETED stage back to `target_stage_key`: a new iteration (B6).
+
+    The target is a stage in `loop_back_to`, or the stage itself (refine).
+    Returns the decision; the new stage run has it as `origin_decision_id`.
+    """
+    if stage_run.status != "COMPLETED":
+        raise APIError(409, "STAGE_STATE_CONFLICT", "Stage is not completed")
+    run = await db.get(ResearchRun, stage_run.research_run_id)
+    config, _, pipeline = _pipeline_config(app_state, run, stage_run.stage_key)
+    if target_stage_key not in {*config.loop_back_to, stage_run.stage_key}:
+        raise APIError(422, "LOOP_BACK_NOT_DECLARED", "Stage cannot loop back to that stage")
+    if run.iteration >= app_state.settings.max_iterations:
+        raise APIError(409, "MAX_ITERATIONS_REACHED", "The run reached its maximum iterations")
+    target, target_index, _ = _pipeline_config(app_state, run, target_stage_key)
+    caps = await _capabilities(app_state, target.engine)
+    rows = await _stage_runs(db, run)
+    same_target = [row for row in rows if row.stage_key == target_stage_key]
+    last = same_target[-1]
+    from_target = {config.stage_key for config in pipeline[target_index:]}
+    superseded = [
+        row
+        for row in rows
+        if row.iteration == run.iteration
+        and row.stage_key in from_target
+        and row.status in {"COMPLETED", "ACCEPTED"}
+    ]
+    decision = StageDecision(
+        stage_run_id=stage_run.id,
+        action="send_back",
+        actor=actor,
+        decided_by_user_id=user_id,
+        reason=reason,
+        payload={
+            "target_stage_key": target_stage_key,
+            "note": note,
+            "artifact_ids": artifact_ids,
+        }
+        | ({"decided_by": decided_by} if decided_by else {}),
+    )
+    db.add(decision)
+    for row in superseded:
+        transition(row, "supersede")
+        row.open_gate, row.waiting_input = None, False
+        append_run_event(db, run, row, "stage.status_changed", {"status": "SUPERSEDED"})
+    await db.flush()
+    history = []
+    for row in same_target:
+        artifact_id = row.config_snapshot.get("published_artifact_id")
+        artifact = await db.get(RunArtifact, UUID(artifact_id)) if artifact_id else None
+        if row.status == "SUPERSEDED" and artifact is not None:
+            history.append(artifact_ref(app_state, target.engine, artifact))
+    inputs = Inputs.model_validate(last.config_snapshot["inputs"]).model_copy(
+        update={
+            "feedback": [
+                PipelineFeedback(
+                    source_stage_key=stage_run.stage_key, note=note, artifact_ids=artifact_ids
+                )
+            ],
+            "prior_engine_run_id": last.engine_run_id if caps.reuses_prior_run else None,
+            "history": history,
+        }
+    )
+    run.iteration += 1
+    _decision_event(
+        db, run, stage_run, decision, {"target_stage_key": target_stage_key}, actor=actor
+    )
+    append_run_event(
+        db,
+        run,
+        stage_run,
+        "iteration.started",
+        {
+            "iteration": run.iteration,
+            "target_stage_key": target_stage_key,
+            "from_stage_run_id": str(stage_run.id),
+        },
+        actor=actor,
+    )
+    await start_stage(
+        db,
+        app_state,
+        run,
+        target,
+        inputs=inputs,
+        prior_stage_run_id=last.id,
+        origin_decision_id=decision.id,
+    )
+    return decision
+
+
+async def rerun_stage(
+    db, app_state, stage_run, *, actor: Actor, user_id, reason=None, decided_by=None
+):
+    """Start a FAILED stage again in the same iteration with the same inputs."""
+    if stage_run.status != "FAILED":
+        raise APIError(409, "STAGE_STATE_CONFLICT", "Stage has not failed")
+    run = await db.get(ResearchRun, stage_run.research_run_id)
+    if stage_run.iteration != run.iteration or await db.scalar(
+        select(StageRun.id).where(StageRun.prior_stage_run_id == stage_run.id)
+    ):
+        raise APIError(409, "STAGE_STATE_CONFLICT", "Stage was already started again")
+    if await db.scalar(
+        select(ResearchRun.id).where(
+            ResearchRun.project_id == run.project_id,
+            ResearchRun.id != run.id,
+            active_run_filter(),
+        )
+    ):
+        raise APIError(409, "PROJECT_HAS_ACTIVE_RUN", "Project already has an active run")
+    config, _, _ = _pipeline_config(app_state, run, stage_run.stage_key)
+    caps = await _capabilities(app_state, config.engine)
+    inputs = Inputs.model_validate(stage_run.config_snapshot["inputs"])
+    if caps.reuses_prior_run and stage_run.engine_run_id:
+        inputs = inputs.model_copy(update={"prior_engine_run_id": stage_run.engine_run_id})
+    decision = StageDecision(
+        stage_run_id=stage_run.id,
+        action="rerun",
+        actor=actor,
+        decided_by_user_id=user_id,
+        reason=reason,
+        payload={"decided_by": decided_by} if decided_by else {},
+    )
+    db.add(decision)
+    await db.flush()
+    _decision_event(db, run, stage_run, decision, actor=actor)
+    run.status, run.finished_at, run.failure_message = "running", None, None
+    await start_stage(
+        db,
+        app_state,
+        run,
+        config,
+        inputs=inputs,
+        prior_stage_run_id=stage_run.id,
+        origin_decision_id=decision.id,
+    )
+    return decision
+
+
+async def stop_research_run(
+    db, app_state, run, *, actor: Actor, user_id, reason=None, decided_by=None
+):
+    """Cancel the open stage on its engine; the stage becomes STOPPED and the run `stopped`."""
+    stage = await db.scalar(
+        select(StageRun)
+        .where(
+            StageRun.research_run_id == run.id,
+            StageRun.status.in_(("PENDING", "RUNNING", "COMPLETED")),
+        )
+        .order_by(StageRun.iteration.desc(), StageRun.created_at.desc())
+        .limit(1)
+    )
+    if stage is None:
+        raise APIError(409, "RUN_FINISHED", "Run has no stage to stop")
+    run_id, stage_id, engine_run_id = run.id, stage.id, stage.engine_run_id
+    engine_key, running = stage.engine_key, stage.status in {"PENDING", "RUNNING"}
+    # The engine calls back while it cancels; commit first to release the row locks.
+    await db.commit()
+    if running and engine_run_id:
+        try:
+            await app_state.engines.get(engine_key).cancel(engine_run_id)
+        except EngineUnavailable:
+            raise APIError(503, "ENGINE_UNAVAILABLE", "Engine could not be reached") from None
+    run = await _relock(db, ResearchRun, run_id)
+    stage = await _relock(db, StageRun, stage_id)
+    # A callback may already have stopped the stage; do not stop it twice.
+    if stage.status in {"PENDING", "RUNNING"}:
+        transition(stage, "cancel")
+    elif stage.status == "COMPLETED":
+        stage.status, stage.finished_at = "STOPPED", datetime.now(UTC)
+    if stage.status == "STOPPED" and run.status != "stopped":
+        append_run_event(db, run, stage, "stage.status_changed", {"status": "STOPPED"})
+        await sync_run_status(db, run, stage=stage)
+    decision = StageDecision(
+        stage_run_id=stage_id,
+        action="stop",
+        actor=actor,
+        decided_by_user_id=user_id,
+        reason=reason,
+        payload={"decided_by": decided_by} if decided_by else {},
+    )
+    db.add(decision)
+    _decision_event(db, run, stage, decision, actor=actor)
+    await db.flush()
+    return decision

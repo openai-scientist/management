@@ -21,18 +21,20 @@ from management.core.sessions import (
 )
 from management.db.session import get_db
 from management.research.contracts import Finding, GateAnswer
-from management.research.engines.client import EngineRejected, EngineUnavailable
 from management.research.models import StageDecision, StageRun
-from management.research.orchestrator import accept_stage, validate_selection
-from management.research.reviews import normalize_comment, review_history, validate_gate_action
+from management.research.orchestrator import (
+    accept_stage,
+    rerun_stage,
+    send_back,
+    validate_selection,
+)
+from management.research.orchestrator import answer_stage_gate as answer_gate_service
+from management.research.reviews import normalize_comment, review_history
 from management.research.schemas.reviews import ReviewRoundItem
 from management.research.schemas.runs import RUN_ERRORS, CurrentStage
 from management.research.service import current_stage_item, get_run
-from management.research.stage_runs import append_run_event
 
 router = APIRouter(prefix="/projects/{project_id}/runs/{run_id}/stages", tags=["run stages"])
-
-DECISION_ACTION = {"answer": "answer_gate", "approve": "approve", "comment": "comment"}
 
 
 class StageItem(CurrentStage):
@@ -53,6 +55,7 @@ class GateAnswerIn(BaseModel):
     text: str | None = Field(default=None, max_length=4000)
     findings: list[Finding] = Field(default_factory=list)
     params: dict[str, Any] = Field(default_factory=dict)
+    reason: str | None = Field(default=None, max_length=2000)
 
 
 class AcceptIn(BaseModel):
@@ -60,6 +63,22 @@ class AcceptIn(BaseModel):
 
     selection: dict[str, list[str]] = Field(default_factory=dict)
     note: str | None = Field(default=None, max_length=2000)
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class SendBackIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_stage_key: str = Field(min_length=1, max_length=100)
+    note: str | None = Field(default=None, max_length=2000)
+    artifact_ids: list[str] = Field(default_factory=list, max_length=50)
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class RerunIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(default=None, max_length=2000)
 
 
 def stage_item(stage: StageRun) -> StageItem:
@@ -125,68 +144,20 @@ async def answer_stage_gate(
     ensure_writable_project(project)
     run = await get_run(db, project_id, run_id, lock=True)
     stage = await _stage(db, run, stage_run_id, lock=True)
-    payload = await normalize_comment(db, stage, body.model_dump(mode="json"))
+    payload = await normalize_comment(db, stage, body.model_dump(mode="json", exclude={"reason"}))
     try:
         answer = GateAnswer(**payload, actor="user", decided_by=str(principal.user.id))
     except ValidationError:
         raise APIError(422, "VALIDATION_ERROR", "Invalid gate answer") from None
-    decision = await db.scalar(
-        select(StageDecision).where(
-            StageDecision.stage_run_id == stage.id, StageDecision.gate_id == gate_id
-        )
-    )
-    if decision is not None:
-        # The same answer again is a retry; a different one cannot reopen the gate.
-        if decision.payload != payload:
-            raise APIError(409, "GATE_NOT_OPEN", "Gate was already answered")
-        # A retry reaches the engine as the original decision maker: the same answer.
-        answer = answer.model_copy(update={"decided_by": str(decision.decided_by_user_id)})
-        if decision.status == "applied":
-            return ok({"gate_id": gate_id, "status": "applied"}, "Answer recorded")
-    else:
-        if not stage.open_gate or stage.open_gate.get("gate_id") != gate_id:
-            raise APIError(409, "GATE_NOT_OPEN", "Gate is not open")
-        validate_gate_action(stage.open_gate, answer)
-        decision = StageDecision(
-            stage_run_id=stage.id,
-            gate_id=gate_id,
-            action=DECISION_ACTION[body.action],
-            payload=payload,
-            actor="user",
-            status="pending",
-            decided_by_user_id=principal.user.id,
-        )
-        db.add(decision)
-        await db.flush()
-    if not stage.engine_run_id:
-        raise APIError(409, "STAGE_STATE_CONFLICT", "Stage has not started on the engine")
-    decision_id, engine_key, engine_run_id = decision.id, stage.engine_key, stage.engine_run_id
-    # The engine calls back while it answers; commit first so the callback sees the stage.
-    await db.commit()
-    try:
-        await request.app.state.engines.get(engine_key).answer_gate(engine_run_id, gate_id, answer)
-    except EngineUnavailable:
-        raise APIError(503, "ENGINE_UNAVAILABLE", "Engine could not be reached") from None
-    except EngineRejected as exc:
-        await db.delete(await db.get(StageDecision, decision_id))
-        await db.commit()
-        message = "Engine rejected the answer"
-        raise APIError(
-            409 if exc.status_code == 409 else 422,
-            exc.code,
-            f"{message}: {exc.detail}" if exc.detail else message,
-        ) from None
-    run = await get_run(db, project_id, run_id, lock=True)
-    stage = await _stage(db, run, stage_run_id)
-    decision = await db.get(StageDecision, decision_id, populate_existing=True)
-    decision.status = "applied"
-    append_run_event(
+    await answer_gate_service(
         db,
-        run,
+        request.app.state,
         stage,
-        "decision.recorded",
-        {"action": decision.action, "gate_id": gate_id},
+        answer,
         actor="user",
+        user_id=principal.user.id,
+        reason=body.reason,
+        gate_id=gate_id,
     )
     return ok({"gate_id": gate_id, "status": "applied"}, "Answer recorded")
 
@@ -235,6 +206,7 @@ async def accept(
         note=body.note,
         actor="user",
         user_id=principal.user.id,
+        reason=body.reason,
     )
     return ok(
         {
@@ -243,4 +215,82 @@ async def accept(
             "next_stage_run_id": str(next_stage.id) if next_stage else None,
         },
         "Stage accepted",
+    )
+
+
+async def _started_by(db: AsyncSession, decision: StageDecision) -> StageRun | None:
+    return await db.scalar(select(StageRun).where(StageRun.origin_decision_id == decision.id))
+
+
+@router.post(
+    "/{stage_run_id}/send-back",
+    summary="Send a completed stage back to an earlier stage or to itself",
+    responses=RUN_ERRORS,
+)
+async def send_back_stage(
+    project_id: UUID,
+    run_id: UUID,
+    stage_run_id: UUID,
+    body: SendBackIn,
+    request: Request,
+    principal: Principal = Depends(require_active_csrf),
+    db: AsyncSession = Depends(get_db),
+):
+    await lock_project_scope(db, project_id)
+    project, _ = await require_project_access(db, principal, project_id, contribute=True, lock=True)
+    ensure_writable_project(project)
+    run = await get_run(db, project_id, run_id, lock=True)
+    stage = await _stage(db, run, stage_run_id, lock=True)
+    decision = await send_back(
+        db,
+        request.app.state,
+        stage,
+        target_stage_key=body.target_stage_key,
+        note=body.note,
+        artifact_ids=body.artifact_ids,
+        actor="user",
+        user_id=principal.user.id,
+        reason=body.reason,
+    )
+    new = await _started_by(db, decision)
+    return ok(
+        {
+            "stage_run_id": str(stage_run_id),
+            "status": stage.status,
+            "new_stage_run_id": str(new.id) if new else None,
+        },
+        "Stage sent back",
+    )
+
+
+@router.post(
+    "/{stage_run_id}/rerun",
+    summary="Start a failed stage again with the same inputs",
+    responses=RUN_ERRORS,
+)
+async def rerun(
+    project_id: UUID,
+    run_id: UUID,
+    stage_run_id: UUID,
+    body: RerunIn,
+    request: Request,
+    principal: Principal = Depends(require_active_csrf),
+    db: AsyncSession = Depends(get_db),
+):
+    await lock_project_scope(db, project_id)
+    project, _ = await require_project_access(db, principal, project_id, contribute=True, lock=True)
+    ensure_writable_project(project)
+    run = await get_run(db, project_id, run_id, lock=True)
+    stage = await _stage(db, run, stage_run_id, lock=True)
+    decision = await rerun_stage(
+        db, request.app.state, stage, actor="user", user_id=principal.user.id, reason=body.reason
+    )
+    new = await _started_by(db, decision)
+    return ok(
+        {
+            "stage_run_id": str(stage_run_id),
+            "status": stage.status,
+            "new_stage_run_id": str(new.id) if new else None,
+        },
+        "Stage started again",
     )

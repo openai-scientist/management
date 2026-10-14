@@ -328,7 +328,7 @@ class StageDecision(Base):
             "action IN ('answer_gate','approve','comment','accept','send_back','rerun','stop')",
             name="ck_stage_decisions_action",
         ),
-        CheckConstraint("actor IN ('user','system')", name="ck_stage_decisions_actor"),
+        CheckConstraint("actor IN ('user','system','pi')", name="ck_stage_decisions_actor"),
         CheckConstraint("status IN ('pending','applied')", name="ck_stage_decisions_status"),
         UniqueConstraint("stage_run_id", "gate_id", name="uq_stage_decisions_gate"),
     )
