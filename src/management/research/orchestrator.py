@@ -7,6 +7,8 @@ from sqlalchemy import func, select
 
 from management.access.service import ensure_writable_project, lock_project_scope
 from management.core.errors import APIError
+from management.core.roles import ProjectRole
+from management.notifications.service import notify_project_members
 from management.projects.project_status import refresh_project_status
 from management.research.contracts import (
     CONTRACT_VERSION,
@@ -310,6 +312,27 @@ async def apply_engine_event(db, stage_run, event):
     await sync_run_status(db, run, stage=stage_run)
     if old_status != stage_run.status:
         append_run_event(db, run, stage_run, "stage.status_changed", {"status": stage_run.status})
+    if run.interaction_mode != "auto" and (
+        event.type == "run.gate_opened"
+        or (old_status != stage_run.status and stage_run.status in {"COMPLETED", "FAILED"})
+    ):
+        append_run_event(
+            db,
+            run,
+            stage_run,
+            "attention.required",
+            {
+                "stage_run_id": str(stage_run.id),
+                "gate_id": (stage_run.open_gate or {}).get("gate_id"),
+            },
+        )
+        await notify_project_members(
+            db,
+            run.project_id,
+            "run_awaiting_review",
+            run_id=run.id,
+            roles=(ProjectRole.MANAGER, ProjectRole.RESEARCHER),
+        )
     await db.flush()
 
 

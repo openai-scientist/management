@@ -24,6 +24,8 @@ from management.research.contracts import Finding, GateAnswer
 from management.research.engines.client import EngineRejected, EngineUnavailable
 from management.research.models import StageDecision, StageRun
 from management.research.orchestrator import accept_stage, validate_selection
+from management.research.reviews import normalize_comment, review_history, validate_gate_action
+from management.research.schemas.reviews import ReviewRoundItem
 from management.research.schemas.runs import RUN_ERRORS, CurrentStage
 from management.research.service import current_stage_item, get_run
 from management.research.stage_runs import append_run_event
@@ -123,11 +125,11 @@ async def answer_stage_gate(
     ensure_writable_project(project)
     run = await get_run(db, project_id, run_id, lock=True)
     stage = await _stage(db, run, stage_run_id, lock=True)
+    payload = await normalize_comment(db, stage, body.model_dump(mode="json"))
     try:
-        answer = GateAnswer(**body.model_dump(), actor="user", decided_by=str(principal.user.id))
+        answer = GateAnswer(**payload, actor="user", decided_by=str(principal.user.id))
     except ValidationError:
         raise APIError(422, "VALIDATION_ERROR", "Invalid gate answer") from None
-    payload = body.model_dump(mode="json")
     decision = await db.scalar(
         select(StageDecision).where(
             StageDecision.stage_run_id == stage.id, StageDecision.gate_id == gate_id
@@ -137,11 +139,14 @@ async def answer_stage_gate(
         # The same answer again is a retry; a different one cannot reopen the gate.
         if decision.payload != payload:
             raise APIError(409, "GATE_NOT_OPEN", "Gate was already answered")
+        # A retry reaches the engine as the original decision maker: the same answer.
+        answer = answer.model_copy(update={"decided_by": str(decision.decided_by_user_id)})
         if decision.status == "applied":
             return ok({"gate_id": gate_id, "status": "applied"}, "Answer recorded")
     else:
         if not stage.open_gate or stage.open_gate.get("gate_id") != gate_id:
             raise APIError(409, "GATE_NOT_OPEN", "Gate is not open")
+        validate_gate_action(stage.open_gate, answer)
         decision = StageDecision(
             stage_run_id=stage.id,
             gate_id=gate_id,
@@ -181,6 +186,20 @@ async def answer_stage_gate(
         actor="user",
     )
     return ok({"gate_id": gate_id, "status": "applied"}, "Answer recorded")
+
+
+@router.get("/{stage_run_id}/reviews", response_model=ApiResponse[list[ReviewRoundItem]])
+async def list_reviews(
+    project_id: UUID,
+    run_id: UUID,
+    stage_run_id: UUID,
+    principal: Principal = Depends(require_active_principal),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[list[ReviewRoundItem]]:
+    await require_project_access(db, principal, project_id)
+    run = await get_run(db, project_id, run_id)
+    stage = await _stage(db, run, stage_run_id)
+    return ok(await review_history(db, stage))
 
 
 @router.post(
