@@ -74,6 +74,7 @@ async def test_failed_event_marks_failed(pipeline):
     )
     assert stage.status == "FAILED" and run.status == "failed"
     assert stage.failure["code"] == "engine_restarted"
+    assert run.failure_message == "Restarted"
 
 
 async def test_two_cost_events_do_not_double_count(pipeline):

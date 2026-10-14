@@ -72,5 +72,7 @@ async def sync_run_status(db, run, *, stage=None) -> None:
         run.status = {"FAILED": "failed", "STOPPED": "stopped", "ACCEPTED": "completed"}[
             stage.status
         ]
+        if stage.status == "FAILED" and stage.failure:
+            run.failure_message = stage.failure.get("message")
     if run.status in {"failed", "stopped", "completed"}:
         run.finished_at = datetime.now(UTC)
