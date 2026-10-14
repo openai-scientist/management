@@ -739,3 +739,192 @@ async def test_pi_reads_need_project_access(tmp_path, path):
         async with env.harness.client() as other:
             await login(env.harness, other, uid="stranger", email="stranger@example.com")
             assert (await other.get(env.url(path))).status_code in {403, 404}
+
+
+async def _copilot_outcome(env, **fields):
+    await env.settle_charter()
+    gate = env.pi.of_kind("gate_review")[0]
+    await env.pi.respond(gate, decided(gate, {"action": "approve"}))
+    assert (await env.endorse(gate)).status_code == 200
+    outcome = env.pi.of_kind("stage_outcome")[0]
+    accept = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
+    response = await env.pi.respond(outcome, decided(outcome, accept, **fields))
+    assert response.status_code == 200, response.text
+    return outcome
+
+
+async def test_endorse_hands_the_handoff_to_the_next_stage(tmp_path):
+    async with pi_env(tmp_path, "copilot") as env:
+        outcome = await _copilot_outcome(env, handoff=["X"])
+        assert (await env.endorse(outcome)).status_code == 200
+        sent = env.fakes["exd"].requests[0]
+        assert "Handoff: X" in sent.inputs.params["guidance"]
+        assert (await env.consultation(outcome)).status == "endorsed"
+
+
+async def test_failed_endorse_leaves_the_recommendation_open(tmp_path, monkeypatch):
+    async with pi_env(tmp_path, "copilot") as env:
+        outcome = await _copilot_outcome(env)
+
+        async def boom(*args, **kwargs):
+            raise RuntimeError("engine down")
+
+        monkeypatch.setattr("management.research.pi.apply.apply_decision", boom)
+        assert (await env.endorse(outcome)).status_code == 500
+        row = await env.consultation(outcome)
+        assert row.status == "awaiting_researcher" and row.resolved_at is None
+
+
+async def test_apply_error_hands_the_decision_to_the_researcher(tmp_path, monkeypatch):
+    async with pi_env(tmp_path, "auto") as env:
+        await env.settle_charter()
+        request = env.pi.of_kind("gate_review")[0]
+
+        async def boom(*args, **kwargs):
+            raise ValueError("engine said no")
+
+        monkeypatch.setattr("management.research.pi.apply.apply_decision", boom)
+        response = await env.pi.respond(request, decided(request, {"action": "approve"}))
+        assert response.status_code == 200, response.text
+        row = await env.consultation(request)
+        assert row.status == "awaiting_researcher"
+        assert row.result["escalate"]["message"].endswith("ValueError: engine said no")
+        reasons = [e.payload.get("reason") for e in await env.events("attention.required")]
+        assert "apply_failed" in reasons
+
+
+async def test_researcher_override_in_the_apply_window_is_kept(tmp_path, monkeypatch):
+    from management.research.pi import apply as pi_apply
+
+    async with pi_env(tmp_path, "auto") as env:
+        await env.settle_charter()
+        request = env.pi.of_kind("gate_review")[0]
+        real = pi_apply._relock
+        seen = []
+
+        async def relock(db, model, key):
+            if model is PiConsultation:
+                seen.append(key)
+                if len(seen) == 2:  # the relock after the mid-way commit
+                    async with env.harness.factory() as other:
+                        row = await other.get(PiConsultation, key)
+                        row.status = "overridden"
+                        await other.commit()
+            return await real(db, model, key)
+
+        monkeypatch.setattr(pi_apply, "_relock", relock)
+        response = await env.pi.respond(request, decided(request, {"action": "approve"}))
+        assert response.status_code == 200, response.text
+        assert (await env.consultation(request)).status == "overridden"
+        assert await env.rows(StageDecision) == []
+
+
+async def test_failed_to_apply_does_not_resurrect_an_overridden_row(tmp_path):
+    from management.research.pi import apply as pi_apply
+
+    async with pi_env(tmp_path, "auto") as env:
+        await env.settle_charter()
+        request = env.pi.of_kind("gate_review")[0]
+        await env.pi.respond(request, decided(request, {"action": "approve"}))
+        async with env.harness.factory() as db:
+            row = await db.get(PiConsultation, UUID(request.consultation_id))
+            row.status = "overridden"
+            await db.commit()
+            await pi_apply._failed_to_apply(
+                db, row.research_run_id, row.id, row.stage_run_id, "apply_failed", "late"
+            )
+            await db.commit()
+        assert (await env.consultation(request)).status == "overridden"
+
+
+async def test_stale_result_writes_no_decision_note_or_event(tmp_path):
+    async with pi_env(tmp_path, "auto") as env:
+        await env.settle_charter()
+        request = env.pi.of_kind("gate_review")[0]
+        async with env.harness.factory() as db:
+            stage = (await db.scalars(select(StageRun))).one()
+            stage.open_gate = None
+            await db.commit()
+        await env.pi.respond(
+            request, decided(request, {"action": "approve"}, rationale="Looks fine")
+        )
+        assert (await env.consultation(request)).status == "stale"
+        mine = [
+            e
+            for e in await env.events("pi.decision")
+            if e.payload["consultation_id"] == request.consultation_id
+        ]
+        assert mine == []
+        assert await env.rows(PiNote, PiNote.kind == "decision", PiNote.text.like("approve%")) == []
+
+
+async def test_result_for_a_finished_run_is_stale(tmp_path):
+    async with pi_env(tmp_path, "auto") as env:
+        await env.settle_charter()
+        request = env.pi.of_kind("gate_review")[0]
+        async with env.harness.factory() as db:
+            (await db.get(ResearchRun, env.run_id)).status = "stopped"
+            await db.commit()
+        await env.pi.respond(request, decided(request, {"action": "approve"}))
+        assert (await env.consultation(request)).status == "stale"
+        assert await env.rows(StageDecision) == []
+
+
+async def test_charter_cannot_be_written_on_a_finished_run(tmp_path):
+    async with pi_env(tmp_path, "copilot") as env:
+        async with env.harness.factory() as db:
+            (await db.get(ResearchRun, env.run_id)).status = "failed"
+            await db.commit()
+        response = await env.client.put(
+            env.url("/pi/charter"), json={"charter": CHARTER}, headers=env.csrf()
+        )
+        assert response.status_code == 409
+        assert "RUN_FINISHED" in response.text
+
+
+async def test_dispatch_error_after_the_pi_answered_keeps_the_answer(tmp_path):
+    from management.research.pi.client import PIUnavailable
+
+    async with pi_env(tmp_path, "light", start=False) as env:
+        client = env.harness.app.state.pi_client
+        real = client.consult
+
+        async def consult_then_fail(request):
+            await real(request)
+            await env.pi.respond(
+                request, decided(request, {"action": "charter", "charter": CHARTER})
+            )
+            raise PIUnavailable("connection dropped")
+
+        client.consult = consult_then_fail
+        response = await env.client.post(
+            f"{PROJECTS}/{env.project['id']}/runs",
+            json={
+                "topic": "Compare two retrieval methods",
+                "domains": ["ml"],
+                "interaction_mode": "light",
+            },
+            headers=env.csrf(),
+        )
+        assert response.status_code == 201, response.text
+        env.run = response.json()["data"]
+        (row,) = await env.consultations()
+        assert row.status == "awaiting_researcher" and row.failure is None
+
+
+async def test_retry_a_consultation_stuck_in_sent(tmp_path):
+    from datetime import UTC, datetime, timedelta
+
+    async with pi_env(tmp_path, "light") as env:
+        request = env.pi.of_kind("charter")[0]
+        url = env.url(f"/pi/consultations/{request.consultation_id}/retry")
+        assert (await env.client.post(url, headers=env.csrf())).status_code == 409
+        async with env.harness.factory() as db:
+            row = await db.get(PiConsultation, UUID(request.consultation_id))
+            row.sent_at = datetime.now(UTC) - timedelta(minutes=11)
+            await db.commit()
+        retry = await env.client.post(url, headers=env.csrf())
+        assert retry.status_code == 200, retry.text
+        old = await env.consultation(request)
+        assert old.status == "failed" and old.failure["code"] == "pi_timeout"
+        assert retry.json()["data"]["consultation_id"] != request.consultation_id

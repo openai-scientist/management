@@ -208,7 +208,15 @@ async def dispatch_queued(app_state, run_id) -> None:
                 except PIError:
                     failure = ("pi_rejected", "The PI rejected the consultation")
             if failure is not None:
-                await fail_consultation(db, row, *failure)
+                # The PI may have answered through the callback before the error came back.
+                row = await db.scalar(
+                    select(PiConsultation)
+                    .where(PiConsultation.id == row.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                if row.status == "sent" and row.result is None:
+                    await fail_consultation(db, row, *failure)
             await db.commit()
 
 
