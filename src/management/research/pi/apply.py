@@ -161,8 +161,16 @@ async def _hypothesis_ids(db, app_state, stage_run) -> set[str] | None:
 
 def _risk_stated(handoff, hypothesis_id, finding_ids) -> bool:
     """B19: a handoff line names the hypothesis as a whole word and one of its blocking findings."""
-    pattern = re.compile(rf"(?<!\w){re.escape(hypothesis_id)}(?!\w)")
-    return any(pattern.search(line) and any(f in line for f in finding_ids) for line in handoff)
+
+    def token(value):
+        # Ids like "F1-1" are real: a hyphen or word character next to the id is another id.
+        return re.compile(rf"(?<![\w-]){re.escape(value)}(?![\w-])")
+
+    hypothesis = token(hypothesis_id)
+    findings = [token(f) for f in finding_ids]
+    return any(
+        hypothesis.search(line) and any(f.search(line) for f in findings) for line in handoff
+    )
 
 
 async def _approval_blocked(db, app_state, stage_run) -> str | None:

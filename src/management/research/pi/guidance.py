@@ -19,8 +19,8 @@ async def build_guidance(db, run) -> list[str]:
     # Most important first: the lines past MAX_LINES are dropped from the end.
     if charter.get("question"):
         lines.append(_clip("Research question: ", charter["question"]))
-    if run.charter:
-        lines.append(_clip("Topic given by the researcher: ", run.topic or ""))
+    if run.charter and run.topic:
+        lines.append(_clip("Topic given by the researcher: ", run.topic))
     lines += [
         _clip("Success criterion: ", item) for item in charter.get("success_criteria", [])[:5]
     ]

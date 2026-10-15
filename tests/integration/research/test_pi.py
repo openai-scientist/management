@@ -23,7 +23,9 @@ from management.research.models import (
     StageDecision,
     StageRun,
 )
-from management.research.pi.apply import check_decision
+from management.research.orchestrator import first_stage_inputs
+from management.research.pi.apply import _risk_stated, check_decision
+from management.research.pi.guidance import build_guidance
 from tests.fakes.engines import engine_overrides, install_fake_engines, seed_models
 from tests.fakes.pi import FakePI, pi_overrides
 from tests.helpers.harness import open_harness
@@ -265,6 +267,24 @@ async def test_an_answer_chosen_twice_at_a_step_is_not_offered_again(tmp_path):
             response = await env.pi.respond(
                 request, decided(request, {"action": "answer", "option_id": "reject"})
             )
+            assert response.status_code == 200, response.text
+
+
+async def test_two_drops_with_different_params_keep_drop_offered(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        await env.settle_charter()
+        fake = env.fakes["i2h"]
+        (engine_run_id,) = fake.states
+        for round_, dropped in enumerate((["P1"], ["P2"], None)):
+            await fake.open_question_gate(
+                engine_run_id, step_key="screen", options=["approve", "drop"], default="approve"
+            )
+            request = env.pi.of_kind("gate_question")[round_]
+            assert request.allowed[0].option_ids == ["approve", "drop"]
+            if dropped is None:
+                break
+            answer = {"action": "answer", "option_id": "drop", "params": {"dropped": dropped}}
+            response = await env.pi.respond(request, decided(request, answer))
             assert response.status_code == 200, response.text
 
 
@@ -1064,6 +1084,14 @@ async def test_pi_accept_of_a_blocked_hypothesis_needs_the_id_and_the_finding(tm
         )
 
 
+@pytest.mark.parametrize(
+    ("line", "stated"),
+    [("H1 is a risk: F21", False), ("H1 is a risk: F2", True), ("H1 is a risk: F2-1", False)],
+)
+def test_risk_stated_matches_finding_ids_as_whole_tokens(line, stated):
+    assert _risk_stated([line], "H1", ["F2"]) is stated
+
+
 async def test_pi_accept_over_a_whole_artifact_block_escalates_despite_a_risk_line(tmp_path):
     async with pi_env(tmp_path, "auto", scripted=False) as env:
         await _review_with(env, _blocking("artifact"))
@@ -1110,6 +1138,31 @@ async def test_the_engine_gets_the_charter_question_and_the_guidance_the_topic(t
             "Topic given by the researcher: Compare two retrieval methods"
             in sent.inputs.params["guidance"]
         )
+
+
+@pytest.mark.parametrize("question", ["", "too short", "   short    "])
+def test_a_short_charter_question_falls_back_to_the_topic(question):
+    run = SimpleNamespace(
+        charter={"question": question}, topic="Compare two retrieval methods", domains=[]
+    )
+    assert first_stage_inputs(run).params["topic"] == "Compare two retrieval methods"
+
+
+def test_the_charter_question_is_sent_stripped_and_clipped():
+    question = "q" * 2500
+    run = SimpleNamespace(charter={"question": f"  {question}  "}, topic="t", domains=[])
+    assert first_stage_inputs(run).params["topic"] == question[:2000]
+
+
+async def test_guidance_has_no_topic_line_without_a_topic(tmp_path):
+    async with pi_env(tmp_path, "auto") as env:
+        run = SimpleNamespace(
+            id=UUID(int=1), charter={"question": "A long enough question"}, topic=""
+        )
+        async with env.harness.factory() as db:
+            lines = await build_guidance(db, run)
+        assert lines[0] == "Research question: A long enough question"
+        assert not any(line.startswith("Topic given") for line in lines)
 
 
 async def test_pi_accept_of_a_blocked_hypothesis_escalates(tmp_path):

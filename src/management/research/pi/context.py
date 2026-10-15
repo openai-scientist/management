@@ -1,5 +1,7 @@
 """Build the ConsultationRequest: a situation summary and a catalogue of artifacts, not content."""
 
+import json
+
 from sqlalchemy import select
 
 from management.research.contracts import (
@@ -199,7 +201,10 @@ async def same_stage_send_backs(db, run, stage_run) -> int:
 
 
 async def repeated_answers(db, stage_run, gate) -> frozenset[str]:
-    """Options already chosen MAX_PI_SAME_ANSWER times at this gate step of the stage run."""
+    """Options already chosen MAX_PI_SAME_ANSWER times, with the same params, at this gate step.
+
+    Params count too: `drop` with a different `dropped` list is a new answer, not a repeat.
+    """
     rows = await db.execute(
         select(PiConsultation.request, PiConsultation.result).where(
             PiConsultation.stage_run_id == stage_run.id,
@@ -208,14 +213,15 @@ async def repeated_answers(db, stage_run, gate) -> frozenset[str]:
             PiConsultation.result.is_not(None),
         )
     )
-    counts: dict[str, int] = {}
+    counts: dict[tuple[str, str], int] = {}
     for request, result in rows:
         if ((request or {}).get("gate") or {}).get("step_key") != gate.step_key:
             continue
-        option = ((result or {}).get("decision") or {}).get("option_id")
-        if option:
-            counts[option] = counts.get(option, 0) + 1
-    return frozenset(o for o, n in counts.items() if n >= MAX_PI_SAME_ANSWER)
+        decision = (result or {}).get("decision") or {}
+        if option := decision.get("option_id"):
+            key = (option, json.dumps(decision.get("params") or {}, sort_keys=True))
+            counts[key] = counts.get(key, 0) + 1
+    return frozenset(o for (o, _), n in counts.items() if n >= MAX_PI_SAME_ANSWER)
 
 
 async def notebook_entries(db, run) -> list[NotebookEntry]:

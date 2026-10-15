@@ -138,8 +138,9 @@ async def start_research_run(
 
 
 def first_stage_inputs(run) -> Inputs:
-    question = (run.charter or {}).get("question")
-    topic = question[:2000] if question else run.topic
+    # The engine requires a topic of 12..2000 characters after strip.
+    question = ((run.charter or {}).get("question") or "").strip()
+    topic = question[:2000] if len(question) >= 12 else run.topic
     return Inputs(params={"topic": topic, "domains": run.domains})
 
 
