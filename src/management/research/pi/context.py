@@ -1,7 +1,9 @@
 """Build the ConsultationRequest: a situation summary and a catalogue of artifacts, not content."""
 
 import json
+import re
 
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from management.research.contracts import (
@@ -19,6 +21,7 @@ from management.research.contracts import (
     NotebookEntry,
     PIModels,
     PipelineStageView,
+    ReviewFindings,
     Situation,
     paths,
 )
@@ -62,6 +65,7 @@ def allowed_actions(
     gate,
     *,
     comment_rounds=0,
+    unfixed_blocking=False,
     repeated=frozenset(),
     same_stage_send_backs=0,
 ) -> list[AllowedAction]:
@@ -73,7 +77,7 @@ def allowed_actions(
         return [AllowedAction(action="answer", option_ids=fresh or options)]
     if kind == "gate_review":
         actions = [AllowedAction(action="approve")]
-        if comment_rounds < MAX_PI_COMMENT_ROUNDS:
+        if comment_rounds < MAX_PI_COMMENT_ROUNDS and not unfixed_blocking:
             actions.append(AllowedAction(action="comment"))
         return actions
     if kind == "failure":
@@ -177,6 +181,50 @@ async def comment_rounds(db, stage_run) -> int:
         )
     )
     return sum(1 for r in results if ((r.get("decision") or {}).get("action")) == "comment")
+
+
+_ADOPTED = re.compile(r"^\[([^\]]+)\]")
+
+
+async def unfixed_blocking(db, app_state, stage_run) -> bool:
+    """B23: every blocking finding of the latest review was already sent back by a comment.
+
+    It came back after the revision, so the engine cannot fix it (live: exd was asked three
+    times to verify licences and run a priced dry-run, which only a person can do). Another
+    comment cannot help: approve with the known risk, or escalate.
+    """
+    artifact = await db.scalar(
+        select(RunArtifact)
+        .where(RunArtifact.stage_run_id == stage_run.id, RunArtifact.schema_id == REVIEW_FINDINGS)
+        .order_by(RunArtifact.version.desc())
+        .limit(1)
+    )
+    if artifact is None:
+        return False
+    try:
+        body = b"".join([c async for c in app_state.file_store.open(artifact.storage_key)])
+        review = ReviewFindings.model_validate_json(body)
+    except (OSError, ValueError, ValidationError):
+        return False
+    blocking = {f.finding_id for f in review.findings if f.severity == "blocking"}
+    if not blocking:
+        return False
+    results = await db.scalars(
+        select(PiConsultation.result).where(
+            PiConsultation.stage_run_id == stage_run.id,
+            PiConsultation.kind == "gate_review",
+            PiConsultation.status.in_(("applied", "endorsed")),
+            PiConsultation.result.is_not(None),
+        )
+    )
+    adopted = {
+        m.group(1)
+        for r in results
+        if (d := r.get("decision") or {}).get("action") == "comment"
+        for f in d.get("findings") or []
+        if (m := _ADOPTED.match(str(f.get("issue") or "")))
+    }
+    return blocking <= adopted
 
 
 async def same_stage_send_backs(db, run, stage_run) -> int:
@@ -284,6 +332,9 @@ async def build_request(
             comment_rounds=await comment_rounds(db, stage_run)
             if kind == "gate_review" and stage_run
             else 0,
+            unfixed_blocking=await unfixed_blocking(db, app_state, stage_run)
+            if kind == "gate_review" and stage_run
+            else False,
             repeated=await repeated_answers(db, stage_run, Gate.model_validate(gate))
             if kind == "gate_question" and stage_run and gate
             else frozenset(),

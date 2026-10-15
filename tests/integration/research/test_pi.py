@@ -1205,3 +1205,38 @@ async def test_comment_is_not_offered_after_three_applied_comments(tmp_path):
         await env.fakes["i2h"].open_review_gate(engine_run_id)
         request = env.pi.of_kind("gate_review")[0]
         assert [a.action for a in request.allowed] == ["approve"]
+
+
+async def test_comment_is_not_offered_when_the_same_blocking_findings_come_back(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        await env.settle_charter()
+        async with env.harness.factory() as db:
+            stage = (await db.scalars(select(StageRun))).one()
+            db.add(
+                PiConsultation(
+                    research_run_id=env.run_id,
+                    stage_run_id=stage.id,
+                    kind="gate_review",
+                    gate_id="old",
+                    authority="pi",
+                    status="applied",
+                    request={},
+                    result={
+                        "decision": {
+                            "action": "comment",
+                            "findings": [{"issue": "[F1-1] No falsification criterion"}],
+                        }
+                    },
+                )
+            )
+            await db.commit()
+        (engine_run_id,) = env.fakes["i2h"].states
+        await env.fakes["i2h"].open_review_gate(engine_run_id, findings=_blocking("hypothesis:H1"))
+        request = env.pi.of_kind("gate_review")[0]
+        assert [a.action for a in request.allowed] == ["approve"]
+
+
+async def test_comment_is_offered_when_the_blocking_finding_is_new(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        request = await _review_with(env, _blocking("hypothesis:H1"))
+        assert [a.action for a in request.allowed] == ["approve", "comment"]
