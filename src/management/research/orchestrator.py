@@ -187,7 +187,14 @@ async def start_stage(
     }
     if any(value is None for prices in pricing.values() for value in prices.values()):
         run.cost_unknown = True
+    enforced = settings.run_budget_enforced
     remaining = Decimal(run.budget_usd) - Decimal(run.cost_usd or 0)
+    # Not enforced: engines get a large nominal cap, so they never pause on their own.
+    engine_budget = (
+        (remaining if remaining > 0 else run.budget_usd)
+        if enforced
+        else settings.run_max_budget_usd * 100
+    )
     row = StageRun(
         research_run_id=run.id,
         iteration=run.iteration,
@@ -215,7 +222,7 @@ async def start_stage(
     append_run_event(
         db, run, row, "stage.status_changed", {"status": "PENDING", "stage_run_id": str(row.id)}
     )
-    if remaining <= 0 and not run.cost_unknown:
+    if enforced and remaining <= 0 and not run.cost_unknown:
         run.status, row.phase = "budget_exceeded", "paused"
         await db.commit()
         return row
@@ -231,7 +238,7 @@ async def start_stage(
         integrations=integrations,
         inputs=inputs,
         review_policy={"max_auto_revisions": settings.max_auto_revisions},
-        budget_usd=remaining if remaining > 0 else run.budget_usd,
+        budget_usd=engine_budget,
         callback_url=callback_base
         + settings.api_prefix
         + paths.PLATFORM_ENGINE_RUN_BASE.format(engine_key=stage.engine, stage_run_id=row.id),

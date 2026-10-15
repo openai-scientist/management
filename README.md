@@ -129,6 +129,8 @@ Register and sign in
 
 `queued`, `running`, `paused`, `awaiting_review`, `completed`, `budget_exceeded`, `failed`, `stopped`
 
+`RUN_BUDGET_ENFORCED` (default `false`) switches the USD cap on: off, a run never ends as `budget_exceeded` and engines get a nominal cap of `RUN_MAX_BUDGET_USD` x 100.
+
 `queued`, `running`, `paused` and `awaiting_review` are active. The other four are not. A Project Manager can abandon a stuck run: the Platform marks it `failed` and does not tell the engine, so check the engine side. `POST .../runs/{run}/sync` asks Popper for the current state; the Platform does not poll.
 
 **Rules that always hold.** A project keeps one active Project Manager (`LAST_PROJECT_MANAGER`). An archived project is read-only (`PROJECT_ARCHIVED`). Adding a member is an invitation: the user is a member only after accepting, and the project answers `404` until then. Every change goes to the audit log.

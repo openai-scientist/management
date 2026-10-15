@@ -105,3 +105,28 @@ async def test_cost_priced_from_tokens_and_missing_price_keeps_prior_cost(pipeli
     }
     await apply_engine_event(db, stage, event)
     assert stage.cost_usd == Decimal("3") and run.cost_unknown
+
+
+async def accept_first_stage_with_spend(pipeline, enforced):
+    harness, db, run, stage, fakes = pipeline
+    harness.app.state.settings.run_budget_enforced = enforced
+    await publish(db, run, stage)
+    run.cost_usd = run.budget_usd
+    run.cost_unknown = False
+    await accept_stage(
+        db, harness.app.state, stage, selection={}, note=None, actor="user", user_id=None
+    )
+    return run, fakes
+
+
+async def test_budget_not_enforced_sends_large_cap(pipeline):
+    run, fakes = await accept_first_stage_with_spend(pipeline, False)
+    requests = [r for fake in fakes.values() for r in fake.requests]
+    assert run.status != "budget_exceeded"
+    assert len(requests) == 2 and requests[-1].budget_usd == Decimal("2000")
+
+
+async def test_budget_enforced_pauses_when_spent(pipeline):
+    run, fakes = await accept_first_stage_with_spend(pipeline, True)
+    assert run.status == "budget_exceeded"
+    assert sum(len(fake.requests) for fake in fakes.values()) == 1
