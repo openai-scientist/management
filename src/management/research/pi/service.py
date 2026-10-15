@@ -345,10 +345,34 @@ async def result_cost(db, result, kind) -> tuple[Decimal, bool]:
     return total, known
 
 
+def describe_selection(selection: dict | None) -> str:
+    """``hypothesis_ids: H1, H2`` for a selection; empty when nothing is selected."""
+    parts = []
+    for key, value in (selection or {}).items():
+        if value:
+            items = value if isinstance(value, list) else [value]
+            parts.append(f"{key}: {', '.join(str(item) for item in items)}")
+    return "; ".join(parts)
+
+
 async def mark_overridden(
-    db, app_state, run, *, kinds, stage_run_id=None, gate_id=None, what, reason=None
+    db,
+    app_state,
+    run,
+    *,
+    kinds,
+    stage_run_id=None,
+    gate_id=None,
+    what,
+    reason=None,
+    selection=None,
+    note=None,
 ) -> None:
-    """A researcher decided on a point where the PI was asked: record it in the notebook."""
+    """A researcher decided on a point where the PI was asked: record it in the notebook.
+
+    The entry keeps what the researcher chose (selection, note), not only that they chose, so
+    a later consultation can follow it (live: a narrowed hypothesis set was lost on send-back).
+    """
     if not pi_active(app_state, run):
         return
     query = select(PiConsultation).where(
@@ -361,14 +385,21 @@ async def mark_overridden(
     if gate_id is not None:
         query = query.where(PiConsultation.gate_id == gate_id)
     for consultation in list(await db.scalars(query)):
-        recommended = ((consultation.result or {}).get("decision") or {}).get("action")
+        decision = (consultation.result or {}).get("decision") or {}
+        recommended = decision.get("action")
         consultation.status = "overridden"
         consultation.resolved_at = datetime.now(UTC)
-        text = f"The researcher overrode the PI at {consultation.kind}: {what}."
+        chosen = describe_selection(selection)
+        text = f"The researcher overrode the PI at {consultation.kind}: {what}"
+        text += f", selecting {chosen}." if chosen else "."
         if recommended:
-            text += f" The PI had recommended {recommended}."
+            text += f" The PI had recommended {recommended}"
+            proposed = describe_selection(decision.get("selection"))
+            text += f" with {proposed}." if proposed and proposed != chosen else "."
         if reason:
             text += f" Reason: {reason}"
+        if note:
+            text += f" Researcher's note: {note}"
         add_note(
             db,
             run,

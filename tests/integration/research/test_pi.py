@@ -389,6 +389,30 @@ async def test_override_recorded_in_notebook(tmp_path):
         assert any(n["kind"] == "override" for n in notebook)
 
 
+async def test_override_keeps_the_researchers_selection_and_note(tmp_path):
+    async with pi_env(tmp_path, "copilot") as env:
+        await env.settle_charter()
+        assert (await env.gate(await env.current(), action="approve")).status_code == 200
+        outcome = await next_outcome(env)
+        accept = {"action": "accept", "selection": {"hypothesis_ids": ["H1", "H2"]}}
+        await env.pi.respond(outcome, decided(outcome, accept))
+        stage = await env.current()
+        response = await env.client.post(
+            env.url(f"/stages/{stage['stage_run_id']}/accept"),
+            json={
+                "selection": {"hypothesis_ids": ["H1"]},
+                "note": "Keep the plan small: H1 only.",
+                "reason": "Budget is tight",
+            },
+            headers=env.csrf(),
+        )
+        assert response.status_code == 200, response.text
+        (note,) = await env.rows(PiNote, PiNote.kind == "override")
+        assert "selecting hypothesis_ids: H1." in note.text
+        assert "recommended accept with hypothesis_ids: H1, H2." in note.text
+        assert note.text.endswith("Researcher's note: Keep the plan small: H1 only.")
+
+
 async def test_directive_in_next_request(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()

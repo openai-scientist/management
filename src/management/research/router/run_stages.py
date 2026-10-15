@@ -227,6 +227,8 @@ async def accept(
         stage_run_id=stage.id,
         what="accepted the stage",
         reason=body.reason,
+        selection=body.selection,
+        note=body.note,
     )
     if pi_active(request.app.state, run):
         await flush_consultations(db, request.app.state, run.id)
@@ -282,6 +284,7 @@ async def send_back_stage(
         stage_run_id=stage.id,
         what=f"sent the stage back to {body.target_stage_key}",
         reason=body.reason,
+        note=body.note,
     )
     if pi_active(request.app.state, run):
         await flush_consultations(db, request.app.state, run.id)
