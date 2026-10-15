@@ -874,6 +874,29 @@ async def test_pi_accept_over_a_whole_artifact_block_escalates_despite_a_risk_li
         assert "whole artifact" in escalation.message
 
 
+async def test_pi_accept_over_a_whole_artifact_needs_evidence_block_is_allowed(tmp_path):
+    findings = blocking("artifact")
+    findings.findings = [findings.findings[0].model_copy(update={"kind": "needs_evidence"})]
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        await env.settle_charter()
+        (engine_run_id,) = env.fakes["i2h"].states
+        await env.fakes["i2h"].open_review_gate(engine_run_id, findings=findings)
+        async with env.harness.factory() as db:
+            stage_run = (await db.scalars(select(StageRun))).one()
+            consultation = SimpleNamespace(
+                kind="stage_outcome",
+                request={"allowed": [{"action": "accept", "selection_key": "hypothesis_ids"}]},
+            )
+            result = decided(
+                SimpleNamespace(consultation_id="x"),
+                {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}},
+            )
+            escalation = await check_decision(
+                db, env.harness.app.state, consultation, stage_run, result
+            )
+        assert escalation is None
+
+
 async def test_a_second_send_back_to_the_same_stage_is_not_offered(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()

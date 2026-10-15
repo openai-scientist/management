@@ -13,6 +13,7 @@ from management.research.contracts import (
     Charter,
     ConsultationResult,
     Escalation,
+    FindingKind,
 )
 from management.research.models import (
     PiConsultation,
@@ -92,14 +93,19 @@ async def _blocking_scope(db, app_state, stage_run) -> tuple[str | None, dict[st
     if review is None:
         return None, {}
     blocked: dict[str, set[str]] = {}
+    known_risk = False
     for finding in review.findings:
         if finding.severity != "blocking":
             continue
         item_id = hypothesis_id(finding.anchor.locator)
         if item_id is None:
-            return "The review has a blocking finding on the whole artifact", {}
+            # One that needs evidence or a tool travels as a known risk: revising cannot fix it.
+            if finding.kind != FindingKind.fix:
+                known_risk = True
+                continue
+            return "The review has a fixable blocking finding on the whole artifact", {}
         blocked.setdefault(item_id, set()).add(finding.finding_id)
-    if not review.passed and not blocked:
+    if not review.passed and not blocked and not known_risk:
         return "The review still has blocking findings", {}
     return None, blocked
 
