@@ -247,6 +247,26 @@ async def test_pi_answers_question_gate_in_auto(tmp_path):
         assert (await env.consultation(request)).status == "applied"
 
 
+async def test_an_answer_chosen_twice_at_a_step_is_not_offered_again(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        await env.settle_charter()
+        fake = env.fakes["i2h"]
+        (engine_run_id,) = fake.states
+        for round_ in range(3):
+            await fake.open_question_gate(
+                engine_run_id, step_key="screen", options=["approve", "reject"], default="approve"
+            )
+            request = env.pi.of_kind("gate_question")[round_]
+            if round_ == 2:
+                assert request.allowed[0].option_ids == ["approve"]
+                break
+            assert request.allowed[0].option_ids == ["approve", "reject"]
+            response = await env.pi.respond(
+                request, decided(request, {"action": "answer", "option_id": "reject"})
+            )
+            assert response.status_code == 200, response.text
+
+
 async def test_light_gate_review_by_pi(tmp_path):
     async with pi_env(tmp_path, "light") as env:
         await env.settle_charter()

@@ -24,6 +24,9 @@ from management.research.models import PiConsultation, PiNote, RunArtifact, Stag
 
 NOTEBOOK_LIMIT = 40
 MAX_PI_COMMENT_ROUNDS = 3
+#: An option the PI already chose this many times at the same gate step of a stage run is not
+#: offered again: repeating it did not move the stage forward (a reject/search-again loop).
+MAX_PI_SAME_ANSWER = 2
 
 
 def callback_base(app_state) -> str:
@@ -48,12 +51,14 @@ def artifact_url(app_state, artifact_id) -> str:
 
 
 def allowed_actions(
-    app_state, run, kind, stage_run, gate, *, comment_rounds=0
+    app_state, run, kind, stage_run, gate, *, comment_rounds=0, repeated=frozenset()
 ) -> list[AllowedAction]:
     if kind == "charter":
         return [AllowedAction(action="charter")]
     if kind == "gate_question":
-        return [AllowedAction(action="answer", option_ids=[o.option_id for o in gate.options])]
+        options = [o.option_id for o in gate.options]
+        fresh = [o for o in options if o not in repeated]
+        return [AllowedAction(action="answer", option_ids=fresh or options)]
     if kind == "gate_review":
         actions = [AllowedAction(action="approve")]
         if comment_rounds < MAX_PI_COMMENT_ROUNDS:
@@ -160,6 +165,26 @@ async def comment_rounds(db, stage_run) -> int:
     return sum(1 for r in results if ((r.get("decision") or {}).get("action")) == "comment")
 
 
+async def repeated_answers(db, stage_run, gate) -> frozenset[str]:
+    """Options already chosen MAX_PI_SAME_ANSWER times at this gate step of the stage run."""
+    rows = await db.execute(
+        select(PiConsultation.request, PiConsultation.result).where(
+            PiConsultation.stage_run_id == stage_run.id,
+            PiConsultation.kind == "gate_question",
+            PiConsultation.status.in_(("applied", "endorsed")),
+            PiConsultation.result.is_not(None),
+        )
+    )
+    counts: dict[str, int] = {}
+    for request, result in rows:
+        if ((request or {}).get("gate") or {}).get("step_key") != gate.step_key:
+            continue
+        option = ((result or {}).get("decision") or {}).get("option_id")
+        if option:
+            counts[option] = counts.get(option, 0) + 1
+    return frozenset(o for o, n in counts.items() if n >= MAX_PI_SAME_ANSWER)
+
+
 async def notebook_entries(db, run) -> list[NotebookEntry]:
     notes = await db.scalars(
         select(PiNote)
@@ -220,6 +245,9 @@ async def build_request(
             comment_rounds=await comment_rounds(db, stage_run)
             if kind == "gate_review" and stage_run
             else 0,
+            repeated=await repeated_answers(db, stage_run, Gate.model_validate(gate))
+            if kind == "gate_question" and stage_run and gate
+            else frozenset(),
         ),
         artifacts=await artifact_catalogue(db, app_state, run, stage_run),
         notebook=await notebook_entries(db, run),
