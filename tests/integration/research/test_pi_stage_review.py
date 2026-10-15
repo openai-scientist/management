@@ -20,7 +20,7 @@ from management.research.models import (
     StageRun,
 )
 from management.research.pi import context, review_gate
-from management.research.pi.service import STAGE_REVIEW_TIMEOUT, flush_consultations
+from management.research.pi.service import STAGE_REVIEW_TIMEOUT, flush_consultations, sweep
 from tests.helpers.pi_env import (
     blocked_outcome,
     blocking,
@@ -296,6 +296,23 @@ async def test_a_critic_that_does_not_answer_in_time_is_unavailable(tmp_path):
         assert env.pi.of_kind("stage_outcome")[0].critique is None
         (note,) = await env.rows(PiNote, PiNote.kind == "observation")
         assert note.text == "Critic report unavailable: The Critic did not answer in time"
+
+
+async def test_the_sweep_expires_a_late_critic_without_any_other_event(tmp_path):
+    async with pi_env(tmp_path, "auto") as env:
+        await env.settle_charter()
+        review = env.pi.of_kind("stage_review")[-1]
+        state = env.harness.app.state
+        await sweep(state)
+        assert (await env.consultation(review)).status == "sent"  # not yet late
+        async with env.harness.factory() as db:
+            row = await db.get(PiConsultation, UUID(review.consultation_id))
+            row.created_at = datetime.now(UTC) - STAGE_REVIEW_TIMEOUT - timedelta(minutes=1)
+            await db.commit()
+        await sweep(state)
+        row = await env.consultation(review)
+        assert row.status == "failed" and row.failure["code"] == "critic_timeout"
+        assert env.pi.of_kind("stage_outcome")
 
 
 async def test_a_researcher_decision_overrides_the_open_critic_review(tmp_path):

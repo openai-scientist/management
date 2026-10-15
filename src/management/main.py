@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 import uuid
@@ -55,6 +56,7 @@ from management.projects.router.project_files import router as project_files_rou
 from management.projects.router.projects import router as projects_router
 from management.research.engines.registry import build_engine_registry
 from management.research.pi.client import build_pi_client
+from management.research.pi.service import sweep_forever
 from management.research.popper_client import build_popper_client
 from management.research.router.admin_models import router as admin_models_router
 from management.research.router.frame_reviews import router as frame_reviews_router
@@ -143,9 +145,12 @@ def create_app(
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await ensure_default_admin(app_session_factory, settings)
         await monitoring_telemetry.start()
+        pi_sweeper = asyncio.create_task(sweep_forever(app.state)) if settings.pi_service else None
         try:
             yield
         finally:
+            if pi_sweeper is not None:
+                pi_sweeper.cancel()
             try:
                 await monitoring_telemetry.close()
             finally:

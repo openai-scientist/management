@@ -155,18 +155,18 @@ async def _answer(db, app_state, run_id, stage_id) -> None:
     findings = comment_findings(review, comments) if review else None
     # The counters change only after the engine accepted the answer.
     recorded = {}
-    if findings is None:
-        answer = GateAnswer(action="approve", actor="system")
-        ids = sorted(f.finding_id for f in blocking_findings(review))
-        if ids:
-            recorded["open_blocking"] = ids
-    else:
-        ids = sorted(f.finding_id for f in findings)
-        reviewed = (stage_run.open_gate.get("artifact_ids") or [None])[0]
-        payload = await normalize_comment(db, stage_run, _comment(review, findings, reviewed))
-        answer = GateAnswer(**payload, actor="system")
-        recorded["review_gate"] = {"sent": ids, "comments": comments + 1}
     try:
+        if findings is None:
+            answer = GateAnswer(action="approve", actor="system")
+            ids = sorted(f.finding_id for f in blocking_findings(review))
+            if ids:
+                recorded["open_blocking"] = ids
+        else:
+            ids = sorted(f.finding_id for f in findings)
+            reviewed = (stage_run.open_gate.get("artifact_ids") or [None])[0]
+            payload = await normalize_comment(db, stage_run, _comment(review, findings, reviewed))
+            answer = GateAnswer(**payload, actor="system")
+            recorded["review_gate"] = {"sent": ids, "comments": comments + 1}
         await answer_stage_gate(
             db,
             app_state,

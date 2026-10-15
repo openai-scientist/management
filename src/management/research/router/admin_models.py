@@ -79,14 +79,15 @@ async def put_model(
     box = require_secret_box(request.app.state.secret_box)
     # Stage and review must differ. The Critic must differ from the stage model; it may share
     # the review model (the lead).
-    other_role = {"stage": "review", "review": "stage", "critic": "stage"}[role]
-    other = await db.scalar(
+    other_roles = {"stage": ("review", "critic"), "review": ("stage",), "critic": ("stage",)}
+    others = await db.scalars(
         select(ModelProfile)
-        .where(ModelProfile.role == other_role, ModelProfile.scope == "global")
+        .where(ModelProfile.role.in_(other_roles[role]), ModelProfile.scope == "global")
         .with_for_update()
     )
-    if other and (other.provider, other.model) == (body.provider, body.model):
-        if role == "critic":
+    clash = [o.role for o in others if (o.provider, o.model) == (body.provider, body.model)]
+    if clash:
+        if "critic" in (role, *clash):
             raise APIError(
                 422,
                 "CRITIC_MODEL_SAME_AS_STAGE",

@@ -144,3 +144,16 @@ async def test_critic_same_as_stage_rejected(harness):
         assert response.status_code == 422
         assert response.json()["error"]["code"] == "CRITIC_MODEL_SAME_AS_STAGE"
         assert (await client.get(MODELS)).json()["data"]["critic"] is None
+
+
+async def test_stage_same_as_critic_rejected(harness):
+    async with harness.client() as client:
+        session = await admin_session(harness, client)
+        headers = mutation_headers(session["csrf_token"])
+        await client.put(MODELS + "/stage", json=model_payload(), headers=headers)
+        await client.put(MODELS + "/critic", json=model_payload("critic"), headers=headers)
+        response = await client.put(
+            MODELS + "/stage", json=model_payload("critic"), headers=headers
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "CRITIC_MODEL_SAME_AS_STAGE"

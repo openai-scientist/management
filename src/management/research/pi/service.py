@@ -1,5 +1,6 @@
 """Consultations: ask the PI, send the question after commit, record who overrode it."""
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -181,9 +182,10 @@ async def flush_consultations(db, app_state, run_id, *, answer_gates=True) -> No
     await db.commit()
     await dispatch_queued(app_state, run_id)
     if answer_gates:
-        from management.research.pi.review_gate import answer_review_gates  # noqa: PLC0415
+        from management.research.pi.review_gate import answer_review_gates_safely  # noqa: PLC0415
 
-        await answer_review_gates(app_state, run_id)
+        # The caller's own change is committed: a rule failure goes to the researcher, not to it.
+        await answer_review_gates_safely(app_state, run_id)
 
 
 async def expire_stage_reviews(db, app_state, run_id) -> None:
@@ -205,6 +207,41 @@ async def expire_stage_reviews(db, app_state, run_id) -> None:
             await fail_consultation(
                 db, row, "critic_timeout", "The Critic did not answer in time", app_state=app_state
             )
+
+
+async def sweep(app_state) -> None:
+    """Recover what no event triggers: a Critic that never answered, and a review gate whose
+    background answer was lost (for example, a restart between the engine event and the task)."""
+    cutoff = datetime.now(UTC) - STAGE_REVIEW_TIMEOUT
+    async with app_state.session_factory() as db:
+        late = await db.scalars(
+            select(PiConsultation.research_run_id).where(
+                PiConsultation.kind == "stage_review",
+                PiConsultation.status.in_(("queued", "sent")),
+                PiConsultation.created_at < cutoff,
+            )
+        )
+        gated = await db.execute(
+            select(StageRun.research_run_id, StageRun.open_gate).where(StageRun.status == "RUNNING")
+        )
+        run_ids = set(late) | {run_id for run_id, gate in gated if gate}
+    for run_id in run_ids:
+        try:
+            async with app_state.session_factory() as db:
+                app_state.notification_hub.bind(db)
+                app_state.run_event_hub.bind(db)
+                await flush_consultations(db, app_state, run_id)
+        except Exception:  # noqa: BLE001 - one run must not stop the sweep of the others
+            logger.exception("PI sweep failed for run %s", run_id)
+
+
+async def sweep_forever(app_state, interval: float = 60.0) -> None:
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await sweep(app_state)
+        except Exception:  # noqa: BLE001
+            logger.exception("PI sweep failed")
 
 
 async def dispatch_queued(app_state, run_id) -> None:
