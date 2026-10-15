@@ -225,11 +225,21 @@ async def test_pi_answers_question_gate_in_auto(tmp_path):
         assert request.authority == "decide"
         assert request.allowed[0].option_ids == ["narrow", "broad"]
         response = await env.pi.respond(
-            request, decided(request, {"action": "answer", "option_id": "broad", "note": "Wider"})
+            request,
+            decided(
+                request,
+                {
+                    "action": "answer",
+                    "option_id": "broad",
+                    "note": "Wider",
+                    "params": {"dropped": ["P3"]},
+                },
+            ),
         )
         assert response.status_code == 200, response.text
         answer = fake._answers[(engine_run_id, gate.gate_id)]
         assert (answer.action, answer.option_id) == ("answer", "broad")
+        assert answer.params == {"dropped": ["P3"]}
         assert answer.actor == "system" and answer.decided_by == f"pi:{request.consultation_id}"
         (decision,) = await env.rows(StageDecision, StageDecision.gate_id == gate.gate_id)
         assert decision.actor == "pi" and decision.decided_by_user_id is None
@@ -343,7 +353,8 @@ async def test_stage_outcome_accept_by_pi_passes_handoff_note(tmp_path):
         assert outcome.authority == "decide"
         accept = next(a for a in outcome.allowed if a.action == "accept")
         assert accept.selection_key == "hypothesis_ids"
-        assert any(a.role == "primary" for a in outcome.artifacts)
+        primary = next(a for a in outcome.artifacts if a.role == "primary")
+        assert primary.stage_run_id == outcome.situation.stage_run_id
         response = await env.pi.respond(
             outcome,
             decided(

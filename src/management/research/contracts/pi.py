@@ -103,6 +103,9 @@ class AllowedAction(ContractModel):
 class ConsultArtifact(ArtifactRef):
     role: Literal["primary", "review", "recommendation", "input", "history", "other"]
     stage_key: str | None = None
+    #: The stage run that produced it; compare with ``Situation.stage_run_id`` to tell the
+    #: current attempt from earlier ones.
+    stage_run_id: str | None = None
     size_bytes: int | None = Field(None, ge=0)
 
 
@@ -186,6 +189,8 @@ class PIDecision(ContractModel):
     selection: dict[str, list[str]] = Field(default_factory=dict)
     target_stage_key: str | None = None
     charter: Charter | None = None
+    #: Gate answer parameters, sent as ``GateAnswer.params`` (for example ``dropped`` ids).
+    params: dict[str, list[str]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_decision(self) -> Self:

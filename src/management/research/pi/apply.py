@@ -300,6 +300,7 @@ async def apply_decision(
                     action=action,
                     option_id=decision.option_id if action == "answer" else None,
                     text=decision.note,
+                    params=dict(decision.params) if action == "answer" else {},
                     actor="system",
                 )
         except ValidationError:

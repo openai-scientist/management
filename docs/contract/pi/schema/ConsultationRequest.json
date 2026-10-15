@@ -226,6 +226,18 @@
           "default": null,
           "title": "Stage Key"
         },
+        "stage_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage Run Id"
+        },
         "version": {
           "minimum": 1,
           "title": "Version",

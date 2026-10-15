@@ -394,6 +394,16 @@
           "default": null,
           "title": "Option Id"
         },
+        "params": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Params",
+          "type": "object"
+        },
         "selection": {
           "additionalProperties": {
             "items": {

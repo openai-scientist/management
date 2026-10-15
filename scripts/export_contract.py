@@ -79,7 +79,12 @@ def example_payloads() -> tuple[dict[str, Any], dict[str, Any]]:
         "objectives": ["Compare A and B"],
         "success_criteria": ["A beats B by 3 points"],
     }
-    consult_ref = ref | {"role": "primary", "stage_key": "hypothesis", "size_bytes": 1024}
+    consult_ref = ref | {
+        "role": "primary",
+        "stage_key": "hypothesis",
+        "stage_run_id": "s1",
+        "size_bytes": 1024,
+    }
     pi_decision = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
     pi_result = {
         "consultation_id": "c1",

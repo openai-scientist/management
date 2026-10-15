@@ -140,6 +140,7 @@ async def artifact_catalogue(db, app_state, run, stage_run) -> list[ConsultArtif
                 primary=artifact.is_primary,
                 role=_role(artifact, stage, current_id),
                 stage_key=stage.stage_key,
+                stage_run_id=str(stage.id),
                 size_bytes=artifact.size_bytes,
             )
         )
