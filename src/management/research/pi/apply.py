@@ -29,6 +29,8 @@ from management.research.models import (
     StageRun,
 )
 from management.research.orchestrator import (
+    _consultation_payload,
+    _decision_event,
     _relock,
     accept_stage,
     answer_stage_gate,
@@ -346,6 +348,21 @@ async def apply_decision(
         )
         return row.id
     if action == "stop":
+        if not run_active(run) and stage_run is not None:
+            # The run already ended (a failed stage): record the decision, nothing to cancel.
+            row = StageDecision(
+                stage_run_id=stage_run.id,
+                action="stop",
+                actor=actor,
+                decided_by_user_id=user_id,
+                reason=reason,
+                payload=({"decided_by": common["decided_by"]} if "decided_by" in common else {})
+                | _consultation_payload(cid),
+            )
+            db.add(row)
+            _decision_event(db, run, stage_run, row, actor=actor)
+            await db.flush()
+            return row.id
         row = await stop_research_run(db, app_state, run, **common)
         return row.id
     if action == "rerun":

@@ -719,6 +719,25 @@ async def test_failure_is_always_advice_and_endorse_reruns(tmp_path):
         )
 
 
+async def test_endorsing_stop_on_an_already_failed_run_is_recorded(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        await env.settle_charter()
+        fake = env.fakes["i2h"]
+        (engine_run_id,) = fake.states
+        await fake.fail(engine_run_id, "llm_error", "Model call failed")
+        request = env.pi.of_kind("failure")[0]
+        await env.pi.respond(request, decided(request, {"action": "stop"}))
+        assert (await env.consultation(request)).status == "awaiting_researcher"
+        response = await env.endorse(request)
+        assert response.status_code == 200, response.text
+        assert (await env.consultation(request)).status == "endorsed"
+        (decision,) = await env.rows(StageDecision, StageDecision.action == "stop")
+        assert decision.actor == "user"
+        assert decision.payload["consultation_id"] == request.consultation_id
+        (run,) = await env.rows(ResearchRun, ResearchRun.id == env.run_id)
+        assert run.status == "failed"
+
+
 async def test_close_report_is_only_a_note(tmp_path):
     async with pi_env(tmp_path, "auto", exd_free=True) as env:
         await env.settle_charter()
@@ -1079,8 +1098,7 @@ async def test_a_second_send_back_to_the_same_stage_is_not_offered(tmp_path):
         )
         await approve_gate(env)
         second = env.pi.of_kind("stage_outcome")[1]
-        send_back = next(a for a in second.allowed if a.action == "send_back")
-        assert send_back.targets == []
+        assert [a.action for a in second.allowed] == ["accept", "stop"]
 
 
 async def test_the_engine_gets_the_charter_question_and_the_guidance_the_topic(tmp_path):

@@ -93,7 +93,8 @@ def allowed_actions(
         targets = list(config.loop_back_to)
         if same_stage_send_backs < MAX_PI_SAME_STAGE_SEND_BACKS:
             targets.append(stage_run.stage_key)
-        actions.append(AllowedAction(action="send_back", targets=targets))
+        if targets:
+            actions.append(AllowedAction(action="send_back", targets=targets))
     actions.append(AllowedAction(action="stop"))
     return actions
 
