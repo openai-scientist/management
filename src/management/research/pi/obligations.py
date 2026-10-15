@@ -10,7 +10,12 @@ import logging
 
 from sqlalchemy import select
 
-from management.research.contracts import SELECTION_HYPOTHESIS_IDS, CriticReport, Obligation
+from management.research.contracts import (
+    SELECTION_HYPOTHESIS_IDS,
+    CriticReport,
+    FindingKind,
+    Obligation,
+)
 from management.research.models import PiConsultation
 from management.research.pi.findings import ReviewUnreadable, hypothesis_id, latest_review
 
@@ -135,7 +140,10 @@ async def carry_forward(db, app_state, run, stage_run, selection, next_config) -
 
     for finding in review.findings if review else []:
         item_id = hypothesis_id(finding.anchor.locator)
-        if finding.severity == "blocking" and (item_id is None or item_id in chosen):
+        carried = finding.severity == "blocking" or (
+            finding.severity == "major" and finding.kind != FindingKind.fix
+        )
+        if carried and (item_id is None or item_id in chosen):
             add(item_id, finding.finding_id, finding.issue)
     for point_id, text in await _critic_points(db, stage_run):
         add(None, point_id, text)

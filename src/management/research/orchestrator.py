@@ -20,6 +20,7 @@ from management.research.contracts import (
     GateAnswer,
     Inputs,
     PipelineFeedback,
+    ResearchProfile,
     RunCost,
     RunCreateRequest,
     parse_schema_id,
@@ -150,6 +151,15 @@ def first_stage_inputs(run) -> Inputs:
     return Inputs(params={"topic": topic, "domains": run.domains})
 
 
+def _engine_profile(run, caps) -> ResearchProfile:
+    """The first run domain the engine supports exactly; the base profile when none is."""
+    for domain in run.domains or []:
+        profile = ResearchProfile(domain=domain.strip().lower())
+        if caps.exact_support(profile):
+            return profile
+    return ResearchProfile()
+
+
 async def start_stage(
     db, app_state, run, stage, *, inputs: Inputs, prior_stage_run_id=None, origin_decision_id=None
 ):
@@ -195,6 +205,7 @@ async def start_stage(
         if enforced
         else settings.run_max_budget_usd * 100
     )
+    profile = _engine_profile(run, caps)
     row = StageRun(
         research_run_id=run.id,
         iteration=run.iteration,
@@ -214,6 +225,7 @@ async def start_stage(
             },
             "pricing": pricing,
             "inputs": inputs.model_dump(mode="json", by_alias=True),
+            "profile": profile.model_dump(mode="json"),
         },
     )
     db.add(row)
@@ -237,6 +249,7 @@ async def start_stage(
         models=models,
         integrations=integrations,
         inputs=inputs,
+        profile=profile,
         review_policy={"max_auto_revisions": settings.max_auto_revisions},
         budget_usd=engine_budget,
         callback_url=callback_base

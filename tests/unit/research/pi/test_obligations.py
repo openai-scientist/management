@@ -58,10 +58,11 @@ def with_review(monkeypatch, *findings):
                     finding_id=fid,
                     anchor=Anchor(locator=locator),
                     severity=severity,
+                    kind=kind[0] if kind else "fix",
                     issue=f"Issue {fid}",
                     author="reviewer",
                 )
-                for fid, locator, severity in findings
+                for fid, locator, severity, *kind in findings
             ],
             passed=not any(f[2] == "blocking" for f in findings),
         )
@@ -234,6 +235,19 @@ async def test_open_blocking_findings_become_obligations_for_selected_and_whole_
     run = run_with()
     await carry_forward(FakeDb(), None, run, STAGE, {"hypothesis_ids": ["H1"]}, NEXT)
     assert summary(run) == [("F1", "H1", "experiment_plan"), ("F3", None, "experiment_plan")]
+
+
+async def test_major_findings_that_are_not_fixes_become_obligations(monkeypatch):
+    with_review(
+        monkeypatch,
+        ("F1", "hypothesis:H1", "major", "needs_evidence"),
+        ("F2", "hypothesis:H1", "major", "fix"),
+        ("F3", "hypothesis:H1", "minor", "needs_evidence"),
+        ("F4", "artifact", "major", "needs_evidence"),
+    )
+    run = run_with()
+    await carry_forward(FakeDb(), None, run, STAGE, {"hypothesis_ids": ["H1"]}, NEXT)
+    assert summary(run) == [("F1", "H1", "experiment_plan"), ("F4", None, "experiment_plan")]
 
 
 async def test_serious_critic_points_become_obligations_without_duplicates():
