@@ -136,7 +136,9 @@ async def test_comment_forwards_findings_to_engine(interaction):
     assert retried.status_code == 200
 
 
-@pytest.mark.parametrize("artifact_id", [None, "invalid", str(uuid4())])
+@pytest.mark.parametrize(
+    "artifact_id", [None, "invalid", str(uuid4())], ids=["none", "invalid", "unknown"]
+)
 async def test_comment_rejects_artifact_outside_stage(interaction, artifact_id):
     row = await stage(interaction)
     gate = await interaction[5]["i2h"].open_review_gate(row.engine_run_id)
