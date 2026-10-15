@@ -9,13 +9,13 @@ Run from the repo root. Use `uv run` for everything.
 | Check | Command |
 |---|---|
 | Fast tests (no app, DB or network) | `uv run pytest tests/unit -q` |
-| Full tests | `uv run pytest -q` |
+| Full tests (parallel, ~2 min) | `uv run --with pytest-xdist pytest -q -p no:cacheprovider -n 8` |
 | Lint | `uv run ruff check src alembic tests scripts` |
 | Format | `uv run ruff format --check src alembic tests scripts` |
 | Import rules | `uv run lint-imports` |
 | Migrations | `uv run python -m alembic <command>` |
 
-Run the fast lane while you work. Run the full suite, lint, format and import rules before you commit.
+Run the fast lane while you work. Run the full suite once, in parallel, with lint, format and import rules before you commit; do not run it serially.
 Tests run on SQLite in memory. Tests marked `live` need a real service and are skipped unless a `PLATFORM_*` variable is set (see `README.md`).
 
 ## Feature layout and layers
