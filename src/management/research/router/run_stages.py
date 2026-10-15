@@ -283,6 +283,8 @@ async def send_back_stage(
         what=f"sent the stage back to {body.target_stage_key}",
         reason=body.reason,
     )
+    if pi_active(request.app.state, run):
+        await flush_consultations(db, request.app.state, run.id)
     new = await _started_by(db, decision)
     return ok(
         {
@@ -325,6 +327,8 @@ async def rerun(
         what="started the stage again",
         reason=body.reason,
     )
+    if pi_active(request.app.state, run):
+        await flush_consultations(db, request.app.state, run.id)
     new = await _started_by(db, decision)
     return ok(
         {

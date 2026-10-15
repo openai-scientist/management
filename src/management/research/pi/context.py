@@ -1,9 +1,5 @@
 """Build the ConsultationRequest: a situation summary and a catalogue of artifacts, not content."""
 
-import json
-import re
-
-from pydantic import ValidationError
 from sqlalchemy import select
 
 from management.research.contracts import (
@@ -16,22 +12,18 @@ from management.research.contracts import (
     Charter,
     ConsultArtifact,
     ConsultationRequest,
+    CriticReport,
     FailureInfo,
-    Gate,
     NotebookEntry,
-    PIModels,
+    Obligation,
     PipelineStageView,
-    ReviewFindings,
     Situation,
     paths,
 )
 from management.research.models import PiConsultation, PiNote, RunArtifact, StageRun
+from management.research.pi.obligations import load, targeted_at
 
 NOTEBOOK_LIMIT = 40
-MAX_PI_COMMENT_ROUNDS = 3
-#: An option the PI already chose this many times at the same gate step of a stage run is not
-#: offered again: repeating it did not move the stage forward (a reject/search-again loop).
-MAX_PI_SAME_ANSWER = 2
 #: The PI may send a stage back to itself this many times per run; more is not offered.
 MAX_PI_SAME_STAGE_SEND_BACKS = 1
 
@@ -58,28 +50,12 @@ def artifact_url(app_state, artifact_id) -> str:
 
 
 def allowed_actions(
-    app_state,
-    run,
-    kind,
-    stage_run,
-    gate,
-    *,
-    comment_rounds=0,
-    unfixed_blocking=False,
-    repeated=frozenset(),
-    same_stage_send_backs=0,
+    app_state, run, kind, stage_run, *, same_stage_send_backs=0
 ) -> list[AllowedAction]:
     if kind == "charter":
         return [AllowedAction(action="charter")]
-    if kind == "gate_question":
-        options = [o.option_id for o in gate.options]
-        fresh = [o for o in options if o not in repeated]
-        return [AllowedAction(action="answer", option_ids=fresh or options)]
-    if kind == "gate_review":
-        actions = [AllowedAction(action="approve")]
-        if comment_rounds < MAX_PI_COMMENT_ROUNDS and not unfixed_blocking:
-            actions.append(AllowedAction(action="comment"))
-        return actions
+    if kind == "stage_review":
+        return []
     if kind == "failure":
         return [AllowedAction(action="rerun"), AllowedAction(action="stop")]
     if kind == "close":
@@ -170,63 +146,6 @@ async def artifact_catalogue(db, app_state, run, stage_run) -> list[ConsultArtif
     return catalogue
 
 
-async def comment_rounds(db, stage_run) -> int:
-    """Review comments already applied on this stage run, by the PI or on its advice."""
-    results = await db.scalars(
-        select(PiConsultation.result).where(
-            PiConsultation.stage_run_id == stage_run.id,
-            PiConsultation.kind == "gate_review",
-            PiConsultation.status.in_(("applied", "endorsed")),
-            PiConsultation.result.is_not(None),
-        )
-    )
-    return sum(1 for r in results if ((r.get("decision") or {}).get("action")) == "comment")
-
-
-_ADOPTED = re.compile(r"^\[([^\]]+)\]")
-
-
-async def unfixed_blocking(db, app_state, stage_run) -> bool:
-    """B23: every blocking finding of the latest review was already sent back by a comment.
-
-    It came back after the revision, so the engine cannot fix it (live: exd was asked three
-    times to verify licences and run a priced dry-run, which only a person can do). Another
-    comment cannot help: approve with the known risk, or escalate.
-    """
-    artifact = await db.scalar(
-        select(RunArtifact)
-        .where(RunArtifact.stage_run_id == stage_run.id, RunArtifact.schema_id == REVIEW_FINDINGS)
-        .order_by(RunArtifact.version.desc())
-        .limit(1)
-    )
-    if artifact is None:
-        return False
-    try:
-        body = b"".join([c async for c in app_state.file_store.open(artifact.storage_key)])
-        review = ReviewFindings.model_validate_json(body)
-    except (OSError, ValueError, ValidationError):
-        return False
-    blocking = {f.finding_id for f in review.findings if f.severity == "blocking"}
-    if not blocking:
-        return False
-    results = await db.scalars(
-        select(PiConsultation.result).where(
-            PiConsultation.stage_run_id == stage_run.id,
-            PiConsultation.kind == "gate_review",
-            PiConsultation.status.in_(("applied", "endorsed")),
-            PiConsultation.result.is_not(None),
-        )
-    )
-    adopted = {
-        m.group(1)
-        for r in results
-        if (d := r.get("decision") or {}).get("action") == "comment"
-        for f in d.get("findings") or []
-        if (m := _ADOPTED.match(str(f.get("issue") or "")))
-    }
-    return blocking <= adopted
-
-
 async def same_stage_send_backs(db, run, stage_run) -> int:
     """Times the PI already sent this stage back to itself in this run."""
     results = await db.scalars(
@@ -248,30 +167,6 @@ async def same_stage_send_backs(db, run, stage_run) -> int:
     )
 
 
-async def repeated_answers(db, stage_run, gate) -> frozenset[str]:
-    """Options already chosen MAX_PI_SAME_ANSWER times, with the same params, at this gate step.
-
-    Params count too: `drop` with a different `dropped` list is a new answer, not a repeat.
-    """
-    rows = await db.execute(
-        select(PiConsultation.request, PiConsultation.result).where(
-            PiConsultation.stage_run_id == stage_run.id,
-            PiConsultation.kind == "gate_question",
-            PiConsultation.status.in_(("applied", "endorsed")),
-            PiConsultation.result.is_not(None),
-        )
-    )
-    counts: dict[tuple[str, str], int] = {}
-    for request, result in rows:
-        if ((request or {}).get("gate") or {}).get("step_key") != gate.step_key:
-            continue
-        decision = (result or {}).get("decision") or {}
-        if option := decision.get("option_id"):
-            key = (option, json.dumps(decision.get("params") or {}, sort_keys=True))
-            counts[key] = counts.get(key, 0) + 1
-    return frozenset(o for (o, _), n in counts.items() if n >= MAX_PI_SAME_ANSWER)
-
-
 async def notebook_entries(db, run) -> list[NotebookEntry]:
     notes = await db.scalars(
         select(PiNote)
@@ -286,14 +181,42 @@ async def notebook_entries(db, run) -> list[NotebookEntry]:
             actor=note.actor,
             stage_key=note.stage_key,
             at=note.created_at,
+            entry_id=str(note.id),
         )
         for note in reversed(list(notes))
     ]
 
 
+async def critique_for(db, stage_run) -> CriticReport | None:
+    """The Critic report of the stage run, when the Critic answered."""
+    if stage_run is None:
+        return None
+    result = await db.scalar(
+        select(PiConsultation.result)
+        .where(
+            PiConsultation.stage_run_id == stage_run.id,
+            PiConsultation.kind == "stage_review",
+            PiConsultation.status == "applied",
+            PiConsultation.result.is_not(None),
+        )
+        .order_by(PiConsultation.created_at.desc())
+        .limit(1)
+    )
+    report = (result or {}).get("report")
+    return CriticReport.model_validate(report) if report else None
+
+
+def run_obligations(run, kind, stage_run) -> list[Obligation]:
+    """`stage_review` sees what its stage must control; the outcome and the close see all."""
+    if kind == "stage_review" and stage_run is not None:
+        return targeted_at(run, stage_run.stage_key)
+    return load(run) if kind in {"stage_outcome", "close"} else []
+
+
 async def build_request(
-    db, app_state, run, kind, *, consultation_id, authority, models, stage_run=None, gate=None
+    db, app_state, run, kind, *, consultation_id, authority, models, stage_run=None
 ) -> ConsultationRequest:
+    """`models` is the `PIModels` pair for this kind. A `stage_review` only advises."""
     settings = app_state.settings
     failure = None
     if kind == "failure" and stage_run is not None:
@@ -318,32 +241,23 @@ async def build_request(
         platform_run_id=str(run.id),
         kind=kind,
         interaction_mode=run.interaction_mode or "copilot",
-        authority="decide" if authority == "pi" else "advise",
+        authority="decide" if authority == "pi" and kind != "stage_review" else "advise",
         topic=run.topic or "",
         charter=Charter.model_validate(run.charter) if run.charter and kind != "charter" else None,
         situation=situation,
-        gate=Gate.model_validate(gate) if gate else None,
         allowed=allowed_actions(
             app_state,
             run,
             kind,
             stage_run,
-            gate and Gate.model_validate(gate),
-            comment_rounds=await comment_rounds(db, stage_run)
-            if kind == "gate_review" and stage_run
-            else 0,
-            unfixed_blocking=await unfixed_blocking(db, app_state, stage_run)
-            if kind == "gate_review" and stage_run
-            else False,
-            repeated=await repeated_answers(db, stage_run, Gate.model_validate(gate))
-            if kind == "gate_question" and stage_run and gate
-            else frozenset(),
             same_stage_send_backs=await same_stage_send_backs(db, run, stage_run)
             if kind == "stage_outcome" and stage_run
             else 0,
         ),
         artifacts=await artifact_catalogue(db, app_state, run, stage_run),
         notebook=await notebook_entries(db, run),
-        models=PIModels(lead=models.review, critic=models.stage),
+        obligations=run_obligations(run, kind, stage_run),
+        critique=await critique_for(db, stage_run) if kind == "stage_outcome" else None,
+        models=models,
         callback_url=result_url(app_state, consultation_id),
     )

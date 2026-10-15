@@ -1,5 +1,5 @@
 {
-  "$id": "urn:research-contract:1.2.0:Decisions",
+  "$id": "urn:research-contract:1.3.0:Decisions",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "actor": {

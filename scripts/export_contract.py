@@ -86,6 +86,36 @@ def example_payloads() -> tuple[dict[str, Any], dict[str, Any]]:
         "size_bytes": 1024,
     }
     pi_decision = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
+    obligation = {
+        "obligation_id": "R1",
+        "source_stage_key": "hypothesis",
+        "item_id": "H1",
+        "finding_id": "F4-1",
+        "text": "The baseline is not named",
+        "target_stage_key": "experiment_design",
+        "status": "controlled",
+        "locator": "plan:baselines",
+        "checked_by": "c2",
+    }
+    critic_point = {
+        "point_id": "C1",
+        "severity": "serious",
+        "lens": "risk",
+        "ref": "risk:R1",
+        "locator": "plan:baselines",
+        "point": "The plan does not control the known risk R1",
+        "suggestion": "Name the baseline in the plan",
+    }
+    critic_report = {
+        "verdict": "serious",
+        "summary": "One accepted risk is not controlled.",
+        "points": [critic_point],
+        "obligations": [
+            {"obligation_id": "R1", "status": "unresolved", "note": "No baseline in the plan"}
+        ],
+        "model": "openai_compatible/critic-example",
+        "model_shared_with": None,
+    }
     pi_result = {
         "consultation_id": "c1",
         "status": "decided",
@@ -94,6 +124,10 @@ def example_payloads() -> tuple[dict[str, Any], dict[str, Any]]:
         "confidence": 0.7,
         "handoff": ["Keep the baseline from the charter"],
         "brief": "Accepted H1.",
+        "critic_response": [
+            {"point_id": "C1", "response": "accepted", "reason": "R1 stays an open risk"}
+        ],
+        "directives_applied": [{"entry_id": "n1", "how": "Small models only"}],
         "trace": [{"actor": "pi", "tool": "read_artifact", "summary": "Read hypothesis H1"}],
     }
     consult_request = {
@@ -116,8 +150,16 @@ def example_payloads() -> tuple[dict[str, Any], dict[str, Any]]:
         "allowed": [{"action": "accept", "selection_key": "hypothesis_ids"}],
         "artifacts": [consult_ref],
         "notebook": [
-            {"kind": "directive", "text": "Prefer small models", "actor": "user", "at": now}
+            {
+                "kind": "directive",
+                "text": "Prefer small models",
+                "actor": "user",
+                "at": now,
+                "entry_id": "n1",
+            }
         ],
+        "obligations": [obligation],
+        "critique": critic_report,
         "models": {"lead": model, "critic": model | {"model": "critic-example"}},
         "callback_url": "http://platform.test/api/v1/internal/pi/consultations/c1/result",
     }
@@ -159,6 +201,12 @@ def example_payloads() -> tuple[dict[str, Any], dict[str, Any]]:
         "AllowedAction": {"action": "accept", "selection_key": "hypothesis_ids"},
         "ConsultArtifact": consult_ref,
         "NotebookEntry": consult_request["notebook"][0],
+        "Obligation": obligation,
+        "CriticPoint": critic_point,
+        "ObligationCheck": critic_report["obligations"][0],
+        "CriticReport": critic_report,
+        "CriticResponse": pi_result["critic_response"][0],
+        "DirectiveApplied": pi_result["directives_applied"][0],
         "PIModels": consult_request["models"],
         "ConsultationRequest": consult_request,
         "ConsultationAccepted": {"consultation_id": "c1", "created": True},

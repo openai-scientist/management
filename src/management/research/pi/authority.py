@@ -5,7 +5,8 @@ from typing import Literal
 Authority = Literal["pi", "researcher"]
 
 PI_ESCALATIONS_THAT_STOP_AUTO = frozenset({"integrity", "charter_conflict", "cannot_decide"})
-KINDS = ("charter", "gate_question", "gate_review", "stage_outcome", "failure", "close")
+#: The Platform no longer consults the PI at engine gates (`gate_*` stay on the wire only).
+KINDS = ("charter", "stage_review", "stage_outcome", "failure", "close")
 
 
 def run_mode(run) -> str:
@@ -21,8 +22,9 @@ def authority_for(run, kind: str, stage_config=None) -> Authority:
         return "researcher"
     if kind == "charter":
         return "pi" if mode == "auto" else "researcher"
-    if kind in {"gate_question", "gate_review"}:
-        return "pi" if mode in {"auto", "light"} else "researcher"
+    if kind == "stage_review":
+        # A report: nothing is applied.
+        return "pi"
     if kind == "stage_outcome":
         if mode == "auto":
             return "pi"
@@ -34,8 +36,13 @@ def authority_for(run, kind: str, stage_config=None) -> Authority:
 
 
 def engine_mode(run) -> str:
-    """P5: the engine opens every gate unless the researcher chose `full` anyway."""
-    return "full" if run_mode(run) == "full" else "copilot"
+    """The engine runs in the mode the researcher chose; the Platform answers the gates it owns."""
+    return run_mode(run)
+
+
+def review_gate_applies(run, gate_kind: str) -> bool:
+    """The deterministic review-gate rule answers `artifact_review` gates in auto and light."""
+    return gate_kind == "artifact_review" and run_mode(run) in {"auto", "light"}
 
 
 def escalation_stops(mode: str, reason_code: str) -> bool:

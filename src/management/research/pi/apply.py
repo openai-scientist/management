@@ -1,30 +1,22 @@
 """Take a PI result and act on it: apply it, hand it to the researcher, or drop it as stale."""
 
-import json
 import re
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from pydantic import ValidationError
 from sqlalchemy import select
 
 from management.access.service import lock_project_scope
 from management.core.errors import APIError
 from management.research.contracts import (
-    I2H_HYPOTHESES,
-    REVIEW_FINDINGS,
     AllowedAction,
     Charter,
     ConsultationResult,
     Escalation,
-    GateAnswer,
-    ReviewFindings,
 )
 from management.research.models import (
-    ACTIVE_RUN_STATUSES,
     PiConsultation,
     ResearchRun,
-    RunArtifact,
     StageDecision,
     StageRun,
 )
@@ -33,7 +25,6 @@ from management.research.orchestrator import (
     _decision_event,
     _relock,
     accept_stage,
-    answer_stage_gate,
     first_stage_inputs,
     rerun_stage,
     send_back,
@@ -42,28 +33,24 @@ from management.research.orchestrator import (
     validate_selection,
 )
 from management.research.pi.authority import escalation_stops, run_mode
+from management.research.pi.findings import ReviewUnreadable, hypothesis_id, latest_review
+from management.research.pi.obligations import apply_checks
 from management.research.pi.service import (
     add_note,
+    critic_unavailable,
     emit_attention,
     fail_consultation,
     mark_overridden,
     request_consultation,
     result_cost,
+    run_active,
 )
-from management.research.reviews import normalize_comment
 from management.research.stage_runs import append_run_event, recompute_run_cost
 
-GATE_KINDS = ("gate_question", "gate_review")
 FIRST_STAGE_DONE = ("COMPLETED", "ACCEPTED", "SUPERSEDED")
 STUCK_AFTER = timedelta(minutes=10)
 # The PI is asked about a failed stage or a finished run, so these kinds skip the active check.
 FINISHED_OK_KINDS = ("failure", "close")
-
-
-def run_active(run) -> bool:
-    return run.status in ACTIVE_RUN_STATUSES or (
-        run.status == "budget_exceeded" and run.pipeline_key is not None
-    )
 
 
 def _dump(result: ConsultationResult) -> dict:
@@ -79,12 +66,7 @@ async def is_current(db, run, consultation, stage_run) -> bool:
         return run.charter_status == "pending"
     if stage_run is None:
         return False
-    if kind in GATE_KINDS:
-        return (
-            stage_run.status == "RUNNING"
-            and (stage_run.open_gate or {}).get("gate_id") == consultation.gate_id
-        )
-    if kind == "stage_outcome":
+    if kind in {"stage_review", "stage_outcome"}:
         return stage_run.status == "COMPLETED"
     if kind == "failure":
         return (
@@ -95,17 +77,7 @@ async def is_current(db, run, consultation, stage_run) -> bool:
             )
             is None
         )
-    return True
-
-
-async def _read_json(app_state, artifact) -> bytes:
-    return b"".join([chunk async for chunk in app_state.file_store.open(artifact.storage_key)])
-
-
-def _hypothesis_id(locator: str) -> str | None:
-    if not locator.startswith("hypothesis:"):
-        return None
-    return locator.removeprefix("hypothesis:").split("/", 1)[0]
+    return kind == "close"  # The engine gate kinds are no longer asked.
 
 
 async def _blocking_scope(db, app_state, stage_run) -> tuple[str | None, dict[str, set[str]]]:
@@ -113,50 +85,23 @@ async def _blocking_scope(db, app_state, stage_run) -> tuple[str | None, dict[st
 
     Unreadable review fails closed: the whole artifact is blocked.
     """
-    artifact = await db.scalar(
-        select(RunArtifact)
-        .where(RunArtifact.stage_run_id == stage_run.id, RunArtifact.schema_id == REVIEW_FINDINGS)
-        .order_by(RunArtifact.version.desc())
-        .limit(1)
-    )
-    if artifact is None:
-        return None, {}
     try:
-        review = ReviewFindings.model_validate_json(await _read_json(app_state, artifact))
-    except (OSError, ValueError, ValidationError):
-        return "The review findings cannot be read, so the PI cannot approve", {}
+        review = await latest_review(db, app_state, stage_run)
+    except ReviewUnreadable:
+        return "The review findings cannot be read, so the PI cannot accept", {}
+    if review is None:
+        return None, {}
     blocked: dict[str, set[str]] = {}
     for finding in review.findings:
         if finding.severity != "blocking":
             continue
-        hypothesis_id = _hypothesis_id(finding.anchor.locator)
-        if hypothesis_id is None:
+        item_id = hypothesis_id(finding.anchor.locator)
+        if item_id is None:
             return "The review has a blocking finding on the whole artifact", {}
-        blocked.setdefault(hypothesis_id, set()).add(finding.finding_id)
+        blocked.setdefault(item_id, set()).add(finding.finding_id)
     if not review.passed and not blocked:
         return "The review still has blocking findings", {}
     return None, blocked
-
-
-async def _hypothesis_ids(db, app_state, stage_run) -> set[str] | None:
-    """Ids in the latest hypotheses artifact of the stage run; None when it has none."""
-    artifact = await db.scalar(
-        select(RunArtifact)
-        .where(
-            RunArtifact.stage_run_id == stage_run.id,
-            RunArtifact.is_primary.is_(True),
-            RunArtifact.schema_id == I2H_HYPOTHESES,
-        )
-        .order_by(RunArtifact.version.desc())
-        .limit(1)
-    )
-    if artifact is None:
-        return None
-    try:
-        body = json.loads(await _read_json(app_state, artifact))
-        return {item["id"] for item in body["hypotheses"]}
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
 
 
 def _risk_stated(handoff, hypothesis_id, finding_ids) -> bool:
@@ -173,20 +118,8 @@ def _risk_stated(handoff, hypothesis_id, finding_ids) -> bool:
     )
 
 
-async def _approval_blocked(db, app_state, stage_run) -> str | None:
-    whole, blocked = await _blocking_scope(db, app_state, stage_run)
-    if whole or not blocked:
-        return whole
-    ids = await _hypothesis_ids(db, app_state, stage_run)
-    if ids is None:
-        return "The review still has blocking findings"
-    if ids <= blocked.keys():
-        return "Every hypothesis has a blocking finding"
-    return None
-
-
 async def check_decision(db, app_state, consultation, stage_run, result) -> Escalation | None:
-    """Guards in code: the action is allowed here, and no approval over blocking findings."""
+    """Guards in code: the action is allowed here, and no accept over blocking findings."""
     decision = result.decision
     allowed = {
         a.action: a
@@ -201,8 +134,6 @@ async def check_decision(db, app_state, consultation, stage_run, result) -> Esca
 
     if rule is None:
         return refuse(f"{decision.action} is not allowed")
-    if decision.action == "answer" and decision.option_id not in rule.option_ids:
-        return refuse("unknown option")
     if (
         decision.action == "accept"
         and rule.selection_key
@@ -211,10 +142,6 @@ async def check_decision(db, app_state, consultation, stage_run, result) -> Esca
         return refuse(f"select at least one {rule.selection_key}")
     if decision.action == "send_back" and decision.target_stage_key not in rule.targets:
         return refuse("target stage is not allowed")
-    if decision.action == "approve" and consultation.kind == "gate_review":
-        message = await _approval_blocked(db, app_state, stage_run)
-        if message:
-            return Escalation(reason_code="integrity", message=message)
     if decision.action == "accept" and consultation.kind == "stage_outcome":
         whole, blocked = await _blocking_scope(db, app_state, stage_run)
         chosen = (
@@ -305,33 +232,6 @@ async def apply_decision(
             db, app_state, run, decision.charter, author="pi", consultation_id=cid, reason=reason
         )
         return None
-    if action in {"answer", "approve", "comment"}:
-        try:
-            if action == "comment":
-                payload = await normalize_comment(
-                    db,
-                    stage_run,
-                    {
-                        "action": "comment",
-                        "findings": [f.model_dump(mode="json") for f in decision.findings],
-                        "text": decision.note,
-                    },
-                )
-                answer = GateAnswer(**payload, actor="system")
-            else:
-                answer = GateAnswer(
-                    action=action,
-                    option_id=decision.option_id if action == "answer" else None,
-                    text=decision.note,
-                    params=dict(decision.params) if action == "answer" else {},
-                    actor="system",
-                )
-        except ValidationError:
-            raise APIError(422, "VALIDATION_ERROR", "Invalid gate answer") from None
-        row = await answer_stage_gate(
-            db, app_state, stage_run, answer, gate_id=consultation.gate_id, **common
-        )
-        return row.id
     if action == "accept":
         await validate_selection(db, app_state, stage_run, decision.selection)
         await accept_stage(
@@ -434,7 +334,7 @@ async def _store(db, run, consultation, result):
     """The result and its cost, kept even when the answer comes too late to act on."""
     consultation.result = _dump(result)
     consultation.decided_at = datetime.now(UTC)
-    cost, known = await result_cost(db, result)
+    cost, known = await result_cost(db, result, consultation.kind)
     consultation.cost_usd = cost
     if not known:
         run.cost_unknown = True
@@ -493,6 +393,39 @@ async def _record(db, run, consultation, stage_run, result):
     )
 
 
+def _overrides_critic(consultation, result) -> bool:
+    """The PI left a serious Critic point unanswered or rejected it: the researcher decides."""
+    critique = consultation.request.get("critique") or {}
+    serious = {p["point_id"] for p in critique.get("points", []) if p["severity"] == "serious"}
+    accepted = {r.point_id for r in result.critic_response if r.response == "accepted"}
+    return bool(serious - accepted)
+
+
+async def _apply_critic_report(db, app_state, run, consultation, stage_run, result) -> None:
+    """Keep the Critic report, update the obligations, then ask the PI for the outcome."""
+    report = result.report
+    if report is None:
+        reason = "the Critic returned no report"
+        consultation.status, consultation.resolved_at = "failed", datetime.now(UTC)
+        consultation.failure = {"code": "no_report", "message": reason}
+        await critic_unavailable(db, app_state, run, stage_run, reason)
+        return
+    await _record(db, run, consultation, stage_run, result)
+    apply_checks(run, report, consultation.id)
+    add_note(
+        db,
+        run,
+        "critique",
+        f"Critic {report.verdict}: {report.summary}",
+        "pi",
+        consultation_id=consultation.id,
+        stage_key=stage_run.stage_key,
+    )
+    consultation.status, consultation.resolved_at = "applied", datetime.now(UTC)
+    await db.flush()  # The outcome request reads the report from the stored row.
+    await request_consultation(db, app_state, run, "stage_outcome", stage_run=stage_run)
+
+
 async def handle_result(db, app_state, consultation_id: UUID, result: ConsultationResult) -> bool:
     """Process a PI callback. Returns False when this result was already processed."""
     consultation = await db.get(PiConsultation, consultation_id)
@@ -511,7 +444,9 @@ async def handle_result(db, app_state, consultation_id: UUID, result: Consultati
     await _store(db, run, consultation, result)
     if result.status == "failed":
         if consultation.status in {"queued", "sent"}:
-            await fail_consultation(db, consultation, "pi_failed", result.failure.message[:500])
+            await fail_consultation(
+                db, consultation, "pi_failed", result.failure.message[:500], app_state=app_state
+            )
         return True
     if consultation.status not in {"queued", "sent"}:
         # Overridden, stale or failed while the PI was thinking: kept for the record only.
@@ -519,6 +454,9 @@ async def handle_result(db, app_state, consultation_id: UUID, result: Consultati
     consultation.status = "decided"
     if not await is_current(db, run, consultation, stage_run):
         consultation.status, consultation.resolved_at = "stale", datetime.now(UTC)
+        return True
+    if consultation.kind == "stage_review":
+        await _apply_critic_report(db, app_state, run, consultation, stage_run, result)
         return True
     await _record(db, run, consultation, stage_run, result)
     guard = await check_decision(db, app_state, consultation, stage_run, result)
@@ -541,7 +479,8 @@ async def handle_result(db, app_state, consultation_id: UUID, result: Consultati
     if consultation.kind == "close":
         consultation.status, consultation.resolved_at = "applied", datetime.now(UTC)
         return True
-    if consultation.authority != "pi" or stops:
+    overrides = _overrides_critic(consultation, result)
+    if consultation.authority != "pi" or stops or overrides:
         _hand_over(db, run, consultation, stage_run, result)
         if consultation.authority == "pi":
             await emit_attention(
@@ -551,7 +490,7 @@ async def handle_result(db, app_state, consultation_id: UUID, result: Consultati
                 {
                     "consultation_id": str(consultation.id),
                     "kind": consultation.kind,
-                    "reason": "escalation",
+                    "reason": "pi_overrides_critic" if overrides else "escalation",
                     "code": result.escalate.reason_code.value if result.escalate else None,
                 },
             )
@@ -670,10 +609,7 @@ async def retry(db, app_state, consultation_id: UUID, *, project_id):
         consultation.status, consultation.resolved_at = "failed", datetime.now(UTC)
         consultation.failure = {"code": "pi_timeout", "message": "The PI did not answer in time"}
         await db.flush()
-    gate = stage_run.open_gate if consultation.kind in GATE_KINDS else None
-    return await request_consultation(
-        db, app_state, run, consultation.kind, stage_run=stage_run, gate=gate
-    )
+    return await request_consultation(db, app_state, run, consultation.kind, stage_run=stage_run)
 
 
 async def put_charter(db, app_state, run, charter: Charter, *, reason=None):

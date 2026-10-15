@@ -11,8 +11,9 @@ from management.core.errors import APIError
 from management.core.roles import ProjectRole
 from management.notifications.service import notify_project_members
 from management.research.contracts import ConsultationRequest, PIModels
-from management.research.model_profiles import load_models
+from management.research.model_profiles import load_critic_model, load_models
 from management.research.models import (
+    ACTIVE_RUN_STATUSES,
     PI_OPEN_STATUSES,
     ModelProfile,
     PiConsultation,
@@ -31,6 +32,12 @@ logger = logging.getLogger(__name__)
 def pi_active(app_state, run) -> bool:
     """PI is configured and the run has a charter flow. Older runs keep the old behavior."""
     return app_state.settings.pi_service is not None and run.charter_status != "none"
+
+
+def run_active(run) -> bool:
+    return run.status in ACTIVE_RUN_STATUSES or (
+        run.status == "budget_exceeded" and run.pipeline_key is not None
+    )
 
 
 def stage_config(app_state, run, stage_key):
@@ -82,7 +89,7 @@ def _strip_secrets(request: ConsultationRequest) -> dict:
     return data
 
 
-async def open_consultation(db, run, kind, stage_run, gate_id):
+async def open_consultation(db, run, kind, stage_run):
     return await db.scalar(
         select(PiConsultation).where(
             PiConsultation.research_run_id == run.id,
@@ -90,24 +97,28 @@ async def open_consultation(db, run, kind, stage_run, gate_id):
             PiConsultation.stage_run_id.is_(None)
             if stage_run is None
             else PiConsultation.stage_run_id == stage_run.id,
-            PiConsultation.gate_id.is_(None)
-            if gate_id is None
-            else PiConsultation.gate_id == gate_id,
             PiConsultation.status.in_(PI_OPEN_STATUSES),
         )
     )
 
 
-async def request_consultation(
-    db, app_state, run, kind, *, stage_run=None, gate=None
-) -> PiConsultation:
+async def pi_models(db, app_state, kind, models) -> PIModels:
+    """The lead is the review model. The Critic of a `stage_review` has its own profile."""
+    critic = (
+        await load_critic_model(db, app_state.secret_box)
+        if kind == "stage_review"
+        else models.stage
+    )
+    return PIModels(lead=models.review, critic=critic)
+
+
+async def request_consultation(db, app_state, run, kind, *, stage_run=None) -> PiConsultation:
     """Queue a question for the PI in the caller's transaction; `flush_consultations` sends it.
 
-    One consultation stays open per (stage run, kind, gate). The researcher is told at once
+    One consultation stays open per (stage run, kind). The researcher is told at once
     when the point is theirs; the PI's recommendation follows.
     """
-    gate_id = gate.get("gate_id") if gate else None
-    existing = await open_consultation(db, run, kind, stage_run, gate_id)
+    existing = await open_consultation(db, run, kind, stage_run)
     if existing is not None:
         return existing
     config = stage_config(app_state, run, stage_run.stage_key) if stage_run else None
@@ -121,16 +132,14 @@ async def request_consultation(
         kind,
         consultation_id=consultation_id,
         authority=authority,
-        models=models,
+        models=await pi_models(db, app_state, kind, models),
         stage_run=stage_run,
-        gate=gate,
     )
     consultation = PiConsultation(
         id=consultation_id,
         research_run_id=run.id,
         stage_run_id=stage_run.id if stage_run else None,
         kind=kind,
-        gate_id=gate_id,
         authority=authority,
         status="queued",
         request=_strip_secrets(request),
@@ -142,12 +151,7 @@ async def request_consultation(
         run,
         stage_run,
         "pi.consultation_requested",
-        {
-            "consultation_id": str(consultation_id),
-            "kind": kind,
-            "authority": authority,
-            "gate_id": gate_id,
-        },
+        {"consultation_id": str(consultation_id), "kind": kind, "authority": authority},
     )
     if authority == "researcher":
         await emit_attention(
@@ -163,10 +167,19 @@ async def request_consultation(
     return consultation
 
 
-async def flush_consultations(db, app_state, run_id) -> None:
-    """Commit, then send what is queued. The PI may answer at once, so nothing stays locked."""
+async def flush_consultations(db, app_state, run_id, *, answer_gates=True) -> None:
+    """Commit, then send what is queued and let the review-gate rule answer its gates.
+
+    The PI may answer at once, so nothing stays locked. The engine event endpoint sets
+    `answer_gates=False` and runs the rule after its response, so the rule's call to the engine
+    does not nest inside the engine's own event delivery.
+    """
     await db.commit()
     await dispatch_queued(app_state, run_id)
+    if answer_gates:
+        from management.research.pi.review_gate import answer_review_gates  # noqa: PLC0415
+
+        await answer_review_gates(app_state, run_id)
 
 
 async def dispatch_queued(app_state, run_id) -> None:
@@ -176,52 +189,63 @@ async def dispatch_queued(app_state, run_id) -> None:
     async with app_state.session_factory() as db:
         app_state.notification_hub.bind(db)
         app_state.run_event_hub.bind(db)
-        rows = list(
+        # A Critic that cannot be reached queues the stage outcome question: send that too.
+        while rows := list(
             await db.scalars(
                 select(PiConsultation)
                 .where(PiConsultation.research_run_id == run_id, PiConsultation.status == "queued")
                 .order_by(PiConsultation.created_at)
             )
-        )
-        if not rows:
-            return
-        now = datetime.now(UTC)
-        for row in rows:
-            row.status, row.sent_at = "sent", now
-        await db.commit()
-        try:
-            models = await load_models(db, app_state.secret_box)
-        except APIError:
-            models = None
-        for row in rows:
-            failure = None
-            if models is None:
-                failure = ("models_not_configured", "The PI models are not configured")
-            else:
+        ):
+            await _send(db, app_state, client, rows)
+
+
+async def _send(db, app_state, client, rows) -> None:
+    now = datetime.now(UTC)
+    for row in rows:
+        row.status, row.sent_at = "sent", now
+    await db.commit()
+    try:
+        models = await load_models(db, app_state.secret_box)
+    except APIError:
+        models = None
+    for row in rows:
+        failure = None
+        request = None
+        if models is not None:
+            try:
                 request = ConsultationRequest.model_validate(row.request).model_copy(
-                    update={"models": PIModels(lead=models.review, critic=models.stage)}
+                    update={"models": await pi_models(db, app_state, row.kind, models)}
                 )
-                try:
-                    await client.consult(request)
-                except PIUnavailable:
-                    failure = ("pi_unavailable", "The PI could not be reached")
-                except PIError:
-                    failure = ("pi_rejected", "The PI rejected the consultation")
-            if failure is not None:
-                # The PI may have answered through the callback before the error came back.
-                row = await db.scalar(
-                    select(PiConsultation)
-                    .where(PiConsultation.id == row.id)
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-                if row.status == "sent" and row.result is None:
-                    await fail_consultation(db, row, *failure)
-            await db.commit()
+            except APIError:
+                pass
+        if request is None:
+            failure = ("models_not_configured", "The PI models are not configured")
+        else:
+            try:
+                await client.consult(request)
+            except PIUnavailable:
+                failure = ("pi_unavailable", "The PI could not be reached")
+            except PIError:
+                failure = ("pi_rejected", "The PI rejected the consultation")
+        if failure is not None:
+            # The PI may have answered through the callback before the error came back.
+            row = await db.scalar(
+                select(PiConsultation)
+                .where(PiConsultation.id == row.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if row.status == "sent" and row.result is None:
+                await fail_consultation(db, row, *failure, app_state=app_state)
+        await db.commit()
 
 
-async def fail_consultation(db, consultation, code, message) -> None:
-    """The PI cannot decide: the researcher does, and may retry."""
+async def fail_consultation(db, consultation, code, message, *, app_state=None) -> None:
+    """The PI cannot decide: the researcher does, and may retry.
+
+    A failed `stage_review` is no one's decision: the PI is asked about the outcome without it.
+    """
     consultation.status = "failed"
     consultation.failure = {"code": code, "message": message}
     consultation.resolved_at = datetime.now(UTC)
@@ -234,6 +258,9 @@ async def fail_consultation(db, consultation, code, message) -> None:
     stage_run = (
         await db.get(StageRun, consultation.stage_run_id) if consultation.stage_run_id else None
     )
+    if consultation.kind == "stage_review":
+        await critic_unavailable(db, app_state, run, stage_run, message)
+        return
     await emit_attention(
         db,
         run,
@@ -247,15 +274,38 @@ async def fail_consultation(db, consultation, code, message) -> None:
     )
 
 
-async def result_cost(db, result) -> tuple[Decimal, bool]:
-    """Cost of a PI result: lead uses the review model, critic the stage model. (usd, known)."""
+async def critic_unavailable(db, app_state, run, stage_run, reason) -> None:
+    """Write why there is no Critic report and ask the PI about the outcome without it."""
+    if stage_run is None or stage_run.status != "COMPLETED" or not run_active(run):
+        return
+    add_note(
+        db,
+        run,
+        "observation",
+        f"Critic report unavailable: {reason}",
+        "pi",
+        stage_key=stage_run.stage_key,
+    )
+    await request_consultation(db, app_state, run, "stage_outcome", stage_run=stage_run)
+
+
+async def result_cost(db, result, kind) -> tuple[Decimal, bool]:
+    """Cost of a PI result: the lead ran the review model, the critic the stage model.
+
+    The Critic of a `stage_review` ran its own profile, else the review one. (usd, known).
+    """
     profiles = {
         row.role: row
         for row in await db.scalars(select(ModelProfile).where(ModelProfile.scope == "global"))
     }
     total, known = Decimal("0"), True
     for role, usage in result.usage.items():
-        profile = profiles.get("review" if role == "lead" else "stage")
+        if role == "lead":
+            profile = profiles.get("review")
+        elif kind == "stage_review":
+            profile = profiles.get("critic") or profiles.get("review")
+        else:
+            profile = profiles.get("stage")
         if (
             profile is None
             or profile.input_usd_per_mtok is None

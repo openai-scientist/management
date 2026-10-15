@@ -65,22 +65,30 @@ async def get_models(principal: Principal = Depends(require_platform_admin), db=
         p.role: p
         for p in await db.scalars(select(ModelProfile).where(ModelProfile.scope == "global"))
     }
-    return ok({role: profile_out(profiles.get(role)) for role in ("stage", "review")})
+    return ok({role: profile_out(profiles.get(role)) for role in ("stage", "review", "critic")})
 
 
 @router.put("/models/{role}", dependencies=[Depends(require_active_csrf)])
 async def put_model(
-    role: Literal["stage", "review"],
+    role: Literal["stage", "review", "critic"],
     body: ModelProfileIn,
     request: Request,
     principal: Principal = Depends(require_platform_admin),
     db=Depends(get_db),
 ):
     box = require_secret_box(request.app.state.secret_box)
-    other = await db.scalar(
-        select(ModelProfile)
-        .where(ModelProfile.role != role, ModelProfile.scope == "global")
-        .with_for_update()
+    # Only stage and review must differ; the Critic may share a model with the lead.
+    other = (
+        await db.scalar(
+            select(ModelProfile)
+            .where(
+                ModelProfile.role == ("review" if role == "stage" else "stage"),
+                ModelProfile.scope == "global",
+            )
+            .with_for_update()
+        )
+        if role != "critic"
+        else None
     )
     if other and (other.provider, other.model) == (body.provider, body.model):
         raise APIError(

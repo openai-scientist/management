@@ -22,6 +22,7 @@ class ConsultationKind(StrEnum):
     stage_outcome = "stage_outcome"
     failure = "failure"
     close = "close"
+    stage_review = "stage_review"
 
 
 class Authority(StrEnum):
@@ -119,11 +120,74 @@ class NotebookEntry(ContractModel):
         "directive",
         "override",
         "brief",
+        "critique",
     ]
     text: str = Field(min_length=1)
     actor: Literal["pi", "user"]
     stage_key: str | None = None
     at: datetime
+    #: ``pi_notes.id``; the Critic cites a directive by it.
+    entry_id: str | None = None
+
+
+class Obligation(ContractModel):
+    """A known risk carried to the stage that must control it."""
+
+    obligation_id: str
+    source_stage_key: str
+    item_id: str | None = None
+    finding_id: str | None = None
+    text: str = Field(max_length=600)
+    target_stage_key: str
+    status: Literal["open", "controlled", "unresolved"] = "open"
+    #: Set with ``controlled``.
+    locator: str | None = None
+    #: Set with ``unresolved``.
+    note: str | None = None
+    #: The consultation id of the Critic that set the status.
+    checked_by: str | None = None
+
+
+class CriticPoint(ContractModel):
+    point_id: str
+    severity: Literal["serious", "minor"]
+    lens: Literal["charter", "risk", "directive", "integrity"]
+    #: ``charter:<field>[i]`` | ``risk:<obligation_id>`` | ``directive:<entry_id>`` |
+    #: ``integrity:<tag>``
+    ref: str
+    locator: str | None = None
+    point: str
+    suggestion: str | None = None
+
+
+class ObligationCheck(ContractModel):
+    obligation_id: str
+    status: Literal["controlled", "unresolved"]
+    locator: str | None = None
+    note: str | None = None
+
+
+class CriticReport(ContractModel):
+    """The independent stage-end review. The PI answers its serious points."""
+
+    verdict: Literal["sound", "concerns", "serious"]
+    summary: str
+    points: list[CriticPoint] = Field(default_factory=list)
+    obligations: list[ObligationCheck] = Field(default_factory=list)
+    #: ``provider/model`` the Critic ran with.
+    model: str | None = None
+    model_shared_with: Literal["lead"] | None = None
+
+
+class CriticResponse(ContractModel):
+    point_id: str
+    response: Literal["accepted", "rejected"]
+    reason: str
+
+
+class DirectiveApplied(ContractModel):
+    entry_id: str
+    how: str
 
 
 class PIModels(ContractModel):
@@ -148,6 +212,9 @@ class ConsultationRequest(ContractModel):
     allowed: list[AllowedAction] = Field(default_factory=list)
     artifacts: list[ConsultArtifact] = Field(default_factory=list)
     notebook: list[NotebookEntry] = Field(default_factory=list)
+    obligations: list[Obligation] = Field(default_factory=list)
+    #: For kind `stage_outcome`: the Critic report, or none when it was unavailable.
+    critique: CriticReport | None = None
     models: PIModels
     callback_url: str
 
@@ -255,6 +322,10 @@ class ConsultationResult(ContractModel):
     handoff: list[str] = Field(default_factory=list)
     notebook: list[NoteDraft] = Field(default_factory=list)
     brief: str = ""
+    #: For kind `stage_review`.
+    report: CriticReport | None = None
+    critic_response: list[CriticResponse] = Field(default_factory=list)
+    directives_applied: list[DirectiveApplied] = Field(default_factory=list)
     usage: dict[Literal["lead", "critic"], TokenUsage] = Field(default_factory=dict)
     trace: list[TraceStep] = Field(default_factory=list)
 

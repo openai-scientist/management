@@ -1,5 +1,5 @@
 {
-  "$id": "urn:research-contract:1.2.0:GateClosed",
+  "$id": "urn:research-contract:1.3.0:GateClosed",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "action": {

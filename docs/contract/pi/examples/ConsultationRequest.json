@@ -43,7 +43,32 @@
     ]
   },
   "consultation_id": "c1",
-  "contract_version": "1.2.0",
+  "contract_version": "1.3.0",
+  "critique": {
+    "model": "openai_compatible/critic-example",
+    "model_shared_with": null,
+    "obligations": [
+      {
+        "locator": null,
+        "note": "No baseline in the plan",
+        "obligation_id": "R1",
+        "status": "unresolved"
+      }
+    ],
+    "points": [
+      {
+        "lens": "risk",
+        "locator": "plan:baselines",
+        "point": "The plan does not control the known risk R1",
+        "point_id": "C1",
+        "ref": "risk:R1",
+        "severity": "serious",
+        "suggestion": "Name the baseline in the plan"
+      }
+    ],
+    "summary": "One accepted risk is not controlled.",
+    "verdict": "serious"
+  },
   "gate": null,
   "interaction_mode": "light",
   "kind": "stage_outcome",
@@ -67,9 +92,24 @@
     {
       "actor": "user",
       "at": "2026-10-14T00:00:00Z",
+      "entry_id": "n1",
       "kind": "directive",
       "stage_key": null,
       "text": "Prefer small models"
+    }
+  ],
+  "obligations": [
+    {
+      "checked_by": "c2",
+      "finding_id": "F4-1",
+      "item_id": "H1",
+      "locator": "plan:baselines",
+      "note": null,
+      "obligation_id": "R1",
+      "source_stage_key": "hypothesis",
+      "status": "controlled",
+      "target_stage_key": "experiment_design",
+      "text": "The baseline is not named"
     }
   ],
   "platform_run_id": "r1",

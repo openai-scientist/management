@@ -5,6 +5,13 @@
     "brief": "Accepted H1.",
     "confidence": 0.7,
     "consultation_id": "c1",
+    "critic_response": [
+      {
+        "point_id": "C1",
+        "reason": "R1 stays an open risk",
+        "response": "accepted"
+      }
+    ],
     "critique": null,
     "decision": {
       "action": "accept",
@@ -20,6 +27,12 @@
       },
       "target_stage_key": null
     },
+    "directives_applied": [
+      {
+        "entry_id": "n1",
+        "how": "Small models only"
+      }
+    ],
     "escalate": null,
     "evidence": [],
     "failure": null,
@@ -29,6 +42,7 @@
     "notebook": [],
     "options_considered": [],
     "rationale": "H1 fits the charter",
+    "report": null,
     "status": "decided",
     "trace": [
       {

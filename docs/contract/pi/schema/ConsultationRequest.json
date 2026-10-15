@@ -262,10 +262,141 @@
         "gate_review",
         "stage_outcome",
         "failure",
-        "close"
+        "close",
+        "stage_review"
       ],
       "title": "ConsultationKind",
       "type": "string"
+    },
+    "CriticPoint": {
+      "properties": {
+        "lens": {
+          "enum": [
+            "charter",
+            "risk",
+            "directive",
+            "integrity"
+          ],
+          "title": "Lens",
+          "type": "string"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator"
+        },
+        "point": {
+          "title": "Point",
+          "type": "string"
+        },
+        "point_id": {
+          "title": "Point Id",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "serious",
+            "minor"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "suggestion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggestion"
+        }
+      },
+      "required": [
+        "point_id",
+        "severity",
+        "lens",
+        "ref",
+        "point"
+      ],
+      "title": "CriticPoint",
+      "type": "object"
+    },
+    "CriticReport": {
+      "description": "The independent stage-end review. The PI answers its serious points.",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "model_shared_with": {
+          "anyOf": [
+            {
+              "const": "lead",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Shared With"
+        },
+        "obligations": {
+          "items": {
+            "$ref": "#/$defs/ObligationCheck"
+          },
+          "title": "Obligations",
+          "type": "array"
+        },
+        "points": {
+          "items": {
+            "$ref": "#/$defs/CriticPoint"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "sound",
+            "concerns",
+            "serious"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "verdict",
+        "summary"
+      ],
+      "title": "CriticReport",
+      "type": "object"
     },
     "FailureInfo": {
       "properties": {
@@ -457,6 +588,18 @@
           "title": "At",
           "type": "string"
         },
+        "entry_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entry Id"
+        },
         "kind": {
           "enum": [
             "decision",
@@ -466,7 +609,8 @@
             "question",
             "directive",
             "override",
-            "brief"
+            "brief",
+            "critique"
           ],
           "title": "Kind",
           "type": "string"
@@ -496,6 +640,152 @@
         "at"
       ],
       "title": "NotebookEntry",
+      "type": "object"
+    },
+    "Obligation": {
+      "description": "A known risk carried to the stage that must control it.",
+      "properties": {
+        "checked_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked By"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finding Id"
+        },
+        "item_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item Id"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "obligation_id": {
+          "title": "Obligation Id",
+          "type": "string"
+        },
+        "source_stage_key": {
+          "title": "Source Stage Key",
+          "type": "string"
+        },
+        "status": {
+          "default": "open",
+          "enum": [
+            "open",
+            "controlled",
+            "unresolved"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "target_stage_key": {
+          "title": "Target Stage Key",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 600,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "obligation_id",
+        "source_stage_key",
+        "text",
+        "target_stage_key"
+      ],
+      "title": "Obligation",
+      "type": "object"
+    },
+    "ObligationCheck": {
+      "properties": {
+        "locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "obligation_id": {
+          "title": "Obligation Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "controlled",
+            "unresolved"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "obligation_id",
+        "status"
+      ],
+      "title": "ObligationCheck",
       "type": "object"
     },
     "PIAction": {
@@ -671,7 +961,7 @@
       "type": "object"
     }
   },
-  "$id": "urn:research-contract:1.2.0:ConsultationRequest",
+  "$id": "urn:research-contract:1.3.0:ConsultationRequest",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -715,6 +1005,17 @@
       "title": "Contract Version",
       "type": "string"
     },
+    "critique": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CriticReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "gate": {
       "anyOf": [
         {
@@ -740,6 +1041,13 @@
         "$ref": "#/$defs/NotebookEntry"
       },
       "title": "Notebook",
+      "type": "array"
+    },
+    "obligations": {
+      "items": {
+        "$ref": "#/$defs/Obligation"
+      },
+      "title": "Obligations",
       "type": "array"
     },
     "platform_run_id": {

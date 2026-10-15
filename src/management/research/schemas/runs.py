@@ -91,6 +91,7 @@ class RunItem(BaseModel):
     auto_review: bool
     budget_usd: Decimal
     cost_usd: Decimal
+    cost_unknown: bool = False
     failure_message: str | None
     created_at: datetime
     started_at: datetime | None

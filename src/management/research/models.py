@@ -112,6 +112,10 @@ class ResearchRun(Base):
     charter_status: Mapped[str] = mapped_column(
         String(10), nullable=False, default="none", server_default="none"
     )
+    # Known risks carried to the stage that must control them (contract `Obligation`).
+    obligations: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list, server_default="[]"
+    )
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
     auto_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -367,7 +371,8 @@ class PiConsultation(Base):
     __tablename__ = "pi_consultations"
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('charter','gate_question','gate_review','stage_outcome','failure','close')",
+            "kind IN ('charter','gate_question','gate_review','stage_outcome','failure','close',"
+            "'stage_review')",
             name="ck_pi_consultations_kind",
         ),
         CheckConstraint("authority IN ('pi','researcher')", name="ck_pi_consultations_authority"),
@@ -414,7 +419,7 @@ class PiNote(Base):
     __table_args__ = (
         CheckConstraint(
             "kind IN ('decision','lesson','risk','observation','question','directive',"
-            "'override','brief')",
+            "'override','brief','critique')",
             name="ck_pi_notes_kind",
         ),
         CheckConstraint("actor IN ('pi','user')", name="ck_pi_notes_actor"),
@@ -446,7 +451,7 @@ def active_run_filter():
 class ModelProfile(Base):
     __tablename__ = "model_profiles"
     __table_args__ = (
-        CheckConstraint("role IN ('stage','review')", name="ck_model_profiles_role"),
+        CheckConstraint("role IN ('stage','review','critic')", name="ck_model_profiles_role"),
         CheckConstraint("scope = 'global'", name="ck_model_profiles_scope"),
         UniqueConstraint("role", "scope", name="uq_model_profiles_role_scope"),
     )

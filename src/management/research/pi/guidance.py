@@ -3,6 +3,7 @@
 from sqlalchemy import select
 
 from management.research.models import PiConsultation, PiNote
+from management.research.pi.obligations import guidance_line, targeted_at
 
 MAX_LINES = 20
 MAX_CHARS = 500
@@ -13,7 +14,7 @@ def _clip(prefix: str, text: str) -> str:
     return f"{prefix}{text}".strip()[:MAX_CHARS]
 
 
-async def build_guidance(db, run) -> list[str]:
+async def build_guidance(db, run, stage_key) -> list[str]:
     charter = run.charter or {}
     lines: list[str] = []
     # Most important first: the lines past MAX_LINES are dropped from the end.
@@ -49,7 +50,9 @@ async def build_guidance(db, run) -> list[str]:
             lines += [_clip("Handoff: ", text) for text in handoff[:5]]
             break
     lines += [_clip("Objective: ", item) for item in charter.get("objectives", [])[:4]]
-    return lines[:MAX_LINES]
+    # An obligation is never dropped: its lines come after the capped ones.
+    risks = [guidance_line(item) for item in targeted_at(run, stage_key) if item.status == "open"]
+    return lines[:MAX_LINES] + risks
 
 
 def with_guidance(inputs, lines: list[str]):

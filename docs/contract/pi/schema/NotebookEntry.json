@@ -1,5 +1,5 @@
 {
-  "$id": "urn:research-contract:1.2.0:NotebookEntry",
+  "$id": "urn:research-contract:1.3.0:NotebookEntry",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "actor": {
@@ -15,6 +15,18 @@
       "title": "At",
       "type": "string"
     },
+    "entry_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Entry Id"
+    },
     "kind": {
       "enum": [
         "decision",
@@ -24,7 +36,8 @@
         "question",
         "directive",
         "override",
-        "brief"
+        "brief",
+        "critique"
       ],
       "title": "Kind",
       "type": "string"

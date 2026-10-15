@@ -1,6 +1,5 @@
 """The AI PI in the Platform: charter, routing by authority, applying, overriding."""
 
-from contextlib import asynccontextmanager
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID
@@ -8,148 +7,27 @@ from uuid import UUID
 import pytest
 from sqlalchemy import select
 
-from management.research.contracts import (
-    Anchor,
-    ConsultationResult,
-    Finding,
-    ReviewFindings,
-    TokenUsage,
-)
+from management.research.contracts import TokenUsage
 from management.research.models import (
     PiConsultation,
     PiNote,
     ResearchRun,
-    RunEvent,
     StageDecision,
     StageRun,
 )
 from management.research.orchestrator import first_stage_inputs
 from management.research.pi.apply import _risk_stated, check_decision
 from management.research.pi.guidance import build_guidance
-from tests.fakes.engines import engine_overrides, install_fake_engines, seed_models
-from tests.fakes.pi import FakePI, pi_overrides
-from tests.helpers.harness import open_harness
-from tests.helpers.identity import login, mutation_headers
-from tests.helpers.projects import PROJECTS, create_project
-
-CHARTER = {
-    "question": "Does retrieval method A beat B?",
-    "objectives": ["Compare A and B"],
-    "success_criteria": ["A wins by 3 points"],
-}
-
-
-def decided(request, decision: dict, **fields) -> ConsultationResult:
-    return ConsultationResult.model_validate(
-        {
-            "consultation_id": request.consultation_id,
-            "status": "decided",
-            "decision": decision,
-            "rationale": "Because the evidence says so.",
-            "confidence": 0.8,
-            "brief": "The PI decided.",
-            **fields,
-        }
-    )
-
-
-class Env(SimpleNamespace):
-    def url(self, tail=""):
-        return f"{PROJECTS}/{self.project['id']}/runs/{self.run['id']}{tail}"
-
-    def csrf(self):
-        return mutation_headers(self.session["csrf_token"])
-
-    async def post(self, tail, **body):
-        return await self.client.post(self.url(tail), json=body, headers=self.csrf())
-
-    async def current(self):
-        return (await self.client.get(self.url())).json()["data"]["current_stage"]
-
-    async def rows(self, model, *where):
-        async with self.harness.factory() as db:
-            return list(await db.scalars(select(model).where(*where)))
-
-    async def consultations(self):
-        return await self.rows(PiConsultation, PiConsultation.research_run_id == self.run_id)
-
-    async def consultation(self, request):
-        async with self.harness.factory() as db:
-            return await db.get(PiConsultation, UUID(request.consultation_id))
-
-    async def events(self, event_type):
-        return await self.rows(
-            RunEvent, RunEvent.run_id == self.run_id, RunEvent.type == event_type
-        )
-
-    @property
-    def run_id(self):
-        return UUID(self.run["id"])
-
-    async def endorse(self, request, **body):
-        return await self.client.post(
-            self.url(f"/pi/consultations/{request.consultation_id}/endorse"),
-            json=body,
-            headers=self.csrf(),
-        )
-
-    async def settle_charter(self):
-        request = self.pi.of_kind("charter")[0]
-        response = await self.pi.respond(
-            request, decided(request, {"action": "charter", "charter": CHARTER})
-        )
-        assert response.status_code == 200, response.text
-        if request.authority == "advise":
-            assert (await self.endorse(request)).status_code == 200
-        return request
-
-
-@asynccontextmanager
-async def pi_env(tmp_path, mode="light", *, scripted=True, start=True, enabled=True, **settings):
-    overrides = engine_overrides()
-    if settings.pop("exd_free", False):
-        overrides["pipelines"]["default"][1]["checkpoint"] = False
-    async with open_harness(
-        tmp_path, **overrides, **(pi_overrides() if enabled else {}), **settings
-    ) as harness:
-        fakes = install_fake_engines(harness)
-        if scripted:
-            for fake in fakes.values():
-                fake.scripted()
-        pi = FakePI(harness).install()
-        async with harness.client() as client:
-            session = await login(harness, client, uid="owner", email="owner@example.com")
-            project = await create_project(client, session)
-            await seed_models(harness, session["user"]["id"])
-            env = Env(
-                harness=harness,
-                client=client,
-                session=session,
-                project=project,
-                fakes=fakes,
-                pi=pi,
-                run=None,
-            )
-            if start:
-                response = await client.post(
-                    f"{PROJECTS}/{project['id']}/runs",
-                    json={
-                        "topic": "Compare two retrieval methods",
-                        "domains": ["ml"],
-                        "interaction_mode": mode,
-                    },
-                    headers=mutation_headers(session["csrf_token"]),
-                )
-                assert response.status_code == 201, response.text
-                env.run = response.json()["data"]
-            yield env
-
-
-async def approve_gate(env):
-    request = env.pi.of_kind("gate_review")[-1]
-    response = await env.pi.respond(request, decided(request, {"action": "approve"}))
-    assert response.status_code == 200, response.text
-    return request
+from tests.helpers.identity import login
+from tests.helpers.pi_env import (
+    CHARTER,
+    blocked_outcome,
+    blocking,
+    decided,
+    next_outcome,
+    pi_env,
+)
+from tests.helpers.projects import PROJECTS
 
 
 async def test_charter_auto_starts_first_stage(tmp_path):
@@ -160,7 +38,7 @@ async def test_charter_auto_starts_first_stage(tmp_path):
         assert env.run["current_stage"] is None
         await env.settle_charter()
         sent = env.fakes["i2h"].requests[0]
-        assert sent.interaction_mode == "copilot"
+        assert sent.interaction_mode == "auto"
         assert sent.inputs.params["guidance"][0] == f"Research question: {CHARTER['question']}"
         assert "Success criterion: A wins by 3 points" in sent.inputs.params["guidance"]
         async with env.harness.factory() as db:
@@ -168,7 +46,7 @@ async def test_charter_auto_starts_first_stage(tmp_path):
         assert run.charter_status == "settled"
         assert run.charter["author"] == "pi" and run.charter["version"] == 1
         assert run.charter["post_hoc"] is False
-        assert env.pi.of_kind("gate_review")[0].charter.question == CHARTER["question"]
+        assert env.pi.of_kind("stage_review")[0].charter.question == CHARTER["question"]
 
 
 async def test_charter_light_waits_for_researcher_then_endorse(tmp_path):
@@ -216,172 +94,95 @@ async def test_researcher_writes_charter_instead(tmp_path):
             ]
 
 
-async def test_pi_answers_question_gate_in_auto(tmp_path):
-    async with pi_env(tmp_path, "auto", scripted=False) as env:
-        await env.settle_charter()
-        fake = env.fakes["i2h"]
-        (engine_run_id,) = fake.states
-        gate = await fake.open_question_gate(
-            engine_run_id, step_key="topic", options=["narrow", "broad"], default="narrow"
-        )
-        request = env.pi.of_kind("gate_question")[0]
-        assert request.authority == "decide"
-        assert request.allowed[0].option_ids == ["narrow", "broad"]
-        response = await env.pi.respond(
-            request,
-            decided(
-                request,
-                {
-                    "action": "answer",
-                    "option_id": "broad",
-                    "note": "Wider",
-                    "params": {"dropped": ["P3"]},
-                },
-            ),
-        )
-        assert response.status_code == 200, response.text
-        answer = fake._answers[(engine_run_id, gate.gate_id)]
-        assert (answer.action, answer.option_id) == ("answer", "broad")
-        assert answer.params == {"dropped": ["P3"]}
-        assert answer.actor == "system" and answer.decided_by == f"pi:{request.consultation_id}"
-        (decision,) = await env.rows(StageDecision, StageDecision.gate_id == gate.gate_id)
-        assert decision.actor == "pi" and decision.decided_by_user_id is None
-        assert decision.payload["consultation_id"] == request.consultation_id
-        assert (await env.consultation(request)).status == "applied"
-
-
-async def test_an_answer_chosen_twice_at_a_step_is_not_offered_again(tmp_path):
-    async with pi_env(tmp_path, "auto", scripted=False) as env:
-        await env.settle_charter()
-        fake = env.fakes["i2h"]
-        (engine_run_id,) = fake.states
-        for round_ in range(3):
-            await fake.open_question_gate(
-                engine_run_id, step_key="screen", options=["approve", "reject"], default="approve"
-            )
-            request = env.pi.of_kind("gate_question")[round_]
-            if round_ == 2:
-                assert request.allowed[0].option_ids == ["approve"]
-                break
-            assert request.allowed[0].option_ids == ["approve", "reject"]
-            response = await env.pi.respond(
-                request, decided(request, {"action": "answer", "option_id": "reject"})
-            )
-            assert response.status_code == 200, response.text
-
-
-async def test_two_drops_with_different_params_keep_drop_offered(tmp_path):
-    async with pi_env(tmp_path, "auto", scripted=False) as env:
-        await env.settle_charter()
-        fake = env.fakes["i2h"]
-        (engine_run_id,) = fake.states
-        for round_, dropped in enumerate((["P1"], ["P2"], None)):
-            await fake.open_question_gate(
-                engine_run_id, step_key="screen", options=["approve", "drop"], default="approve"
-            )
-            request = env.pi.of_kind("gate_question")[round_]
-            assert request.allowed[0].option_ids == ["approve", "drop"]
-            if dropped is None:
-                break
-            answer = {"action": "answer", "option_id": "drop", "params": {"dropped": dropped}}
-            response = await env.pi.respond(request, decided(request, answer))
-            assert response.status_code == 200, response.text
-
-
-async def test_light_gate_review_by_pi(tmp_path):
+async def test_light_review_gate_is_answered_by_the_rule_not_the_pi(tmp_path):
     async with pi_env(tmp_path, "light") as env:
         await env.settle_charter()
-        request = env.pi.of_kind("gate_review")[0]
-        assert request.authority == "decide"
-        await approve_gate(env)
-        stage = await env.current()
-        assert stage["status"] == "COMPLETED"
-        decisions = await env.rows(StageDecision, StageDecision.action == "approve")
-        assert [d.actor for d in decisions] == ["pi"]
+        assert env.fakes["i2h"].requests[0].interaction_mode == "light"
+        assert (await env.current())["status"] == "COMPLETED"
+        assert [c.kind for c in await env.consultations()] == ["charter", "stage_review"]
+        (decision,) = await env.rows(StageDecision, StageDecision.action == "approve")
+        assert decision.actor == "system" and decision.decided_by_user_id is None
+        (answer,) = env.fakes["i2h"]._answers.values()
+        assert answer.actor == "system" and answer.decided_by == "policy:review_gate"
+        (event,) = [e for e in await env.events("decision.recorded") if e.payload.get("policy")]
+        assert event.payload["policy"] == "review_gate" and event.payload["finding_ids"] == []
+        review = env.pi.of_kind("stage_review")[0]
+        assert review.authority == "advise" and review.allowed == []
+        assert review.models.critic.model == "review"
         # The hypothesis stage is a checkpoint: the researcher decides, the PI advises.
-        outcome = env.pi.of_kind("stage_outcome")[0]
+        outcome = await next_outcome(env)
         assert outcome.authority == "advise"
 
 
 async def test_light_non_checkpoint_stage_outcome_is_the_pis(tmp_path):
     async with pi_env(tmp_path, "light", exd_free=True) as env:
         await env.settle_charter()
-        await approve_gate(env)
-        outcome = env.pi.of_kind("stage_outcome")[0]
+        outcome = await next_outcome(env)
         response = await env.pi.respond(
             outcome, decided(outcome, {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}})
         )
         assert response.status_code == 200
         assert (await env.endorse(outcome)).status_code == 200
-        await approve_gate(env)
-        second = env.pi.of_kind("stage_outcome")[1]
+        second = await next_outcome(env)
         assert second.situation.stage_key == "experiment_plan"
         assert second.authority == "decide"
 
 
-async def test_copilot_gate_goes_to_researcher_with_recommendation(tmp_path):
+async def test_copilot_gate_goes_to_the_researcher_without_a_consultation(tmp_path):
     async with pi_env(tmp_path, "copilot") as env:
         await env.settle_charter()
-        request = env.pi.of_kind("gate_review")[0]
-        assert request.authority == "advise"
-        attention = len(await env.events("attention.required"))
-        await env.pi.respond(request, decided(request, {"action": "approve"}))
         stage = await env.current()
         assert stage["status"] == "RUNNING" and stage["open_gate"] is not None
-        assert (await env.consultation(request)).status == "awaiting_researcher"
-        assert len(await env.events("pi.recommendation")) >= 1
-        assert (await env.endorse(request)).status_code == 200
+        assert [c.kind for c in await env.consultations()] == ["charter"]
+        events = await env.events("attention.required")
+        assert events[-1].payload["gate_id"] == stage["open_gate"]["gate_id"]
+        response = await env.gate(stage, action="approve")
+        assert response.status_code == 200, response.text
         assert (await env.current())["status"] == "COMPLETED"
         (decision,) = await env.rows(StageDecision, StageDecision.action == "approve")
         assert decision.actor == "user" and decision.decided_by_user_id is not None
-        assert decision.payload["consultation_id"] == request.consultation_id
-        assert (await env.consultation(request)).status == "endorsed"
-        assert attention >= 1
+        assert env.pi.of_kind("stage_review")[0].authority == "advise"
 
 
-async def test_pi_cannot_approve_blocking(tmp_path):
-    async with pi_env(tmp_path, "auto", scripted=False) as env:
+async def test_question_gate_in_light_goes_to_the_researcher(tmp_path):
+    async with pi_env(tmp_path, "light", scripted=False) as env:
         await env.settle_charter()
         fake = env.fakes["i2h"]
         (engine_run_id,) = fake.states
-        await fake.open_review_gate(
-            engine_run_id,
-            findings=ReviewFindings(
-                round=1,
-                reviewed_artifact_id="x",
-                reviewer_model="review",
-                findings=[
-                    Finding(
-                        finding_id="F1-1",
-                        anchor=Anchor(locator="methodology"),
-                        severity="blocking",
-                        issue="No falsification criterion",
-                        author="reviewer",
-                    )
-                ],
-                passed=False,
-            ),
-        )
-        request = env.pi.of_kind("gate_review")[0]
-        await env.pi.respond(request, decided(request, {"action": "approve"}))
-        row = await env.consultation(request)
-        assert row.status == "awaiting_researcher"
-        assert row.result["escalate"]["reason_code"] == "integrity"
-        assert (await env.current())["open_gate"] is not None
-        assert await env.rows(StageDecision, StageDecision.action == "approve") == []
-
-
-async def test_invalid_pi_action_goes_to_researcher(tmp_path):
-    async with pi_env(tmp_path, "auto", scripted=False) as env:
-        await env.settle_charter()
-        fake = env.fakes["i2h"]
-        (engine_run_id,) = fake.states
+        # The engine opens the gate although the run is `light`: the researcher owns it.
+        request = fake._requests[engine_run_id]
+        fake._requests[engine_run_id] = request.model_copy(update={"interaction_mode": "copilot"})
+        before = len(await env.events("attention.required"))
         await fake.open_question_gate(
             engine_run_id, step_key="topic", options=["narrow", "broad"], default="narrow"
         )
-        request = env.pi.of_kind("gate_question")[0]
-        await env.pi.respond(request, decided(request, {"action": "answer", "option_id": "huge"}))
-        row = await env.consultation(request)
+        stage = await env.current()
+        assert stage["open_gate"]["kind"] == "question"
+        assert len(await env.events("attention.required")) == before + 1
+        assert [c.kind for c in await env.consultations()] == ["charter"]
+        assert (await env.gate(stage, action="answer", option_id="broad")).status_code == 200
+
+
+async def test_attention_is_raised_in_auto_for_a_gate_the_rule_does_not_own(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        await env.settle_charter()
+        fake = env.fakes["i2h"]
+        (engine_run_id,) = fake.states
+        request = fake._requests[engine_run_id]
+        fake._requests[engine_run_id] = request.model_copy(update={"interaction_mode": "copilot"})
+        await fake.open_question_gate(
+            engine_run_id, step_key="topic", options=["narrow", "broad"], default="narrow"
+        )
+        events = await env.events("attention.required")
+        assert events[-1].payload["gate_id"] == (await env.current())["open_gate"]["gate_id"]
+
+
+async def test_pi_rejects_an_action_that_is_not_allowed_at_the_outcome(tmp_path):
+    async with pi_env(tmp_path, "auto") as env:
+        await env.settle_charter()
+        outcome = await next_outcome(env)
+        await env.pi.respond(outcome, decided(outcome, {"action": "rerun"}))
+        row = await env.consultation(outcome)
         assert row.status == "awaiting_researcher"
         assert row.result["escalate"]["reason_code"] == "cannot_decide"
 
@@ -389,8 +190,7 @@ async def test_invalid_pi_action_goes_to_researcher(tmp_path):
 async def test_stage_outcome_accept_by_pi_passes_handoff_note(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        await approve_gate(env)
-        outcome = env.pi.of_kind("stage_outcome")[0]
+        outcome = await next_outcome(env)
         assert outcome.authority == "decide"
         accept = next(a for a in outcome.allowed if a.action == "accept")
         assert accept.selection_key == "hypothesis_ids"
@@ -425,8 +225,7 @@ async def test_stage_outcome_accept_by_pi_passes_handoff_note(tmp_path):
 async def test_stage_outcome_send_back_by_pi(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        await approve_gate(env)
-        outcome = env.pi.of_kind("stage_outcome")[0]
+        outcome = await next_outcome(env)
         send_back = next(a for a in outcome.allowed if a.action == "send_back")
         assert send_back.targets == ["hypothesis"]
         response = await env.pi.respond(
@@ -449,8 +248,7 @@ async def test_stage_outcome_send_back_by_pi(tmp_path):
 async def test_guidance_is_replaced_on_every_stage_start(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        await approve_gate(env)
-        first = env.pi.of_kind("stage_outcome")[0]
+        first = await next_outcome(env)
         await env.pi.respond(
             first,
             decided(
@@ -459,8 +257,7 @@ async def test_guidance_is_replaced_on_every_stage_start(tmp_path):
                 handoff=["First lesson"],
             ),
         )
-        await approve_gate(env)
-        second = env.pi.of_kind("stage_outcome")[1]
+        second = await next_outcome(env)
         await env.pi.respond(
             second,
             decided(
@@ -477,17 +274,18 @@ async def test_guidance_is_replaced_on_every_stage_start(tmp_path):
 async def test_stale_result_ignored(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        request = env.pi.of_kind("gate_review")[0]
-        # The engine closed the gate by itself while the PI was thinking.
+        request = await next_outcome(env)
+        # The run moved on while the PI was thinking.
         async with env.harness.factory() as db:
             stage = (await db.scalars(select(StageRun))).one()
-            stage.open_gate = None
+            stage.status = "STOPPED"
             await db.commit()
-        response = await env.pi.respond(request, decided(request, {"action": "approve"}))
+        accept = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
+        response = await env.pi.respond(request, decided(request, accept))
         assert response.status_code == 200
         row = await env.consultation(request)
         assert row.status == "stale" and row.result is not None
-        assert await env.rows(StageDecision) == []
+        assert await env.rows(StageDecision, StageDecision.action == "accept") == []
         retry = await env.client.post(
             env.url(f"/pi/consultations/{request.consultation_id}/retry"), headers=env.csrf()
         )
@@ -497,24 +295,24 @@ async def test_stale_result_ignored(tmp_path):
 async def test_escalation_stops_in_auto_only_for_hard_reasons(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        gate = env.pi.of_kind("gate_review")[0]
+        first = await next_outcome(env)
         await env.pi.respond(
-            gate,
+            first,
             decided(
-                gate,
-                {"action": "approve"},
+                first,
+                {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}},
                 escalate={"reason_code": "low_confidence", "message": "Unsure"},
             ),
         )
-        assert (await env.consultation(gate)).status == "applied"
+        assert (await env.consultation(first)).status == "applied"
         notes = await env.rows(PiNote, PiNote.kind == "observation")
         assert "low_confidence" in notes[0].text
-        outcome = env.pi.of_kind("stage_outcome")[0]
+        outcome = await next_outcome(env)
         await env.pi.respond(
             outcome,
             decided(
                 outcome,
-                {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}},
+                {"action": "accept"},
                 escalate={"reason_code": "charter_conflict", "message": "Conflicts"},
             ),
         )
@@ -524,19 +322,19 @@ async def test_escalation_stops_in_auto_only_for_hard_reasons(tmp_path):
 
 
 async def test_escalation_always_stops_outside_auto(tmp_path):
-    async with pi_env(tmp_path, "light") as env:
+    async with pi_env(tmp_path, "light", exd_free=True) as env:
         await env.settle_charter()
-        gate = env.pi.of_kind("gate_review")[0]
+        outcome = await next_outcome(env)
         await env.pi.respond(
-            gate,
+            outcome,
             decided(
-                gate,
-                {"action": "approve"},
+                outcome,
+                {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}},
                 escalate={"reason_code": "low_confidence", "message": "Unsure"},
             ),
         )
-        assert (await env.consultation(gate)).status == "awaiting_researcher"
-        assert (await env.current())["open_gate"] is not None
+        assert (await env.consultation(outcome)).status == "awaiting_researcher"
+        assert (await env.current())["status"] == "COMPLETED"
 
 
 async def test_pi_unavailable_escalates(tmp_path):
@@ -570,32 +368,25 @@ async def test_pi_unavailable_escalates(tmp_path):
 
 
 async def test_override_recorded_in_notebook(tmp_path):
-    async with pi_env(tmp_path, "copilot", scripted=False) as env:
+    async with pi_env(tmp_path, "copilot") as env:
         await env.settle_charter()
-        fake = env.fakes["i2h"]
-        (engine_run_id,) = fake.states
-        gate = await fake.open_question_gate(
-            engine_run_id, step_key="topic", options=["narrow", "broad"], default="narrow"
-        )
-        request = env.pi.of_kind("gate_question")[0]
-        await env.pi.respond(request, decided(request, {"action": "answer", "option_id": "broad"}))
+        assert (await env.gate(await env.current(), action="approve")).status_code == 200
+        outcome = await next_outcome(env)
+        accept = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
+        await env.pi.respond(outcome, decided(outcome, accept))
         stage = await env.current()
         response = await env.client.post(
-            env.url(f"/stages/{stage['stage_run_id']}/gates/{gate.gate_id}"),
-            json={"action": "answer", "option_id": "narrow", "reason": "Budget is tight"},
+            env.url(f"/stages/{stage['stage_run_id']}/send-back"),
+            json={"target_stage_key": "hypothesis", "reason": "Budget is tight"},
             headers=env.csrf(),
         )
         assert response.status_code == 200, response.text
-        assert (await env.consultation(request)).status == "overridden"
+        assert (await env.consultation(outcome)).status == "overridden"
         (note,) = await env.rows(PiNote, PiNote.kind == "override")
-        assert "Budget is tight" in note.text and "answer" in note.text and note.actor == "user"
+        assert "Budget is tight" in note.text and "sent the stage back" in note.text
+        assert note.actor == "user"
         notebook = (await env.client.get(env.url("/pi/notebook"))).json()["data"]
         assert any(n["kind"] == "override" for n in notebook)
-        # The next question carries the override.
-        await fake.open_question_gate(
-            engine_run_id, step_key="scope", options=["a", "b"], default="a"
-        )
-        assert any(n.kind == "override" for n in env.pi.last.notebook)
 
 
 async def test_directive_in_next_request(tmp_path):
@@ -603,12 +394,10 @@ async def test_directive_in_next_request(tmp_path):
         await env.settle_charter()
         response = await env.post("/pi/directives", text="Prefer small models")
         assert response.status_code == 201, response.text
-        await approve_gate(env)
-        outcome = env.pi.of_kind("stage_outcome")[0]
-        assert any(
-            n.kind == "directive" and n.actor == "user" and n.text == "Prefer small models"
-            for n in outcome.notebook
-        )
+        outcome = await next_outcome(env)
+        entry = next(n for n in outcome.notebook if n.kind == "directive")
+        assert entry.actor == "user" and entry.text == "Prefer small models"
+        assert entry.entry_id == response.json()["data"]["id"]
         await env.pi.respond(
             outcome, decided(outcome, {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}})
         )
@@ -621,8 +410,7 @@ async def test_directive_in_next_request(tmp_path):
 async def test_result_idempotent(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        await approve_gate(env)
-        outcome = env.pi.of_kind("stage_outcome")[0]
+        outcome = await next_outcome(env)
         result = decided(
             outcome,
             {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}},
@@ -761,13 +549,11 @@ async def test_endorsing_stop_on_an_already_failed_run_is_recorded(tmp_path):
 async def test_close_report_is_only_a_note(tmp_path):
     async with pi_env(tmp_path, "auto", exd_free=True) as env:
         await env.settle_charter()
-        await approve_gate(env)
-        outcome = env.pi.of_kind("stage_outcome")[0]
+        outcome = await next_outcome(env)
         await env.pi.respond(
             outcome, decided(outcome, {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}})
         )
-        await approve_gate(env)
-        last = env.pi.of_kind("stage_outcome")[1]
+        last = await next_outcome(env)
         await env.pi.respond(last, decided(last, {"action": "accept"}))
         close = env.pi.of_kind("close")[0]
         assert [a.action for a in close.allowed] == ["report"]
@@ -784,13 +570,11 @@ async def test_close_report_is_only_a_note(tmp_path):
 async def test_artifact_catalogue_lists_history_and_inputs(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        await approve_gate(env)
-        outcome = env.pi.of_kind("stage_outcome")[0]
+        outcome = await next_outcome(env)
         await env.pi.respond(
             outcome, decided(outcome, {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}})
         )
-        await approve_gate(env)
-        second = env.pi.of_kind("stage_outcome")[1]
+        second = await next_outcome(env)
         roles = {(a.stage_key, a.role) for a in second.artifacts}
         assert ("experiment_plan", "primary") in roles
         assert ("hypothesis", "input") in roles
@@ -799,8 +583,7 @@ async def test_artifact_catalogue_lists_history_and_inputs(tmp_path):
             second,
             decided(second, {"action": "send_back", "target_stage_key": "hypothesis"}),
         )
-        await approve_gate(env)
-        third = env.pi.of_kind("stage_outcome")[2]
+        third = await next_outcome(env)
         assert ("hypothesis", "history") in {(a.stage_key, a.role) for a in third.artifacts}
 
 
@@ -814,10 +597,8 @@ async def test_pi_reads_need_project_access(tmp_path, path):
 
 async def _copilot_outcome(env, **fields):
     await env.settle_charter()
-    gate = env.pi.of_kind("gate_review")[0]
-    await env.pi.respond(gate, decided(gate, {"action": "approve"}))
-    assert (await env.endorse(gate)).status_code == 200
-    outcome = env.pi.of_kind("stage_outcome")[0]
+    assert (await env.gate(await env.current(), action="approve")).status_code == 200
+    outcome = await next_outcome(env)
     accept = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
     response = await env.pi.respond(outcome, decided(outcome, accept, **fields))
     assert response.status_code == 200, response.text
@@ -849,13 +630,14 @@ async def test_failed_endorse_leaves_the_recommendation_open(tmp_path, monkeypat
 async def test_apply_error_hands_the_decision_to_the_researcher(tmp_path, monkeypatch):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        request = env.pi.of_kind("gate_review")[0]
+        request = await next_outcome(env)
 
         async def boom(*args, **kwargs):
             raise ValueError("engine said no")
 
         monkeypatch.setattr("management.research.pi.apply.apply_decision", boom)
-        response = await env.pi.respond(request, decided(request, {"action": "approve"}))
+        accept = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
+        response = await env.pi.respond(request, decided(request, accept))
         assert response.status_code == 200, response.text
         row = await env.consultation(request)
         assert row.status == "awaiting_researcher"
@@ -869,7 +651,7 @@ async def test_researcher_override_in_the_apply_window_is_kept(tmp_path, monkeyp
 
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        request = env.pi.of_kind("gate_review")[0]
+        request = await next_outcome(env)
         real = pi_apply._relock
         seen = []
 
@@ -884,10 +666,11 @@ async def test_researcher_override_in_the_apply_window_is_kept(tmp_path, monkeyp
             return await real(db, model, key)
 
         monkeypatch.setattr(pi_apply, "_relock", relock)
-        response = await env.pi.respond(request, decided(request, {"action": "approve"}))
+        accept = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
+        response = await env.pi.respond(request, decided(request, accept))
         assert response.status_code == 200, response.text
         assert (await env.consultation(request)).status == "overridden"
-        assert await env.rows(StageDecision) == []
+        assert await env.rows(StageDecision, StageDecision.action == "accept") == []
 
 
 async def test_failed_to_apply_does_not_resurrect_an_overridden_row(tmp_path):
@@ -895,8 +678,9 @@ async def test_failed_to_apply_does_not_resurrect_an_overridden_row(tmp_path):
 
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        request = env.pi.of_kind("gate_review")[0]
-        await env.pi.respond(request, decided(request, {"action": "approve"}))
+        request = await next_outcome(env)
+        accept = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
+        await env.pi.respond(request, decided(request, accept))
         async with env.harness.factory() as db:
             row = await db.get(PiConsultation, UUID(request.consultation_id))
             row.status = "overridden"
@@ -911,14 +695,13 @@ async def test_failed_to_apply_does_not_resurrect_an_overridden_row(tmp_path):
 async def test_stale_result_writes_no_decision_note_or_event(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        request = env.pi.of_kind("gate_review")[0]
+        request = await next_outcome(env)
         async with env.harness.factory() as db:
             stage = (await db.scalars(select(StageRun))).one()
-            stage.open_gate = None
+            stage.status = "STOPPED"
             await db.commit()
-        await env.pi.respond(
-            request, decided(request, {"action": "approve"}, rationale="Looks fine")
-        )
+        accept = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
+        await env.pi.respond(request, decided(request, accept, rationale="Looks fine"))
         assert (await env.consultation(request)).status == "stale"
         mine = [
             e
@@ -926,19 +709,20 @@ async def test_stale_result_writes_no_decision_note_or_event(tmp_path):
             if e.payload["consultation_id"] == request.consultation_id
         ]
         assert mine == []
-        assert await env.rows(PiNote, PiNote.kind == "decision", PiNote.text.like("approve%")) == []
+        assert await env.rows(PiNote, PiNote.kind == "decision", PiNote.text.like("accept%")) == []
 
 
 async def test_result_for_a_finished_run_is_stale(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        request = env.pi.of_kind("gate_review")[0]
+        request = await next_outcome(env)
         async with env.harness.factory() as db:
             (await db.get(ResearchRun, env.run_id)).status = "stopped"
             await db.commit()
-        await env.pi.respond(request, decided(request, {"action": "approve"}))
+        accept = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
+        await env.pi.respond(request, decided(request, accept))
         assert (await env.consultation(request)).status == "stale"
-        assert await env.rows(StageDecision) == []
+        assert await env.rows(StageDecision, StageDecision.action == "accept") == []
 
 
 async def test_charter_cannot_be_written_on_a_finished_run(tmp_path):
@@ -1001,58 +785,8 @@ async def test_retry_a_consultation_stuck_in_sent(tmp_path):
         assert retry.json()["data"]["consultation_id"] != request.consultation_id
 
 
-def _blocking(locator: str) -> ReviewFindings:
-    return ReviewFindings(
-        round=1,
-        reviewed_artifact_id="x",
-        reviewer_model="review",
-        findings=[
-            Finding(
-                finding_id="F1-1",
-                anchor=Anchor(locator=locator),
-                severity="blocking",
-                issue="No falsification criterion",
-                author="reviewer",
-            )
-        ],
-        passed=False,
-    )
-
-
-async def _review_with(env, findings):
-    await env.settle_charter()
-    (engine_run_id,) = env.fakes["i2h"].states
-    await env.fakes["i2h"].open_review_gate(engine_run_id, findings=findings)
-    return env.pi.of_kind("gate_review")[0]
-
-
-async def test_pi_approves_when_blocking_is_on_one_hypothesis(tmp_path):
-    async with pi_env(tmp_path, "auto", scripted=False) as env:
-        request = await _review_with(env, _blocking("hypothesis:H1/falsification"))
-        await env.pi.respond(request, decided(request, {"action": "approve"}))
-        assert (await env.consultation(request)).status == "applied"
-        assert len(await env.rows(StageDecision, StageDecision.action == "approve")) == 1
-
-
-async def test_pi_cannot_approve_when_every_hypothesis_is_blocked(tmp_path):
-    async with pi_env(tmp_path, "auto", scripted=False) as env:
-        findings = _blocking("hypothesis:H1")
-        findings.findings.append(
-            findings.findings[0].model_copy(
-                update={"finding_id": "F1-2", "anchor": Anchor(locator="hypothesis:H2")}
-            )
-        )
-        request = await _review_with(env, findings)
-        await env.pi.respond(request, decided(request, {"action": "approve"}))
-        row = await env.consultation(request)
-        assert row.status == "awaiting_researcher"
-        assert row.result["escalate"]["reason_code"] == "integrity"
-
-
 async def _accept_after_partial_block(env, ids, **fields):
-    request = await _review_with(env, _blocking("hypothesis:H1"))
-    await env.pi.respond(request, decided(request, {"action": "approve"}))
-    outcome = env.pi.of_kind("stage_outcome")[0]
+    outcome = await blocked_outcome(env, blocking("hypothesis:H1"))
     await env.pi.respond(
         outcome,
         decided(outcome, {"action": "accept", "selection": {"hypothesis_ids": ids}}, **fields),
@@ -1094,7 +828,9 @@ def test_risk_stated_matches_finding_ids_as_whole_tokens(line, stated):
 
 async def test_pi_accept_over_a_whole_artifact_block_escalates_despite_a_risk_line(tmp_path):
     async with pi_env(tmp_path, "auto", scripted=False) as env:
-        await _review_with(env, _blocking("artifact"))
+        await env.settle_charter()
+        (engine_run_id,) = env.fakes["i2h"].states
+        await env.fakes["i2h"].open_review_gate(engine_run_id, findings=blocking("artifact"))
         async with env.harness.factory() as db:
             stage_run = (await db.scalars(select(StageRun))).one()
             consultation = SimpleNamespace(
@@ -1117,15 +853,13 @@ async def test_pi_accept_over_a_whole_artifact_block_escalates_despite_a_risk_li
 async def test_a_second_send_back_to_the_same_stage_is_not_offered(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         await env.settle_charter()
-        await approve_gate(env)
-        first = env.pi.of_kind("stage_outcome")[0]
+        first = await next_outcome(env)
         send_back = next(a for a in first.allowed if a.action == "send_back")
         assert send_back.targets == ["hypothesis"]
         await env.pi.respond(
             first, decided(first, {"action": "send_back", "target_stage_key": "hypothesis"})
         )
-        await approve_gate(env)
-        second = env.pi.of_kind("stage_outcome")[1]
+        second = await next_outcome(env)
         assert [a.action for a in second.allowed] == ["accept", "stop"]
 
 
@@ -1157,10 +891,13 @@ def test_the_charter_question_is_sent_stripped_and_clipped():
 async def test_guidance_has_no_topic_line_without_a_topic(tmp_path):
     async with pi_env(tmp_path, "auto") as env:
         run = SimpleNamespace(
-            id=UUID(int=1), charter={"question": "A long enough question"}, topic=""
+            id=UUID(int=1),
+            charter={"question": "A long enough question"},
+            topic="",
+            obligations=[],
         )
         async with env.harness.factory() as db:
-            lines = await build_guidance(db, run)
+            lines = await build_guidance(db, run, "hypothesis")
         assert lines[0] == "Research question: A long enough question"
         assert not any(line.startswith("Topic given") for line in lines)
 
@@ -1180,63 +917,3 @@ async def test_pi_accept_of_clean_hypotheses_applies(tmp_path):
         outcome = await _accept_after_partial_block(env, ["H2"])
         assert (await env.consultation(outcome)).status == "applied"
         assert len(await env.rows(StageDecision, StageDecision.action == "accept")) == 1
-
-
-async def test_comment_is_not_offered_after_three_applied_comments(tmp_path):
-    async with pi_env(tmp_path, "auto", scripted=False) as env:
-        await env.settle_charter()
-        async with env.harness.factory() as db:
-            stage = (await db.scalars(select(StageRun))).one()
-            for n in range(3):
-                db.add(
-                    PiConsultation(
-                        research_run_id=env.run_id,
-                        stage_run_id=stage.id,
-                        kind="gate_review",
-                        gate_id=f"old-{n}",
-                        authority="pi",
-                        status="applied",
-                        request={},
-                        result={"decision": {"action": "comment"}},
-                    )
-                )
-            await db.commit()
-        (engine_run_id,) = env.fakes["i2h"].states
-        await env.fakes["i2h"].open_review_gate(engine_run_id)
-        request = env.pi.of_kind("gate_review")[0]
-        assert [a.action for a in request.allowed] == ["approve"]
-
-
-async def test_comment_is_not_offered_when_the_same_blocking_findings_come_back(tmp_path):
-    async with pi_env(tmp_path, "auto", scripted=False) as env:
-        await env.settle_charter()
-        async with env.harness.factory() as db:
-            stage = (await db.scalars(select(StageRun))).one()
-            db.add(
-                PiConsultation(
-                    research_run_id=env.run_id,
-                    stage_run_id=stage.id,
-                    kind="gate_review",
-                    gate_id="old",
-                    authority="pi",
-                    status="applied",
-                    request={},
-                    result={
-                        "decision": {
-                            "action": "comment",
-                            "findings": [{"issue": "[F1-1] No falsification criterion"}],
-                        }
-                    },
-                )
-            )
-            await db.commit()
-        (engine_run_id,) = env.fakes["i2h"].states
-        await env.fakes["i2h"].open_review_gate(engine_run_id, findings=_blocking("hypothesis:H1"))
-        request = env.pi.of_kind("gate_review")[0]
-        assert [a.action for a in request.allowed] == ["approve"]
-
-
-async def test_comment_is_offered_when_the_blocking_finding_is_new(tmp_path):
-    async with pi_env(tmp_path, "auto", scripted=False) as env:
-        request = await _review_with(env, _blocking("hypothesis:H1"))
-        assert [a.action for a in request.allowed] == ["approve", "comment"]

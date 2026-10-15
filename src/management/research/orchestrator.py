@@ -40,8 +40,9 @@ from management.research.models import (
     StageRun,
     active_run_filter,
 )
-from management.research.pi.authority import engine_mode
+from management.research.pi.authority import engine_mode, review_gate_applies
 from management.research.pi.guidance import build_guidance, with_guidance
+from management.research.pi.obligations import carry_forward
 from management.research.pi.service import pi_active, request_consultation
 from management.research.reviews import validate_gate_action
 from management.research.stage_runs import append_run_event, recompute_run_cost, sync_run_status
@@ -152,7 +153,7 @@ async def start_stage(
     models = await load_models(db, app_state.secret_box)
     pi = pi_active(app_state, run)
     if pi:
-        inputs = with_guidance(inputs, await build_guidance(db, run))
+        inputs = with_guidance(inputs, await build_guidance(db, run, stage.stage_key))
     if any(model.provider not in caps.providers for model in (models.stage, models.review)):
         raise APIError(
             422, "PROVIDER_NOT_SUPPORTED", "Engine does not support a configured model provider"
@@ -177,6 +178,7 @@ async def start_stage(
             else None,
         }
         for profile in await db.scalars(select(ModelProfile).where(ModelProfile.scope == "global"))
+        if profile.role in {"stage", "review"}  # the engine does not use the Critic model
     }
     if any(value is None for prices in pricing.values() for value in prices.values()):
         run.cost_unknown = True
@@ -254,6 +256,26 @@ async def start_stage(
     await sync_run_status(db, run, stage=row)
     await db.flush()
     return row
+
+
+async def _attention(db, run, stage_run) -> None:
+    append_run_event(
+        db,
+        run,
+        stage_run,
+        "attention.required",
+        {
+            "stage_run_id": str(stage_run.id),
+            "gate_id": (stage_run.open_gate or {}).get("gate_id"),
+        },
+    )
+    await notify_project_members(
+        db,
+        run.project_id,
+        "run_awaiting_review",
+        run_id=run.id,
+        roles=(ProjectRole.MANAGER, ProjectRole.RESEARCHER),
+    )
 
 
 async def apply_engine_event(db, stage_run, event, app_state=None):
@@ -345,39 +367,18 @@ async def apply_engine_event(db, stage_run, event, app_state=None):
     changed = old_status != stage_run.status
     if app_state is not None and pi_active(app_state, run):
         if opened_gate is not None:
-            kind = "gate_question" if opened_gate.kind == "question" else "gate_review"
-            await request_consultation(
-                db,
-                app_state,
-                run,
-                kind,
-                stage_run=stage_run,
-                gate=stage_run.open_gate,
-            )
+            # The review-gate rule answers a review gate after this transaction commits; the
+            # researcher owns every other gate, in every mode.
+            if not review_gate_applies(run, opened_gate.kind):
+                await _attention(db, run, stage_run)
         elif changed and stage_run.status == "COMPLETED":
-            await request_consultation(db, app_state, run, "stage_outcome", stage_run=stage_run)
+            await request_consultation(db, app_state, run, "stage_review", stage_run=stage_run)
         elif changed and stage_run.status == "FAILED":
             await request_consultation(db, app_state, run, "failure", stage_run=stage_run)
     elif run.interaction_mode != "auto" and (
         event.type == "run.gate_opened" or (changed and stage_run.status in {"COMPLETED", "FAILED"})
     ):
-        append_run_event(
-            db,
-            run,
-            stage_run,
-            "attention.required",
-            {
-                "stage_run_id": str(stage_run.id),
-                "gate_id": (stage_run.open_gate or {}).get("gate_id"),
-            },
-        )
-        await notify_project_members(
-            db,
-            run.project_id,
-            "run_awaiting_review",
-            run_id=run.id,
-            roles=(ProjectRole.MANAGER, ProjectRole.RESEARCHER),
-        )
+        await _attention(db, run, stage_run)
     await db.flush()
 
 
@@ -433,7 +434,9 @@ async def accept_stage(
             raise APIError(
                 409, "SCHEMA_MISMATCH", "Next engine does not accept the primary artifact schema"
             )
+    extra_refs = await _extra_input_refs(db, app_state, stage_run, artifact, next_config)
     transition(stage_run, "accept")
+    await carry_forward(db, app_state, run, stage_run, selection, next_config)
     decision = StageDecision(
         stage_run_id=stage_run.id,
         action="accept",
@@ -468,10 +471,34 @@ async def accept_stage(
         run,
         next_config,
         inputs=Inputs(
-            artifacts=[ref],
+            artifacts=[ref, *extra_refs],
             decisions=Decisions(selection=selection, note=note, actor=wire, decided_by=by),
         ),
     )
+
+
+async def _extra_input_refs(db, app_state, stage_run, primary, next_config) -> list[ArtifactRef]:
+    """The latest version of each other artifact of the stage that the next engine accepts."""
+    if next_config is None:
+        return []
+    caps = await _capabilities(app_state, next_config.engine)
+    accepted = {parse_schema_id(schema) for schema in caps.input_schemas}
+    rows = await db.scalars(
+        select(RunArtifact)
+        .where(RunArtifact.stage_run_id == stage_run.id, RunArtifact.id != primary.id)
+        .order_by(RunArtifact.schema_id, RunArtifact.version)
+    )
+    latest = {}
+    for artifact in rows:
+        if (
+            artifact.schema_id != primary.schema_id
+            and parse_schema_id(artifact.schema_id) in accepted
+        ):
+            latest[artifact.schema_id] = artifact
+    return [
+        artifact_ref(app_state, next_config.engine, artifact, primary=False)
+        for artifact in latest.values()
+    ]
 
 
 async def validate_selection(db, app_state, stage_run, selection):
@@ -534,6 +561,7 @@ async def answer_stage_gate(
     decided_by=None,
     gate_id=None,
     consultation_id=None,
+    event_extra=None,
 ):
     """Record a gate answer and send it to the engine. Researcher and PI share this path.
 
@@ -599,7 +627,9 @@ async def answer_stage_gate(
     stage_run = await _relock(db, StageRun, stage_id)
     decision = await db.get(StageDecision, decision_id, populate_existing=True)
     decision.status = "applied"
-    _decision_event(db, run, stage_run, decision, {"gate_id": gate_id}, actor=actor)
+    _decision_event(
+        db, run, stage_run, decision, {"gate_id": gate_id} | (event_extra or {}), actor=actor
+    )
     return decision
 
 

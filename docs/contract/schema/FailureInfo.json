@@ -1,5 +1,5 @@
 {
-  "$id": "urn:research-contract:1.2.0:FailureInfo",
+  "$id": "urn:research-contract:1.3.0:FailureInfo",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "code": {

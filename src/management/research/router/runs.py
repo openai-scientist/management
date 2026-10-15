@@ -770,7 +770,14 @@ async def stop_run(
         db,
         request.app.state,
         run,
-        kinds=("charter", "gate_question", "gate_review", "stage_outcome", "failure"),
+        kinds=(
+            "charter",
+            "gate_question",
+            "gate_review",
+            "stage_review",
+            "stage_outcome",
+            "failure",
+        ),
         what="stopped the run",
         reason=body.reason if body else None,
     )

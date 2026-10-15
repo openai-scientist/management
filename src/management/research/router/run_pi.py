@@ -61,6 +61,7 @@ class PiOverview(BaseModel):
     enabled: bool
     charter: dict[str, Any] | None = None
     charter_status: str
+    obligations: list[dict[str, Any]] = Field(default_factory=list)
     authority: dict[str, str]
     stage_outcome_authority: dict[str, str]
     open_consultations: list[ConsultationItem]
@@ -153,6 +154,7 @@ async def overview(
             enabled=enabled,
             charter=run.charter,
             charter_status=run.charter_status,
+            obligations=run.obligations or [],
             authority={kind: authority_for(run, kind) for kind in KINDS if kind != "stage_outcome"},
             stage_outcome_authority={
                 config.stage_key: authority_for(run, "stage_outcome", config) for config in pipeline
