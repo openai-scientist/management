@@ -1,0 +1,29 @@
+{
+  "$id": "urn:research-contract:1.4.0:CriticResponse",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "point_id": {
+      "title": "Point Id",
+      "type": "string"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "response": {
+      "enum": [
+        "accepted",
+        "rejected"
+      ],
+      "title": "Response",
+      "type": "string"
+    }
+  },
+  "required": [
+    "point_id",
+    "response",
+    "reason"
+  ],
+  "title": "CriticResponse",
+  "type": "object"
+}

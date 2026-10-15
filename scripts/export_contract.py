@@ -205,6 +205,11 @@ def example_payloads() -> tuple[dict[str, Any], dict[str, Any]]:
         "CriticPoint": critic_point,
         "ObligationCheck": critic_report["obligations"][0],
         "CriticReport": critic_report,
+        "CriticResolution": {
+            "point_id": "C1",
+            "status": "maintained",
+            "reason": "The seed is still inconsistent",
+        },
         "CriticResponse": pi_result["critic_response"][0],
         "DirectiveApplied": pi_result["directives_applied"][0],
         "PIModels": consult_request["models"],

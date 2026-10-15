@@ -9,7 +9,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import select
 
-from management.research.contracts import ConsultationResult, GateAnswer
+from management.research.contracts import ConsultationResult, FindingKind, GateAnswer
 from management.research.engines.client import EngineUnavailable
 from management.research.models import (
     ModelProfile,
@@ -79,17 +79,42 @@ async def test_blocking_findings_are_sent_back_once_then_the_gate_is_approved(tm
         assert env.pi.of_kind("gate_review") == []
 
 
-async def test_the_rule_comments_at_most_twice_per_stage_run(tmp_path):
+async def test_the_rule_comments_at_most_once_per_stage_run(tmp_path):
     async with pi_env(tmp_path, "light", scripted=False) as env:
         await env.settle_charter()
         fake = env.fakes["i2h"]
         (engine_run_id,) = fake.states
-        for finding_id in ("F1-1", "F2-1", "F3-1"):
+        for finding_id in ("F1-1", "F2-1"):
             await fake.open_review_gate(engine_run_id, findings=blocking_ids(finding_id))
         actions = [answer.action for answer in fake._answers.values()]
-        assert actions == ["comment", "comment", "approve"]
-        assert (await stage_snapshot(env))["open_blocking"] == ["F3-1"]
+        assert actions == ["comment", "approve"]
+        assert (await stage_snapshot(env))["open_blocking"] == ["F2-1"]
         assert (await env.current())["status"] == "COMPLETED"
+
+
+async def test_blocking_findings_that_need_evidence_are_approved_and_stay_in_the_ledger(tmp_path):
+    async with pi_env(tmp_path, "light", scripted=False) as env:
+        await env.settle_charter()
+        fake = env.fakes["i2h"]
+        (engine_run_id,) = fake.states
+        findings = blocking_ids("F1-1")
+        findings.findings = [
+            findings.findings[0].model_copy(update={"kind": FindingKind.needs_evidence})
+        ]
+        await fake.open_review_gate(engine_run_id, findings=findings)
+        assert [answer.action for answer in fake._answers.values()] == ["approve"]
+        assert (await stage_snapshot(env))["open_blocking"] == ["F1-1"]
+
+
+async def test_a_review_after_the_first_round_is_approved_at_once(tmp_path):
+    async with pi_env(tmp_path, "light", scripted=False) as env:
+        await env.settle_charter()
+        fake = env.fakes["i2h"]
+        (engine_run_id,) = fake.states
+        findings = blocking_ids("F1-1").model_copy(update={"round": 2})
+        await fake.open_review_gate(engine_run_id, findings=findings)
+        assert [answer.action for answer in fake._answers.values()] == ["approve"]
+        assert (await stage_snapshot(env))["open_blocking"] == ["F1-1"]
 
 
 async def test_a_review_with_no_blocking_finding_is_approved_and_leaves_no_open_blocking(
@@ -615,3 +640,30 @@ async def test_every_user_directive_stays_in_the_notebook_however_old(tmp_path):
         assert texts[0] == "note 0" and "pi directive" not in texts
         assert len(texts) == context.NOTEBOOK_LIMIT + 1
         assert texts[1:] == sorted(texts[1:], key=lambda t: int(t.split()[-1]))
+
+
+async def test_an_accepted_serious_critic_point_becomes_an_obligation(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        await env.settle_charter()
+        (engine_run_id,) = env.fakes["i2h"].states
+        # A blocking finding on an unselected hypothesis creates no obligation.
+        await env.fakes["i2h"].open_review_gate(engine_run_id)
+        outcome = await next_outcome(
+            env, verdict="serious", points=[serious_point(lens="integrity", ref="integrity:spin")]
+        )
+        await env.pi.respond(
+            outcome,
+            decided(
+                outcome,
+                ACCEPT_H1,
+                critic_response=[{"point_id": "C1", "response": "accepted", "reason": "Known"}],
+            ),
+        )
+        (item,) = await obligations(env)
+        assert (item["finding_id"], item["item_id"], item["source_stage_key"]) == (
+            "C1",
+            None,
+            "hypothesis",
+        )
+        assert item["target_stage_key"] == "experiment_plan"
+        assert item["text"] == "[integrity] The result does not address the objective"

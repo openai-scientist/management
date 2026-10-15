@@ -1,7 +1,7 @@
 {
   "active_runs": 0,
   "checks": null,
-  "contract_version": "1.3.0",
+  "contract_version": "1.4.0",
   "engine_version": "example",
   "last_error": null,
   "status": "ok"

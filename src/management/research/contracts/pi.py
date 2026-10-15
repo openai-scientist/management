@@ -158,6 +158,9 @@ class CriticPoint(ContractModel):
     locator: str | None = None
     point: str
     suggestion: str | None = None
+    #: ``fix``: a revision of this stage can resolve it. ``needs_evidence``: it needs an external
+    #: lookup, verification or evidence. ``later``: the next stage owns it.
+    fix_class: Literal["fix", "needs_evidence", "later"] = "fix"
 
 
 class ObligationCheck(ContractModel):
@@ -167,6 +170,14 @@ class ObligationCheck(ContractModel):
     note: str | None = None
 
 
+class CriticResolution(ContractModel):
+    """The Critic's answer, in a repeat review, on one serious point of its earlier report."""
+
+    point_id: str
+    status: Literal["resolved", "maintained"]
+    reason: str
+
+
 class CriticReport(ContractModel):
     """The independent stage-end review. The PI answers its serious points."""
 
@@ -174,6 +185,8 @@ class CriticReport(ContractModel):
     summary: str
     points: list[CriticPoint] = Field(default_factory=list)
     obligations: list[ObligationCheck] = Field(default_factory=list)
+    #: In a repeat review: one entry per serious point of the earlier report.
+    resolutions: list[CriticResolution] = Field(default_factory=list)
     #: ``provider/model`` the Critic ran with.
     model: str | None = None
     model_shared_with: Literal["lead"] | None = None
@@ -215,6 +228,8 @@ class ConsultationRequest(ContractModel):
     obligations: list[Obligation] = Field(default_factory=list)
     #: For kind `stage_outcome`: the Critic report, or none when it was unavailable.
     critique: CriticReport | None = None
+    #: For a repeat `stage_review` of the same stage: the Critic's latest earlier report.
+    prior_critique: CriticReport | None = None
     models: PIModels
     callback_url: str
 

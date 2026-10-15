@@ -1,0 +1,225 @@
+{
+  "$defs": {
+    "CriticPoint": {
+      "properties": {
+        "fix_class": {
+          "default": "fix",
+          "enum": [
+            "fix",
+            "needs_evidence",
+            "later"
+          ],
+          "title": "Fix Class",
+          "type": "string"
+        },
+        "lens": {
+          "enum": [
+            "charter",
+            "risk",
+            "directive",
+            "integrity"
+          ],
+          "title": "Lens",
+          "type": "string"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator"
+        },
+        "point": {
+          "title": "Point",
+          "type": "string"
+        },
+        "point_id": {
+          "title": "Point Id",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "serious",
+            "minor"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "suggestion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggestion"
+        }
+      },
+      "required": [
+        "point_id",
+        "severity",
+        "lens",
+        "ref",
+        "point"
+      ],
+      "title": "CriticPoint",
+      "type": "object"
+    },
+    "CriticResolution": {
+      "description": "The Critic's answer, in a repeat review, on one serious point of its earlier report.",
+      "properties": {
+        "point_id": {
+          "title": "Point Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "resolved",
+            "maintained"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "point_id",
+        "status",
+        "reason"
+      ],
+      "title": "CriticResolution",
+      "type": "object"
+    },
+    "ObligationCheck": {
+      "properties": {
+        "locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "obligation_id": {
+          "title": "Obligation Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "controlled",
+            "unresolved"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "obligation_id",
+        "status"
+      ],
+      "title": "ObligationCheck",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.4.0:CriticReport",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The independent stage-end review. The PI answers its serious points.",
+  "properties": {
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model"
+    },
+    "model_shared_with": {
+      "anyOf": [
+        {
+          "const": "lead",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Shared With"
+    },
+    "obligations": {
+      "items": {
+        "$ref": "#/$defs/ObligationCheck"
+      },
+      "title": "Obligations",
+      "type": "array"
+    },
+    "points": {
+      "items": {
+        "$ref": "#/$defs/CriticPoint"
+      },
+      "title": "Points",
+      "type": "array"
+    },
+    "resolutions": {
+      "items": {
+        "$ref": "#/$defs/CriticResolution"
+      },
+      "title": "Resolutions",
+      "type": "array"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "verdict": {
+      "enum": [
+        "sound",
+        "concerns",
+        "serious"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "required": [
+    "verdict",
+    "summary"
+  ],
+  "title": "CriticReport",
+  "type": "object"
+}

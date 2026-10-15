@@ -43,7 +43,7 @@
     ]
   },
   "consultation_id": "c1",
-  "contract_version": "1.3.0",
+  "contract_version": "1.4.0",
   "critique": {
     "model": "openai_compatible/critic-example",
     "model_shared_with": null,
@@ -57,6 +57,7 @@
     ],
     "points": [
       {
+        "fix_class": "fix",
         "lens": "risk",
         "locator": "plan:baselines",
         "point": "The plan does not control the known risk R1",
@@ -66,6 +67,7 @@
         "suggestion": "Name the baseline in the plan"
       }
     ],
+    "resolutions": [],
     "summary": "One accepted risk is not controlled.",
     "verdict": "serious"
   },
@@ -113,6 +115,7 @@
     }
   ],
   "platform_run_id": "r1",
+  "prior_critique": null,
   "profile": {
     "domain": null,
     "research_type": null

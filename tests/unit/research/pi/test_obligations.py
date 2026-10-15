@@ -2,7 +2,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from management.research.contracts import CriticReport, Obligation
+from management.research.contracts import (
+    Anchor,
+    CriticReport,
+    Finding,
+    Obligation,
+    ReviewFindings,
+)
+from management.research.pi import obligations as obligations_module
 from management.research.pi.guidance import build_guidance
 from management.research.pi.obligations import apply_checks, carry_forward, guidance_line, load
 
@@ -20,6 +27,65 @@ def item(obligation_id="R1", target="experiment_plan", status="open", **fields):
         status=status,
         **fields,
     ).model_dump(mode="json")
+
+
+class FakeDb:
+    """`scalar` answers the stage_review result, then the stage_outcome result."""
+
+    def __init__(self, review_result=None, outcome_result=None):
+        self.answers = [review_result, outcome_result]
+
+    async def scalar(self, query):
+        return self.answers.pop(0)
+
+
+@pytest.fixture(autouse=True)
+def no_review(monkeypatch):
+    async def none(db, app_state, stage_run):
+        return None
+
+    monkeypatch.setattr(obligations_module, "latest_review", none)
+
+
+def with_review(monkeypatch, *findings):
+    async def read(db, app_state, stage_run):
+        return ReviewFindings(
+            round=1,
+            reviewed_artifact_id="a1",
+            reviewer_model="m",
+            findings=[
+                Finding(
+                    finding_id=fid,
+                    anchor=Anchor(locator=locator),
+                    severity=severity,
+                    issue=f"Issue {fid}",
+                    author="reviewer",
+                )
+                for fid, locator, severity in findings
+            ],
+            passed=not any(f[2] == "blocking" for f in findings),
+        )
+
+    monkeypatch.setattr(obligations_module, "latest_review", read)
+
+
+def critic_result(*severities):
+    return {
+        "report": {
+            "verdict": "serious",
+            "summary": "s",
+            "points": [
+                {
+                    "point_id": f"C{n}",
+                    "severity": severity,
+                    "lens": "integrity",
+                    "ref": "integrity:x",
+                    "point": f"Point {n}",
+                }
+                for n, severity in enumerate(severities, 1)
+            ],
+        }
+    }
 
 
 def run_with(*items):
@@ -48,8 +114,8 @@ async def test_uncontrolled_obligations_of_the_accepted_stage_move_on_with_their
         item("R3", status="open"),
         item("R4", target="reproduction"),
     )
-    stage = SimpleNamespace(stage_key="experiment_plan")
-    await carry_forward(None, None, run, stage, {}, SimpleNamespace(stage_key="reproduction"))
+    stage = SimpleNamespace(stage_key="experiment_plan", id=1)
+    await carry_forward(FakeDb(), None, run, stage, {}, SimpleNamespace(stage_key="reproduction"))
     state = {o.obligation_id: (o.target_stage_key, o.status, o.note) for o in load(run)}
     assert state == {
         "R1": ("reproduction", "open", "No baseline"),
@@ -61,8 +127,8 @@ async def test_uncontrolled_obligations_of_the_accepted_stage_move_on_with_their
 
 async def test_the_last_stage_leaves_obligations_where_they_are():
     run = run_with(item("R1", status="unresolved", note="n"))
-    stage = SimpleNamespace(stage_key="experiment_plan")
-    await carry_forward(None, None, run, stage, {}, None)
+    stage = SimpleNamespace(stage_key="experiment_plan", id=1)
+    await carry_forward(FakeDb(), None, run, stage, {}, None)
     assert load(run)[0].target_stage_key == "experiment_plan"
 
 
@@ -145,3 +211,68 @@ async def test_an_unresolved_obligation_stays_in_the_guidance():
 
     lines = await build_guidance(Db(), run, "experiment_plan")
     assert [line[:17] for line in lines if line.startswith("Known risk")] == ["Known risk R1 (fr"]
+
+
+STAGE = SimpleNamespace(stage_key="hypothesis", id=1)
+NEXT = SimpleNamespace(stage_key="experiment_plan")
+
+
+def summary(run):
+    return [(o.finding_id, o.item_id, o.target_stage_key) for o in load(run)]
+
+
+async def test_open_blocking_findings_become_obligations_for_selected_and_whole_artifact(
+    monkeypatch,
+):
+    with_review(
+        monkeypatch,
+        ("F1", "hypothesis:H1", "blocking"),
+        ("F2", "hypothesis:H2", "blocking"),
+        ("F3", "artifact", "blocking"),
+        ("F4", "hypothesis:H1", "major"),
+    )
+    run = run_with()
+    await carry_forward(FakeDb(), None, run, STAGE, {"hypothesis_ids": ["H1"]}, NEXT)
+    assert summary(run) == [("F1", "H1", "experiment_plan"), ("F3", None, "experiment_plan")]
+
+
+async def test_serious_critic_points_become_obligations_without_duplicates():
+    run = run_with()
+    db = FakeDb(critic_result("serious", "minor", "serious"))
+    await carry_forward(db, None, run, STAGE, {}, NEXT)
+    assert summary(run) == [("C1", None, "experiment_plan"), ("C3", None, "experiment_plan")]
+    assert load(run)[0].text == "[integrity] Point 1"
+    await carry_forward(FakeDb(critic_result("serious")), None, run, STAGE, {}, NEXT)
+    assert len(load(run)) == 2
+
+
+async def test_only_the_points_the_outcome_accepted_become_obligations():
+    outcome = {
+        "critic_response": [
+            {"point_id": "C1", "response": "accepted", "reason": "r"},
+            {"point_id": "C2", "response": "rejected", "reason": "r"},
+        ]
+    }
+    run = run_with()
+    await carry_forward(
+        FakeDb(critic_result("serious", "serious"), outcome), None, run, STAGE, {}, NEXT
+    )
+    assert summary(run) == [("C1", None, "experiment_plan")]
+
+
+async def test_the_last_stage_targets_close():
+    run = run_with()
+    await carry_forward(FakeDb(critic_result("serious")), None, run, STAGE, {}, None)
+    assert summary(run) == [("C1", None, "close")]
+
+
+async def test_a_point_that_is_not_a_fix_keeps_its_class_in_the_text():
+    result = critic_result("serious", "serious")
+    result["report"]["points"][0]["fix_class"] = "needs_evidence"
+    result["report"]["points"][1]["fix_class"] = "later"
+    run = run_with()
+    await carry_forward(FakeDb(result), None, run, STAGE, {}, NEXT)
+    assert [o.text for o in load(run)] == [
+        "[needs_evidence] [integrity] Point 1",
+        "[later] [integrity] Point 2",
+    ]

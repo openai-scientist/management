@@ -270,6 +270,16 @@
     },
     "CriticPoint": {
       "properties": {
+        "fix_class": {
+          "default": "fix",
+          "enum": [
+            "fix",
+            "needs_evidence",
+            "later"
+          ],
+          "title": "Fix Class",
+          "type": "string"
+        },
         "lens": {
           "enum": [
             "charter",
@@ -377,6 +387,13 @@
           "title": "Points",
           "type": "array"
         },
+        "resolutions": {
+          "items": {
+            "$ref": "#/$defs/CriticResolution"
+          },
+          "title": "Resolutions",
+          "type": "array"
+        },
         "summary": {
           "title": "Summary",
           "type": "string"
@@ -396,6 +413,34 @@
         "summary"
       ],
       "title": "CriticReport",
+      "type": "object"
+    },
+    "CriticResolution": {
+      "description": "The Critic's answer, in a repeat review, on one serious point of its earlier report.",
+      "properties": {
+        "point_id": {
+          "title": "Point Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "resolved",
+            "maintained"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "point_id",
+        "status",
+        "reason"
+      ],
+      "title": "CriticResolution",
       "type": "object"
     },
     "FailureInfo": {
@@ -961,7 +1006,7 @@
       "type": "object"
     }
   },
-  "$id": "urn:research-contract:1.3.0:ConsultationRequest",
+  "$id": "urn:research-contract:1.4.0:ConsultationRequest",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -1053,6 +1098,17 @@
     "platform_run_id": {
       "title": "Platform Run Id",
       "type": "string"
+    },
+    "prior_critique": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CriticReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "profile": {
       "$ref": "#/$defs/ResearchProfile"

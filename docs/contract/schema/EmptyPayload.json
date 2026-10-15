@@ -1,5 +1,5 @@
 {
-  "$id": "urn:research-contract:1.3.0:EmptyPayload",
+  "$id": "urn:research-contract:1.4.0:EmptyPayload",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {},
   "title": "EmptyPayload",

@@ -687,7 +687,7 @@
       "type": "object"
     }
   },
-  "$id": "urn:research-contract:1.3.0:EventPage",
+  "$id": "urn:research-contract:1.4.0:EventPage",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "events": {

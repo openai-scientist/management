@@ -1,6 +1,6 @@
 # Research engine HTTP contract
 
-Contract version: **1.3.0** (semantic versioning). This directory is the public
+Contract version: **1.4.0** (semantic versioning). This directory is the public
 contract; Python implementations belong to each service. Engines copy `schema/`,
 `examples/`, and this README into `tests/contract/vendor/`, with the management
 commit in `vendor/SOURCE`. The PI service copies `pi/` and this README the same way. No service imports code from another repository.
@@ -172,9 +172,11 @@ the PI must not write them to disk, logs or records. Platform does not store the
 Kinds Platform sends: `charter`, `stage_review`, `stage_outcome`, `failure`, `close`.
 `gate_question` and `gate_review` stay in the enum for wire compatibility; Platform no longer
 sends them. It answers engine gates itself: a review gate in `auto` and `light` by a fixed rule
-(approve when no finding blocks; otherwise send exactly the blocking findings back as a comment,
-at most twice per stage run, and approve once the same findings return), every other gate by the
-researcher.
+(approve when no finding blocks; otherwise, only on the stage's first review round and only once
+per stage run, send the blocking findings of `kind=fix` back as a comment; in every other case
+approve and keep the still-blocking finding ids in the ledger), every other gate by the
+researcher. The engine's own auto-revisions count as the engine having revised, so its first
+visible gate is approved.
 `authority = decide` means Platform applies the decision; `advise` means a researcher decides.
 On the engine wire, a PI decision has `actor=system` and `decided_by=pi:<consultation_id>`;
 PI findings have `author=researcher`. The review-gate rule uses `actor=system` and
@@ -188,7 +190,8 @@ work. `authority` is `advise`, `allowed` is empty, `models.critic` is the Critic
 and `report` (`CriticReport`). `CriticReport.points` have `lens` `charter`, `risk`, `directive`
 or `integrity`; `ref` is `charter:<field>[i]`, `risk:<obligation_id>`, `directive:<entry_id>`
 or `integrity:<tag>` (`post_hoc_criteria`, `spin`, `suppressed_result`, `fabrication`,
-`leakage`). `report.obligations` has one `ObligationCheck` per obligation in the request.
+`leakage`). Each point has a `fix_class` (default `fix`): `fix` means a revision of this stage can resolve it, `needs_evidence` means it needs an external lookup, verification or evidence, `later` means the next stage owns it; the ledger text of a point that is not `fix` starts with `[needs_evidence] ` or `[later] `.
+`report.obligations` has one `ObligationCheck` per obligation in the request.
 `report.model` is `provider/model`; `model_shared_with="lead"` means the Critic ran on the
 lead's model.
 
@@ -199,12 +202,25 @@ user directive (`NotebookEntry.entry_id`). A serious point with no answer, or a 
 hands the decision to the researcher in every mode (`attention.required`,
 `reason=pi_overrides_critic`).
 
-`Obligation` is a known risk carried to the stage that must control it. Platform creates one
-per blocking review finding on a hypothesis accepted over it, and sends the open ones to the
+`Obligation` is a known risk carried to the stage that must control it. Platform keeps one
+ledger. On accept it adds an obligation for each blocking finding of the stage's latest review
+that is still open (anchored to a selected item, or to the whole artifact), and for each serious
+Critic point of the stage run that the PI accepted (`finding_id` is the point id, for example
+`C2`; when the researcher decided alone, every serious point). It sends the open ones to the
 next engine as a `Known risk R1 (from hypothesis, H1, finding F4-1): ...` guidance line.
+`target_stage_key` is the next stage, or `close` for an obligation from the last stage; the
+close report must name every one that is not controlled.
 `stage_review` requests carry the obligations targeted at the stage; `stage_outcome` and
 `close` requests carry all of them. An obligation not controlled when its stage is accepted
 moves to the next stage with status `open`.
+
+### Repeat review (1.4.0)
+
+When a stage run repeats an earlier stage (send-back or rerun) and an earlier stage run with the
+same `stage_key` has an applied `stage_review`, the `stage_review` request carries the latest such
+report as `ConsultationRequest.prior_critique`. The Critic answers each serious point of it with
+one `CriticResolution` in `report.resolutions` (`resolved` or `maintained`, with a reason). A new
+serious point in a repeat review stays serious only for the `integrity` and `directive` lenses.
 
 When Platform accepts a stage, it starts the next engine with the primary artifact and the
 latest version of each other artifact of the stage whose schema is in the next engine's

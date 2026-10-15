@@ -1,9 +1,10 @@
 """The review-gate rule: the Platform answers an engine `artifact_review` gate by code.
 
-In auto and light a gate with no blocking finding is approved. A gate with blocking findings
-the rule has not sent yet is answered with a comment of exactly those findings, at most
-`MAX_RULE_REVISIONS` times per stage run. Otherwise the gate is approved and the findings that
-still block are kept in the stage run (`open_blocking`) for the stage outcome. The rule runs after
+In auto and light a gate with no blocking finding is approved. The rule adds at most one revision
+per stage run, and only when the engine has not revised yet: it comments only on the first review
+round (`round == 1`), and only with the blocking findings of kind `fix` (R2). Otherwise the gate
+is approved and the findings that still block (any kind) are kept in the stage run
+(`open_blocking`) for the stage outcome. The rule runs after
 the engine's event batch is committed, because answering a gate calls the engine back.
 """
 
@@ -13,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 
 from management.core.errors import APIError
-from management.research.contracts import Finding, GateAnswer, ReviewFindings
+from management.research.contracts import Finding, FindingKind, GateAnswer, ReviewFindings
 from management.research.models import ResearchRun, StageDecision, StageRun
 from management.research.orchestrator import _relock, answer_stage_gate
 from management.research.pi.authority import review_gate_applies
@@ -23,7 +24,7 @@ from management.research.reviews import normalize_comment
 
 logger = logging.getLogger(__name__)
 
-MAX_RULE_REVISIONS = 2
+MAX_RULE_REVISIONS = 1
 POLICY = "review_gate"
 DECIDED_BY = "policy:review_gate"
 #: A pending answer older than this was lost (a crash between the commit and the engine call).
@@ -34,13 +35,12 @@ def blocking_findings(review: ReviewFindings | None) -> list[Finding]:
     return [f for f in review.findings if f.severity == "blocking"] if review else []
 
 
-def comment_findings(review: ReviewFindings, sent: set[str], comments: int) -> list[Finding] | None:
-    """The blocking findings to send back as a comment, or None to approve."""
-    blocking = blocking_findings(review)
-    ids = {f.finding_id for f in blocking}
-    if not blocking or ids <= sent or comments >= MAX_RULE_REVISIONS:
+def comment_findings(review: ReviewFindings, comments: int) -> list[Finding] | None:
+    """The `fix` blocking findings to send back as a comment, or None to approve."""
+    if review.round != 1 or comments >= MAX_RULE_REVISIONS:
         return None
-    return blocking
+    fixes = [f for f in blocking_findings(review) if f.kind == FindingKind.fix]
+    return fixes or None
 
 
 def _comment(review: ReviewFindings, findings: list[Finding], artifact_id: str | None) -> dict:
@@ -151,8 +151,8 @@ async def _answer(db, app_state, run_id, stage_id) -> None:
         await _to_researcher(db, run_id, stage_id, gate_id, "review_unreadable", None)
         return
     state = stage_run.config_snapshot.get("review_gate") or {}
-    sent, comments = set(state.get("sent", [])), state.get("comments", 0)
-    findings = comment_findings(review, sent, comments) if review else None
+    comments = state.get("comments", 0)
+    findings = comment_findings(review, comments) if review else None
     # The counters change only after the engine accepted the answer.
     recorded = {}
     if findings is None:
@@ -165,7 +165,7 @@ async def _answer(db, app_state, run_id, stage_id) -> None:
         reviewed = (stage_run.open_gate.get("artifact_ids") or [None])[0]
         payload = await normalize_comment(db, stage_run, _comment(review, findings, reviewed))
         answer = GateAnswer(**payload, actor="system")
-        recorded["review_gate"] = {"sent": sorted(sent | set(ids)), "comments": comments + 1}
+        recorded["review_gate"] = {"sent": ids, "comments": comments + 1}
     try:
         await answer_stage_gate(
             db,

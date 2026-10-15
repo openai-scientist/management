@@ -214,6 +214,28 @@ async def critique_for(db, stage_run) -> CriticReport | None:
     return CriticReport.model_validate(report) if report else None
 
 
+async def prior_critique_for(db, run, stage_run) -> CriticReport | None:
+    """R3: the latest applied Critic report of an earlier stage run with the same stage key."""
+    if stage_run is None:
+        return None
+    result = await db.scalar(
+        select(PiConsultation.result)
+        .join(StageRun, StageRun.id == PiConsultation.stage_run_id)
+        .where(
+            StageRun.research_run_id == run.id,
+            StageRun.stage_key == stage_run.stage_key,
+            StageRun.id != stage_run.id,
+            PiConsultation.kind == "stage_review",
+            PiConsultation.status == "applied",
+            PiConsultation.result.is_not(None),
+        )
+        .order_by(PiConsultation.created_at.desc())
+        .limit(1)
+    )
+    report = (result or {}).get("report")
+    return CriticReport.model_validate(report) if report else None
+
+
 def run_obligations(run, kind, stage_run) -> list[Obligation]:
     """`stage_review` sees what its stage must control; the outcome and the close see all."""
     if kind == "stage_review" and stage_run is not None:
@@ -266,6 +288,9 @@ async def build_request(
         notebook=await notebook_entries(db, run),
         obligations=run_obligations(run, kind, stage_run),
         critique=await critique_for(db, stage_run) if kind == "stage_outcome" else None,
+        prior_critique=await prior_critique_for(db, run, stage_run)
+        if kind == "stage_review"
+        else None,
         models=models,
         callback_url=result_url(app_state, consultation_id),
     )
