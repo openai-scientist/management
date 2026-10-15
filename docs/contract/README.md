@@ -206,6 +206,14 @@ next engine as a `Known risk R1 (from hypothesis, H1, finding F4-1): ...` guidan
 `close` requests carry all of them. An obligation not controlled when its stage is accepted
 moves to the next stage with status `open`.
 
+When Platform accepts a stage, it starts the next engine with the primary artifact and the
+latest version of each other artifact of the stage whose schema is in the next engine's
+`input_schemas` (`primary=false`). Other schemas are not sent.
+
+Deploy order: deploy the PI service on 1.3.0 before Platform 1.3.0. Platform 1.3.0 no longer
+consults the PI at engine gates, so a `gate_*` consultation that is still in flight at the
+upgrade becomes stale and its answer is ignored.
+
 ## Mandatory engine behavior tests
 
 Each engine implements these tests locally with fake model/integration calls and

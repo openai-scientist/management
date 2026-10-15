@@ -40,10 +40,15 @@ from management.research.models import (
     StageRun,
     active_run_filter,
 )
-from management.research.pi.authority import engine_mode, review_gate_applies
+from management.research.pi.authority import authority_for, engine_mode, review_gate_applies
 from management.research.pi.guidance import build_guidance, with_guidance
 from management.research.pi.obligations import carry_forward
-from management.research.pi.service import pi_active, request_consultation
+from management.research.pi.service import (
+    emit_attention,
+    pi_active,
+    request_consultation,
+    stage_config,
+)
 from management.research.reviews import validate_gate_action
 from management.research.stage_runs import append_run_event, recompute_run_cost, sync_run_status
 
@@ -373,6 +378,19 @@ async def apply_engine_event(db, stage_run, event, app_state=None):
                 await _attention(db, run, stage_run)
         elif changed and stage_run.status == "COMPLETED":
             await request_consultation(db, app_state, run, "stage_review", stage_run=stage_run)
+            config = stage_config(app_state, run, stage_run.stage_key)
+            if authority_for(run, "stage_outcome", config) == "researcher":
+                # The decision is the researcher's: say so now, the Critic report follows.
+                await emit_attention(
+                    db,
+                    run,
+                    stage_run,
+                    {
+                        "kind": "stage_outcome",
+                        "reason": "stage_completed",
+                        "text": "The stage is complete. The Critic report will follow.",
+                    },
+                )
         elif changed and stage_run.status == "FAILED":
             await request_consultation(db, app_state, run, "failure", stage_run=stage_run)
     elif run.interaction_mode != "auto" and (

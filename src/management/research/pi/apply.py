@@ -411,7 +411,7 @@ async def _apply_critic_report(db, app_state, run, consultation, stage_run, resu
         await critic_unavailable(db, app_state, run, stage_run, reason)
         return
     await _record(db, run, consultation, stage_run, result)
-    apply_checks(run, report, consultation.id)
+    apply_checks(run, report, consultation.id, stage_run.stage_key)
     add_note(
         db,
         run,

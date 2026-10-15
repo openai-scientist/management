@@ -8,6 +8,7 @@ the engine's event batch is committed, because answering a gate calls the engine
 """
 
 import logging
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -25,6 +26,8 @@ logger = logging.getLogger(__name__)
 MAX_RULE_REVISIONS = 2
 POLICY = "review_gate"
 DECIDED_BY = "policy:review_gate"
+#: A pending answer older than this was lost (a crash between the commit and the engine call).
+STALE_PENDING = timedelta(minutes=10)
 
 
 def blocking_findings(review: ReviewFindings | None) -> list[Finding]:
@@ -79,6 +82,40 @@ async def answer_review_gates(app_state, run_id) -> None:
             await _answer(db, app_state, run_id, stage_id)
 
 
+async def answer_review_gates_safely(app_state, run_id) -> None:
+    """The background entry point: a failure hands the open gates to the researcher."""
+    try:
+        await answer_review_gates(app_state, run_id)
+    except Exception as exc:  # noqa: BLE001 - a background task must not strand an open gate
+        logger.warning("Review gate rule failed for run %s: %s", run_id, exc)
+        try:
+            await _all_to_researcher(app_state, run_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not hand the review gates of run %s to the researcher", run_id)
+
+
+async def _all_to_researcher(app_state, run_id) -> None:
+    async with app_state.session_factory() as db:
+        app_state.notification_hub.bind(db)
+        app_state.run_event_hub.bind(db)
+        run = await db.get(ResearchRun, run_id)
+        if run is None:
+            return
+        stages = await db.scalars(
+            select(StageRun).where(StageRun.research_run_id == run_id, StageRun.status == "RUNNING")
+        )
+        for stage_run in list(stages):
+            gate = stage_run.open_gate
+            if (
+                gate
+                and review_gate_applies(run, gate["kind"])
+                and stage_run.config_snapshot.get("review_gate_failed") != gate["gate_id"]
+            ):
+                await _to_researcher(
+                    db, run_id, stage_run.id, gate["gate_id"], "review_gate_failed", "engine_error"
+                )
+
+
 async def _pending_gate(db, run, stage_run) -> str | None:
     gate = stage_run.open_gate
     if not gate or not review_gate_applies(run, gate["kind"]):
@@ -88,7 +125,12 @@ async def _pending_gate(db, run, stage_run) -> str | None:
         return None
     answered = await db.scalar(
         select(StageDecision.id).where(
-            StageDecision.stage_run_id == stage_run.id, StageDecision.gate_id == gate_id
+            StageDecision.stage_run_id == stage_run.id,
+            StageDecision.gate_id == gate_id,
+            ~(
+                (StageDecision.status == "pending")
+                & (StageDecision.decided_at < datetime.now(UTC) - STALE_PENDING)
+            ),
         )
     )
     return None if answered else gate_id
@@ -111,19 +153,19 @@ async def _answer(db, app_state, run_id, stage_id) -> None:
     state = stage_run.config_snapshot.get("review_gate") or {}
     sent, comments = set(state.get("sent", [])), state.get("comments", 0)
     findings = comment_findings(review, sent, comments) if review else None
-    snapshot = dict(stage_run.config_snapshot)
+    # The counters change only after the engine accepted the answer.
+    recorded = {}
     if findings is None:
         answer = GateAnswer(action="approve", actor="system")
         ids = sorted(f.finding_id for f in blocking_findings(review))
         if ids:
-            snapshot["open_blocking"] = ids
+            recorded["open_blocking"] = ids
     else:
         ids = sorted(f.finding_id for f in findings)
         reviewed = (stage_run.open_gate.get("artifact_ids") or [None])[0]
         payload = await normalize_comment(db, stage_run, _comment(review, findings, reviewed))
         answer = GateAnswer(**payload, actor="system")
-        snapshot["review_gate"] = {"sent": sorted(sent | set(ids)), "comments": comments + 1}
-    stage_run.config_snapshot = snapshot
+        recorded["review_gate"] = {"sent": sorted(sent | set(ids)), "comments": comments + 1}
     try:
         await answer_stage_gate(
             db,
@@ -136,6 +178,7 @@ async def _answer(db, app_state, run_id, stage_id) -> None:
             gate_id=gate_id,
             event_extra={"policy": POLICY, "finding_ids": ids},
         )
+        stage_run.config_snapshot = stage_run.config_snapshot | recorded
         await db.commit()
     except APIError as exc:
         await db.rollback()

@@ -78,15 +78,22 @@ async def carry_forward(db, app_state, run, stage_run, selection, next_config) -
     store(run, obligations)
 
 
-def apply_checks(run, report: CriticReport, consultation_id) -> None:
-    """The Critic's verdict on each obligation of the stage it reviewed."""
+def apply_checks(run, report: CriticReport, consultation_id, stage_key) -> None:
+    """The Critic's verdict on each obligation targeted at the stage it reviewed."""
     obligations = load(run)
     by_id = {item.obligation_id: item for item in obligations}
     for check in report.obligations:
         item = by_id.get(check.obligation_id)
-        if item is not None:
-            item.status, item.locator, item.note = check.status, check.locator, check.note
-            item.checked_by = str(consultation_id)
+        if item is None or item.target_stage_key != stage_key:
+            logger.warning("Critic check on %s ignored: not targeted at %s", check, stage_key)
+            continue
+        if check.status == "controlled" and not check.locator:
+            logger.warning(
+                "Critic check on %s ignored: controlled without a locator", item.obligation_id
+            )
+            continue
+        item.status, item.locator, item.note = check.status, check.locator, check.note
+        item.checked_by = str(consultation_id)
     store(run, obligations)
 
 

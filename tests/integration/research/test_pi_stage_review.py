@@ -2,12 +2,25 @@
 
 import hashlib
 import json
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
+from sqlalchemy import select
 
-from management.research.contracts import ConsultationResult
-from management.research.models import ModelProfile, PiNote, ResearchRun, StageRun
+from management.research.contracts import ConsultationResult, GateAnswer
+from management.research.engines.client import EngineUnavailable
+from management.research.models import (
+    ModelProfile,
+    PiConsultation,
+    PiNote,
+    ResearchRun,
+    StageDecision,
+    StageRun,
+)
+from management.research.pi import context, review_gate
+from management.research.pi.service import STAGE_REVIEW_TIMEOUT, flush_consultations
 from tests.helpers.pi_env import (
     blocked_outcome,
     blocking,
@@ -99,6 +112,97 @@ async def test_copilot_runs_have_no_rule(tmp_path):
         assert (await env.current())["open_gate"] is not None
 
 
+async def run_rule(env):
+    await review_gate.answer_review_gates(env.harness.app.state, env.run_id)
+
+
+async def test_the_counters_change_only_after_the_engine_accepted_the_answer(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        await env.settle_charter()
+        fake = env.fakes["i2h"]
+        (engine_run_id,) = fake.states
+        engine = env.harness.app.state.engines.get("i2h")
+        real = engine.answer_gate
+
+        async def down(*args, **kwargs):
+            raise EngineUnavailable
+
+        engine.answer_gate = down
+        await fake.open_review_gate(engine_run_id, findings=blocking_ids("F1-1"))
+        snapshot = await stage_snapshot(env)
+        assert "review_gate" not in snapshot and "open_blocking" not in snapshot
+        assert snapshot["review_gate_failed"]
+        reasons = [e.payload.get("reason") for e in await env.events("attention.required")]
+        assert "review_gate_failed" in reasons
+        engine.answer_gate = real
+
+
+async def test_a_stale_pending_answer_does_not_block_a_retry(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        await env.settle_charter()
+        fake = env.fakes["i2h"]
+        (engine_run_id,) = fake.states
+        engine = env.harness.app.state.engines.get("i2h")
+        real = engine.answer_gate
+
+        async def down(*args, **kwargs):
+            raise EngineUnavailable
+
+        engine.answer_gate = down
+        gate = await fake.open_review_gate(engine_run_id)
+        engine.answer_gate = real
+        assert (await env.current())["status"] == "RUNNING"
+        # A crash left a pending answer behind and no failure mark.
+        async with env.harness.factory() as db:
+            stage = (await db.scalars(select(StageRun))).one()
+            stage.config_snapshot = {
+                k: v for k, v in stage.config_snapshot.items() if k != "review_gate_failed"
+            }
+            db.add(
+                StageDecision(
+                    stage_run_id=stage.id,
+                    gate_id=gate.gate_id,
+                    action="approve",
+                    payload=GateAnswer(action="approve", actor="system").model_dump(
+                        mode="json", exclude={"actor", "decided_by"}
+                    ),
+                    actor="system",
+                    status="pending",
+                    decided_at=datetime.now(UTC) - timedelta(minutes=1),
+                )
+            )
+            await db.commit()
+        await run_rule(env)
+        assert (await env.current())["status"] == "RUNNING"  # a fresh pending answer blocks
+        async with env.harness.factory() as db:
+            decision = (await db.scalars(select(StageDecision))).one()
+            decision.decided_at = datetime.now(UTC) - timedelta(minutes=11)
+            await db.commit()
+        await run_rule(env)
+        assert (await env.current())["status"] == "COMPLETED"
+
+
+async def test_a_crash_in_the_background_rule_hands_the_gate_to_the_researcher(
+    tmp_path, monkeypatch
+):
+    async def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        await env.settle_charter()
+        monkeypatch.setattr(review_gate, "answer_review_gates", boom)
+        fake = env.fakes["i2h"]
+        (engine_run_id,) = fake.states
+        gate = await fake.open_review_gate(engine_run_id)
+        assert (await stage_snapshot(env))["review_gate_failed"] == gate.gate_id
+        (event,) = [
+            e
+            for e in await env.events("attention.required")
+            if e.payload.get("reason") == "review_gate_failed"
+        ]
+        assert event.payload["gate_id"] == gate.gate_id
+
+
 # --- the Critic and the stage outcome -----------------------------------------------------
 
 
@@ -125,6 +229,61 @@ async def test_a_completed_stage_goes_to_the_critic_then_the_pi_sees_its_report(
         assert note.text == "Critic concerns: One concern." and note.actor == "pi"
         assert note.stage_key == "hypothesis"
         assert str(note.consultation_id) == review.consultation_id
+
+
+async def test_the_researcher_is_told_at_once_when_the_stage_outcome_is_theirs(tmp_path):
+    async with pi_env(tmp_path, "copilot") as env:
+        await env.settle_charter()
+        assert (await env.gate(await env.current(), action="approve")).status_code == 200
+        (event,) = [
+            e
+            for e in await env.events("attention.required")
+            if e.payload.get("reason") == "stage_completed"
+        ]
+        assert event.payload["kind"] == "stage_outcome"
+        assert "Critic report will follow" in event.payload["text"]
+        assert env.pi.of_kind("stage_outcome") == []
+
+
+async def test_no_early_attention_when_the_pi_decides_the_outcome(tmp_path):
+    async with pi_env(tmp_path, "auto") as env:
+        await env.settle_charter()
+        reasons = [e.payload.get("reason") for e in await env.events("attention.required")]
+        assert "stage_completed" not in reasons
+
+
+async def test_a_critic_that_does_not_answer_in_time_is_unavailable(tmp_path):
+    async with pi_env(tmp_path, "auto") as env:
+        await env.settle_charter()
+        review = env.pi.of_kind("stage_review")[-1]
+        state = env.harness.app.state
+        async with env.harness.factory() as db:
+            row = await db.get(PiConsultation, UUID(review.consultation_id))
+            assert row.status == "sent"
+            await flush_consultations(db, state, env.run_id)
+            await db.refresh(row)
+            assert row.status == "sent"  # not yet late
+            row.created_at = datetime.now(UTC) - STAGE_REVIEW_TIMEOUT - timedelta(minutes=1)
+            await db.commit()
+            await flush_consultations(db, state, env.run_id)
+        row = await env.consultation(review)
+        assert row.status == "failed" and row.failure["code"] == "critic_timeout"
+        assert env.pi.of_kind("stage_outcome")[0].critique is None
+        (note,) = await env.rows(PiNote, PiNote.kind == "observation")
+        assert note.text == "Critic report unavailable: The Critic did not answer in time"
+
+
+async def test_a_researcher_decision_overrides_the_open_critic_review(tmp_path):
+    async with pi_env(tmp_path, "copilot") as env:
+        await env.settle_charter()
+        assert (await env.gate(await env.current(), action="approve")).status_code == 200
+        review = env.pi.of_kind("stage_review")[-1]
+        stage = await env.current()
+        response = await env.post(
+            f"/stages/{stage['stage_run_id']}/accept", selection={"hypothesis_ids": ["H1"]}
+        )
+        assert response.status_code == 200, response.text
+        assert (await env.consultation(review)).status == "overridden"
 
 
 async def test_a_failed_critic_leaves_the_outcome_without_a_critique(tmp_path):
@@ -423,3 +582,36 @@ async def test_the_run_api_says_when_the_cost_is_unknown(tmp_path):
         assert (await env.client.get(env.url())).json()["data"]["cost_unknown"] is True
         listed = (await env.client.get(url)).json()["data"]
         assert [item["cost_unknown"] for item in listed] == [True]
+
+
+async def test_every_user_directive_stays_in_the_notebook_however_old(tmp_path):
+    async with pi_env(tmp_path, "auto") as env:
+        base = datetime.now(UTC) - timedelta(days=1)
+        async with env.harness.factory() as db:
+            for n in range(context.NOTEBOOK_LIMIT + 10):
+                directive = n == 0
+                db.add(
+                    PiNote(
+                        research_run_id=env.run_id,
+                        kind="directive" if directive else "observation",
+                        text=f"note {n}",
+                        actor="user" if directive else "pi",
+                        created_at=base + timedelta(seconds=n),
+                    )
+                )
+            db.add(
+                PiNote(
+                    research_run_id=env.run_id,
+                    kind="directive",
+                    text="pi directive",
+                    actor="pi",
+                    created_at=base,
+                )
+            )
+            await db.commit()
+            run = await db.get(ResearchRun, env.run_id)
+            entries = await context.notebook_entries(db, run)
+        texts = [entry.text for entry in entries]
+        assert texts[0] == "note 0" and "pi directive" not in texts
+        assert len(texts) == context.NOTEBOOK_LIMIT + 1
+        assert texts[1:] == sorted(texts[1:], key=lambda t: int(t.split()[-1]))

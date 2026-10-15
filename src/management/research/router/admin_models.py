@@ -77,20 +77,21 @@ async def put_model(
     db=Depends(get_db),
 ):
     box = require_secret_box(request.app.state.secret_box)
-    # Only stage and review must differ; the Critic may share a model with the lead.
-    other = (
-        await db.scalar(
-            select(ModelProfile)
-            .where(
-                ModelProfile.role == ("review" if role == "stage" else "stage"),
-                ModelProfile.scope == "global",
-            )
-            .with_for_update()
-        )
-        if role != "critic"
-        else None
+    # Stage and review must differ. The Critic must differ from the stage model; it may share
+    # the review model (the lead).
+    other_role = {"stage": "review", "review": "stage", "critic": "stage"}[role]
+    other = await db.scalar(
+        select(ModelProfile)
+        .where(ModelProfile.role == other_role, ModelProfile.scope == "global")
+        .with_for_update()
     )
     if other and (other.provider, other.model) == (body.provider, body.model):
+        if role == "critic":
+            raise APIError(
+                422,
+                "CRITIC_MODEL_SAME_AS_STAGE",
+                "Critic model must differ from stage model",
+            )
         raise APIError(
             422, "REVIEW_MODEL_SAME_AS_STAGE", "Review model must differ from stage model"
         )

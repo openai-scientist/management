@@ -51,7 +51,9 @@ async def build_guidance(db, run, stage_key) -> list[str]:
             break
     lines += [_clip("Objective: ", item) for item in charter.get("objectives", [])[:4]]
     # An obligation is never dropped: its lines come after the capped ones.
-    risks = [guidance_line(item) for item in targeted_at(run, stage_key) if item.status == "open"]
+    risks = [
+        guidance_line(item) for item in targeted_at(run, stage_key) if item.status != "controlled"
+    ]
     return lines[:MAX_LINES] + risks
 
 

@@ -12,7 +12,7 @@ from management.infra.file_store import attachment_headers, safe_filename
 from management.research.contracts import ArtifactMeta, EventBatch
 from management.research.models import ResearchRun, RunArtifact, StageRun
 from management.research.orchestrator import apply_engine_event
-from management.research.pi.review_gate import answer_review_gates
+from management.research.pi.review_gate import answer_review_gates_safely
 from management.research.pi.service import flush_consultations, pi_active
 from management.research.stage_runs import append_run_event
 
@@ -99,7 +99,7 @@ async def events(
     await db.flush()
     if accepted and pi_active(request.app.state, run):
         await flush_consultations(db, request.app.state, run.id, answer_gates=False)
-        background.add_task(answer_review_gates, request.app.state, run.id)
+        background.add_task(answer_review_gates_safely, request.app.state, run.id)
     return {"accepted": len(accepted), "skipped": skipped}
 
 

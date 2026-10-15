@@ -1,7 +1,7 @@
 """Consultations: ask the PI, send the question after commit, record who overrode it."""
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -27,6 +27,9 @@ from management.research.pi.client import PIError, PIUnavailable
 from management.research.stage_runs import append_run_event
 
 logger = logging.getLogger(__name__)
+
+#: A Critic that has not answered after this long is treated as unavailable.
+STAGE_REVIEW_TIMEOUT = timedelta(minutes=20)
 
 
 def pi_active(app_state, run) -> bool:
@@ -174,12 +177,34 @@ async def flush_consultations(db, app_state, run_id, *, answer_gates=True) -> No
     `answer_gates=False` and runs the rule after its response, so the rule's call to the engine
     does not nest inside the engine's own event delivery.
     """
+    await expire_stage_reviews(db, app_state, run_id)
     await db.commit()
     await dispatch_queued(app_state, run_id)
     if answer_gates:
         from management.research.pi.review_gate import answer_review_gates  # noqa: PLC0415
 
         await answer_review_gates(app_state, run_id)
+
+
+async def expire_stage_reviews(db, app_state, run_id) -> None:
+    """A Critic that never answers must not hold the stage: go on without its report."""
+    cutoff = datetime.now(UTC) - STAGE_REVIEW_TIMEOUT
+    rows = await db.scalars(
+        select(PiConsultation)
+        .where(
+            PiConsultation.research_run_id == run_id,
+            PiConsultation.kind == "stage_review",
+            PiConsultation.status.in_(("queued", "sent")),
+            PiConsultation.created_at < cutoff,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    for row in list(rows):
+        if row.status in {"queued", "sent"} and row.result is None:
+            await fail_consultation(
+                db, row, "critic_timeout", "The Critic did not answer in time", app_state=app_state
+            )
 
 
 async def dispatch_queued(app_state, run_id) -> None:

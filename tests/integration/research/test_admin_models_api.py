@@ -133,3 +133,14 @@ async def test_a_missing_critic_profile_falls_back_to_the_review_model(harness):
         await client.put(MODELS + "/review", json=model_payload("review"), headers=headers)
     async with harness.factory() as db:
         assert (await load_critic_model(db, harness.app.state.secret_box)).model == "review"
+
+
+async def test_critic_same_as_stage_rejected(harness):
+    async with harness.client() as client:
+        session = await admin_session(harness, client)
+        headers = mutation_headers(session["csrf_token"])
+        await client.put(MODELS + "/stage", json=model_payload(), headers=headers)
+        response = await client.put(MODELS + "/critic", json=model_payload(), headers=headers)
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "CRITIC_MODEL_SAME_AS_STAGE"
+        assert (await client.get(MODELS)).json()["data"]["critic"] is None

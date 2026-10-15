@@ -168,12 +168,20 @@ async def same_stage_send_backs(db, run, stage_run) -> int:
 
 
 async def notebook_entries(db, run) -> list[NotebookEntry]:
-    notes = await db.scalars(
+    recent = await db.scalars(
         select(PiNote)
         .where(PiNote.research_run_id == run.id)
         .order_by(PiNote.created_at.desc())
         .limit(NOTEBOOK_LIMIT)
     )
+    notes = {note.id: note for note in recent}
+    # A user directive is never dropped, however old.
+    directives = await db.scalars(
+        select(PiNote).where(
+            PiNote.research_run_id == run.id, PiNote.kind == "directive", PiNote.actor == "user"
+        )
+    )
+    notes.update({note.id: note for note in directives})
     return [
         NotebookEntry(
             kind=note.kind,
@@ -183,7 +191,7 @@ async def notebook_entries(db, run) -> list[NotebookEntry]:
             at=note.created_at,
             entry_id=str(note.id),
         )
-        for note in reversed(list(notes))
+        for note in sorted(notes.values(), key=lambda note: note.created_at)
     ]
 
 

@@ -79,7 +79,7 @@ def test_the_critic_report_sets_status_locator_note_and_checker():
             ],
         }
     )
-    apply_checks(run, report, "c-1")
+    apply_checks(run, report, "c-1", "experiment_plan")
     first, second = load(run)
     assert (first.status, first.locator, first.checked_by) == ("controlled", "plan:b", "c-1")
     assert (second.status, second.note, second.checked_by) == ("unresolved", "missing", "c-1")
@@ -100,3 +100,48 @@ async def test_obligation_lines_come_after_the_capped_lines():
     lines = await build_guidance(Db(), run, "experiment_plan")
     risks = [line for line in lines if line.startswith("Known risk")]
     assert risks == lines[-5:] and len(risks) == 5
+
+
+def test_a_check_applies_only_to_an_obligation_targeted_at_the_reviewed_stage():
+    run = run_with(item("R1", target="analysis"))
+    report = CriticReport.model_validate(
+        {
+            "verdict": "sound",
+            "summary": "ok",
+            "obligations": [{"obligation_id": "R1", "status": "controlled", "locator": "x"}],
+        }
+    )
+    apply_checks(run, report, "c-1", "experiment_plan")
+    assert load(run)[0].status == "open" and load(run)[0].checked_by is None
+
+
+def test_controlled_without_a_locator_leaves_the_obligation_unchanged():
+    run = run_with(item("R1"))
+    report = CriticReport.model_validate(
+        {
+            "verdict": "sound",
+            "summary": "ok",
+            "obligations": [{"obligation_id": "R1", "status": "controlled"}],
+        }
+    )
+    apply_checks(run, report, "c-1", "experiment_plan")
+    assert load(run)[0].status == "open" and load(run)[0].checked_by is None
+
+
+async def test_an_unresolved_obligation_stays_in_the_guidance():
+    run = SimpleNamespace(
+        id=1,
+        topic="t",
+        charter={"question": "q" * 20, "objectives": [], "success_criteria": []},
+        obligations=[
+            item("R1", status="unresolved", note="n"),
+            item("R2", status="controlled", locator="x"),
+        ],
+    )
+
+    class Db:
+        async def scalars(self, query):
+            return iter([])
+
+    lines = await build_guidance(Db(), run, "experiment_plan")
+    assert [line[:17] for line in lines if line.startswith("Known risk")] == ["Known risk R1 (fr"]
