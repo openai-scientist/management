@@ -49,7 +49,8 @@ Index("uq_datasets_project_name", Dataset.project_id, func.lower(Dataset.name), 
 class DatasetVersion(Base):
     """One CSV file, uploaded or read from a data connection.
 
-    Never changed or deleted, so a run can always be traced to its input.
+    Never changed, and deleted only with its dataset when no run used it, so a run can always
+    be traced to its input.
     """
 
     __tablename__ = "dataset_versions"
