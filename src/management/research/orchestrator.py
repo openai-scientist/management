@@ -138,7 +138,9 @@ async def start_research_run(
 
 
 def first_stage_inputs(run) -> Inputs:
-    return Inputs(params={"topic": run.topic, "domains": run.domains})
+    question = (run.charter or {}).get("question")
+    topic = question[:2000] if question else run.topic
+    return Inputs(params={"topic": topic, "domains": run.domains})
 
 
 async def start_stage(

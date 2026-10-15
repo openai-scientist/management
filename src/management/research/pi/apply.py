@@ -1,6 +1,7 @@
 """Take a PI result and act on it: apply it, hand it to the researcher, or drop it as stale."""
 
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -105,8 +106,8 @@ def _hypothesis_id(locator: str) -> str | None:
     return locator.removeprefix("hypothesis:").split("/", 1)[0]
 
 
-async def _blocking_scope(db, app_state, stage_run) -> tuple[str | None, set[str]]:
-    """B12: (reason the whole artifact is blocked or None, hypothesis ids with a blocking finding).
+async def _blocking_scope(db, app_state, stage_run) -> tuple[str | None, dict[str, set[str]]]:
+    """B12: (reason the whole artifact is blocked or None, blocking finding ids per hypothesis id).
 
     Unreadable review fails closed: the whole artifact is blocked.
     """
@@ -117,21 +118,21 @@ async def _blocking_scope(db, app_state, stage_run) -> tuple[str | None, set[str
         .limit(1)
     )
     if artifact is None:
-        return None, set()
+        return None, {}
     try:
         review = ReviewFindings.model_validate_json(await _read_json(app_state, artifact))
     except (OSError, ValueError, ValidationError):
-        return "The review findings cannot be read, so the PI cannot approve", set()
-    blocked: set[str] = set()
+        return "The review findings cannot be read, so the PI cannot approve", {}
+    blocked: dict[str, set[str]] = {}
     for finding in review.findings:
         if finding.severity != "blocking":
             continue
         hypothesis_id = _hypothesis_id(finding.anchor.locator)
         if hypothesis_id is None:
-            return "The review has a blocking finding on the whole artifact", set()
-        blocked.add(hypothesis_id)
+            return "The review has a blocking finding on the whole artifact", {}
+        blocked.setdefault(hypothesis_id, set()).add(finding.finding_id)
     if not review.passed and not blocked:
-        return "The review still has blocking findings", set()
+        return "The review still has blocking findings", {}
     return None, blocked
 
 
@@ -156,6 +157,12 @@ async def _hypothesis_ids(db, app_state, stage_run) -> set[str] | None:
         return None
 
 
+def _risk_stated(handoff, hypothesis_id, finding_ids) -> bool:
+    """B19: a handoff line names the hypothesis as a whole word and one of its blocking findings."""
+    pattern = re.compile(rf"(?<!\w){re.escape(hypothesis_id)}(?!\w)")
+    return any(pattern.search(line) and any(f in line for f in finding_ids) for line in handoff)
+
+
 async def _approval_blocked(db, app_state, stage_run) -> str | None:
     whole, blocked = await _blocking_scope(db, app_state, stage_run)
     if whole or not blocked:
@@ -163,7 +170,7 @@ async def _approval_blocked(db, app_state, stage_run) -> str | None:
     ids = await _hypothesis_ids(db, app_state, stage_run)
     if ids is None:
         return "The review still has blocking findings"
-    if ids <= blocked:
+    if ids <= blocked.keys():
         return "Every hypothesis has a blocking finding"
     return None
 
@@ -205,10 +212,16 @@ async def check_decision(db, app_state, consultation, stage_run, result) -> Esca
         )
         if whole:
             return Escalation(reason_code="integrity", message=whole)
-        if chosen & blocked:
-            ids = ", ".join(sorted(chosen & blocked))
+        unaccepted = sorted(
+            h for h in chosen & blocked.keys() if not _risk_stated(result.handoff, h, blocked[h])
+        )
+        if unaccepted:
             return Escalation(
-                reason_code="integrity", message=f"Blocking findings remain on: {ids}"
+                reason_code="integrity",
+                message=(
+                    f"Blocking findings remain on: {', '.join(unaccepted)} (name each in a "
+                    "handoff line with its finding id to accept it as a known risk)"
+                ),
             )
     return None
 

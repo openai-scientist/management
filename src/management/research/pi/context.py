@@ -27,6 +27,8 @@ MAX_PI_COMMENT_ROUNDS = 3
 #: An option the PI already chose this many times at the same gate step of a stage run is not
 #: offered again: repeating it did not move the stage forward (a reject/search-again loop).
 MAX_PI_SAME_ANSWER = 2
+#: The PI may send a stage back to itself this many times per run; more is not offered.
+MAX_PI_SAME_STAGE_SEND_BACKS = 1
 
 
 def callback_base(app_state) -> str:
@@ -51,7 +53,15 @@ def artifact_url(app_state, artifact_id) -> str:
 
 
 def allowed_actions(
-    app_state, run, kind, stage_run, gate, *, comment_rounds=0, repeated=frozenset()
+    app_state,
+    run,
+    kind,
+    stage_run,
+    gate,
+    *,
+    comment_rounds=0,
+    repeated=frozenset(),
+    same_stage_send_backs=0,
 ) -> list[AllowedAction]:
     if kind == "charter":
         return [AllowedAction(action="charter")]
@@ -80,9 +90,10 @@ def allowed_actions(
         )
     ]
     if run.iteration < app_state.settings.max_iterations:
-        actions.append(
-            AllowedAction(action="send_back", targets=[*config.loop_back_to, stage_run.stage_key])
-        )
+        targets = list(config.loop_back_to)
+        if same_stage_send_backs < MAX_PI_SAME_STAGE_SEND_BACKS:
+            targets.append(stage_run.stage_key)
+        actions.append(AllowedAction(action="send_back", targets=targets))
     actions.append(AllowedAction(action="stop"))
     return actions
 
@@ -163,6 +174,27 @@ async def comment_rounds(db, stage_run) -> int:
         )
     )
     return sum(1 for r in results if ((r.get("decision") or {}).get("action")) == "comment")
+
+
+async def same_stage_send_backs(db, run, stage_run) -> int:
+    """Times the PI already sent this stage back to itself in this run."""
+    results = await db.scalars(
+        select(PiConsultation.result)
+        .join(StageRun, StageRun.id == PiConsultation.stage_run_id)
+        .where(
+            PiConsultation.research_run_id == run.id,
+            PiConsultation.kind == "stage_outcome",
+            PiConsultation.status.in_(("applied", "endorsed")),
+            PiConsultation.result.is_not(None),
+            StageRun.stage_key == stage_run.stage_key,
+        )
+    )
+    return sum(
+        1
+        for r in results
+        if (d := r.get("decision") or {}).get("action") == "send_back"
+        and d.get("target_stage_key") == stage_run.stage_key
+    )
 
 
 async def repeated_answers(db, stage_run, gate) -> frozenset[str]:
@@ -248,6 +280,9 @@ async def build_request(
             repeated=await repeated_answers(db, stage_run, Gate.model_validate(gate))
             if kind == "gate_question" and stage_run and gate
             else frozenset(),
+            same_stage_send_backs=await same_stage_send_backs(db, run, stage_run)
+            if kind == "stage_outcome" and stage_run
+            else 0,
         ),
         artifacts=await artifact_catalogue(db, app_state, run, stage_run),
         notebook=await notebook_entries(db, run),

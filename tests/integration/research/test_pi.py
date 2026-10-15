@@ -23,6 +23,7 @@ from management.research.models import (
     StageDecision,
     StageRun,
 )
+from management.research.pi.apply import check_decision
 from tests.fakes.engines import engine_overrides, install_fake_engines, seed_models
 from tests.fakes.pi import FakePI, pi_overrides
 from tests.helpers.harness import open_harness
@@ -444,11 +445,11 @@ async def test_guidance_is_replaced_on_every_stage_start(tmp_path):
             second,
             decided(
                 second,
-                {"action": "send_back", "target_stage_key": "hypothesis"},
+                {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}},
                 handoff=["Second lesson"],
             ),
         )
-        guidance = env.fakes["i2h"].requests[2].inputs.params["guidance"]
+        guidance = env.fakes["exd"].requests[0].inputs.params["guidance"]
         assert "Handoff: Second lesson" in guidance
         assert "Handoff: First lesson" not in guidance
 
@@ -1009,14 +1010,88 @@ async def test_pi_cannot_approve_when_every_hypothesis_is_blocked(tmp_path):
         assert row.result["escalate"]["reason_code"] == "integrity"
 
 
-async def _accept_after_partial_block(env, ids):
+async def _accept_after_partial_block(env, ids, **fields):
     request = await _review_with(env, _blocking("hypothesis:H1"))
     await env.pi.respond(request, decided(request, {"action": "approve"}))
     outcome = env.pi.of_kind("stage_outcome")[0]
     await env.pi.respond(
-        outcome, decided(outcome, {"action": "accept", "selection": {"hypothesis_ids": ids}})
+        outcome,
+        decided(outcome, {"action": "accept", "selection": {"hypothesis_ids": ids}}, **fields),
     )
     return outcome
+
+
+async def test_pi_accept_of_a_blocked_hypothesis_with_a_risk_line_applies(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        outcome = await _accept_after_partial_block(
+            env, ["H1", "H2"], handoff=["Known risk on H1: F1-1, no falsification criterion yet"]
+        )
+        assert (await env.consultation(outcome)).status == "applied"
+        assert len(await env.rows(StageDecision, StageDecision.action == "accept")) == 1
+
+
+@pytest.mark.parametrize(
+    "line", ["Known risk on H1 only", "F1-1 is a known risk", "Known risk on H10: F1-1"]
+)
+async def test_pi_accept_of_a_blocked_hypothesis_needs_the_id_and_the_finding(tmp_path, line):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        outcome = await _accept_after_partial_block(env, ["H1", "H2"], handoff=[line])
+        row = await env.consultation(outcome)
+        assert row.status == "awaiting_researcher"
+        assert row.result["escalate"]["reason_code"] == "integrity"
+        assert (
+            "Blocking findings remain on: H1 (name each in a handoff line"
+            in (row.result["escalate"]["message"])
+        )
+
+
+async def test_pi_accept_over_a_whole_artifact_block_escalates_despite_a_risk_line(tmp_path):
+    async with pi_env(tmp_path, "auto", scripted=False) as env:
+        await _review_with(env, _blocking("artifact"))
+        async with env.harness.factory() as db:
+            stage_run = (await db.scalars(select(StageRun))).one()
+            consultation = SimpleNamespace(
+                kind="stage_outcome",
+                request={"allowed": [{"action": "accept", "selection_key": "hypothesis_ids"}]},
+            )
+            request = SimpleNamespace(consultation_id="x")
+            result = decided(
+                request,
+                {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}},
+                handoff=["H1 is a known risk: F1-1"],
+            )
+            escalation = await check_decision(
+                db, env.harness.app.state, consultation, stage_run, result
+            )
+        assert escalation is not None and escalation.reason_code == "integrity"
+        assert "whole artifact" in escalation.message
+
+
+async def test_a_second_send_back_to_the_same_stage_is_not_offered(tmp_path):
+    async with pi_env(tmp_path, "auto") as env:
+        await env.settle_charter()
+        await approve_gate(env)
+        first = env.pi.of_kind("stage_outcome")[0]
+        send_back = next(a for a in first.allowed if a.action == "send_back")
+        assert send_back.targets == ["hypothesis"]
+        await env.pi.respond(
+            first, decided(first, {"action": "send_back", "target_stage_key": "hypothesis"})
+        )
+        await approve_gate(env)
+        second = env.pi.of_kind("stage_outcome")[1]
+        send_back = next(a for a in second.allowed if a.action == "send_back")
+        assert send_back.targets == []
+
+
+async def test_the_engine_gets_the_charter_question_and_the_guidance_the_topic(tmp_path):
+    async with pi_env(tmp_path, "auto") as env:
+        await env.settle_charter()
+        sent = env.fakes["i2h"].requests[0]
+        assert sent.inputs.params["topic"] == CHARTER["question"]
+        assert (
+            "Topic given by the researcher: Compare two retrieval methods"
+            in sent.inputs.params["guidance"]
+        )
 
 
 async def test_pi_accept_of_a_blocked_hypothesis_escalates(tmp_path):
