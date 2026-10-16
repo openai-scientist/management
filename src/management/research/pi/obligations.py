@@ -56,8 +56,8 @@ def _point_text(point) -> str:
 async def _critic_points(db, stage_run) -> list[tuple[str, str]]:
     """(point id, text) of the serious Critic points the stage may be accepted over.
 
-    The latest applied `stage_review` report of the stage run. When a `stage_outcome` answered it,
-    only the points that answer accepted; with no outcome (the researcher decided alone), all.
+    The latest applied `stage_review` report of the stage run, less the points the latest
+    `stage_outcome` rejected. An unanswered point stays: that is when the researcher decides.
     """
     results = {}
     for kind in ("stage_review", "stage_outcome"):
@@ -73,24 +73,22 @@ async def _critic_points(db, stage_run) -> list[tuple[str, str]]:
         )
         if kind == "stage_review":
             query = query.where(PiConsultation.status == "applied")
+        else:
+            query = query.where(PiConsultation.status != "failed")
         results[kind] = await db.scalar(query)
     report = (results["stage_review"] or {}).get("report")
     if not report:
         return []
     outcome = results["stage_outcome"]
-    answered = (
-        {
-            r["point_id"]
-            for r in outcome.get("critic_response") or []
-            if r.get("response") == "accepted"
-        }
-        if outcome
-        else None
-    )
+    rejected = {
+        r["point_id"]
+        for r in (outcome or {}).get("critic_response") or []
+        if r.get("response") == "rejected"
+    }
     return [
         (p["point_id"], _point_text(p))
         for p in report.get("points", [])
-        if p["severity"] == "serious" and (answered is None or p["point_id"] in answered)
+        if p["severity"] == "serious" and p["point_id"] not in rejected
     ]
 
 
@@ -98,8 +96,8 @@ async def carry_forward(db, app_state, run, stage_run, selection, next_config) -
     """On accept: move uncontrolled obligations on, and add one per risk the stage is accepted over.
 
     The risks are the open blocking findings of the latest review (anchored to a selected item, or
-    to the whole artifact) and the serious Critic points the PI accepted. The last stage targets
-    `close`.
+    to the whole artifact) and the serious Critic points the PI did not reject. The last stage
+    targets `close`.
     """
     obligations = load(run)
     if next_config is not None:

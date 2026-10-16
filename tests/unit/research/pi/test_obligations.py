@@ -260,7 +260,7 @@ async def test_serious_critic_points_become_obligations_without_duplicates():
     assert len(load(run)) == 2
 
 
-async def test_only_the_points_the_outcome_accepted_become_obligations():
+async def test_the_points_the_outcome_rejected_do_not_become_obligations():
     outcome = {
         "critic_response": [
             {"point_id": "C1", "response": "accepted", "reason": "r"},
@@ -269,9 +269,10 @@ async def test_only_the_points_the_outcome_accepted_become_obligations():
     }
     run = run_with()
     await carry_forward(
-        FakeDb(critic_result("serious", "serious"), outcome), None, run, STAGE, {}, NEXT
+        FakeDb(critic_result("serious", "serious", "serious"), outcome), None, run, STAGE, {}, NEXT
     )
-    assert summary(run) == [("C1", None, "experiment_plan")]
+    # C3 has no answer: the researcher decided over it, so it is carried.
+    assert summary(run) == [("C1", None, "experiment_plan"), ("C3", None, "experiment_plan")]
 
 
 async def test_the_last_stage_targets_close():
