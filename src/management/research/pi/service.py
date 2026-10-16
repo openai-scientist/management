@@ -178,8 +178,9 @@ async def flush_consultations(db, app_state, run_id, *, answer_gates=True) -> No
     `answer_gates=False` and runs the rule after its response, so the rule's call to the engine
     does not nest inside the engine's own event delivery.
     """
-    await expire_stage_reviews(db, app_state, run_id)
     await db.commit()
+    # After the caller's commit: an error while expiring must not roll the caller's work back.
+    await expire_stage_reviews(db, app_state, run_id)
     await dispatch_queued(app_state, run_id)
     if answer_gates:
         from management.research.pi.review_gate import answer_review_gates_safely  # noqa: PLC0415
@@ -189,24 +190,41 @@ async def flush_consultations(db, app_state, run_id, *, answer_gates=True) -> No
 
 
 async def expire_stage_reviews(db, app_state, run_id) -> None:
-    """A Critic that never answers must not hold the stage: go on without its report."""
+    """A Critic that never answers must not hold the stage: go on without its report.
+
+    Each row commits on its own. A row that fails is logged and left for the next sweep.
+    """
     cutoff = datetime.now(UTC) - STAGE_REVIEW_TIMEOUT
-    rows = await db.scalars(
-        select(PiConsultation)
-        .where(
-            PiConsultation.research_run_id == run_id,
-            PiConsultation.kind == "stage_review",
-            PiConsultation.status.in_(("queued", "sent")),
-            PiConsultation.created_at < cutoff,
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    for row in list(rows):
-        if row.status in {"queued", "sent"} and row.result is None:
-            await fail_consultation(
-                db, row, "critic_timeout", "The Critic did not answer in time", app_state=app_state
+    ids = list(
+        await db.scalars(
+            select(PiConsultation.id).where(
+                PiConsultation.research_run_id == run_id,
+                PiConsultation.kind == "stage_review",
+                PiConsultation.status.in_(("queued", "sent")),
+                PiConsultation.created_at < cutoff,
             )
+        )
+    )
+    for consultation_id in ids:
+        try:
+            row = await db.scalar(
+                select(PiConsultation)
+                .where(PiConsultation.id == consultation_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if row.status in {"queued", "sent"} and row.result is None:
+                await fail_consultation(
+                    db,
+                    row,
+                    "critic_timeout",
+                    "The Critic did not answer in time",
+                    app_state=app_state,
+                )
+            await db.commit()
+        except Exception:  # noqa: BLE001 - one bad row must not block the others
+            logger.exception("Expiring stage review %s failed", consultation_id)
+            await db.rollback()
 
 
 async def sweep(app_state) -> None:

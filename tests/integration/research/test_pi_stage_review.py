@@ -19,7 +19,7 @@ from management.research.models import (
     StageDecision,
     StageRun,
 )
-from management.research.pi import context, review_gate
+from management.research.pi import context, review_gate, service
 from management.research.pi.service import STAGE_REVIEW_TIMEOUT, flush_consultations, sweep
 from tests.helpers.pi_env import (
     blocked_outcome,
@@ -296,6 +296,37 @@ async def test_a_critic_that_does_not_answer_in_time_is_unavailable(tmp_path):
         assert env.pi.of_kind("stage_outcome")[0].critique is None
         (note,) = await env.rows(PiNote, PiNote.kind == "observation")
         assert note.text == "Critic report unavailable: The Critic did not answer in time"
+
+
+async def test_an_error_while_expiring_a_critic_does_not_roll_back_the_caller(
+    tmp_path, monkeypatch
+):
+    async with pi_env(tmp_path, "auto") as env:
+        await env.settle_charter()
+        review = env.pi.of_kind("stage_review")[-1]
+        state = env.harness.app.state
+
+        async def broken(*args, **kwargs):
+            raise RuntimeError("models unreadable")
+
+        monkeypatch.setattr(service, "critic_unavailable", broken)
+        async with env.harness.factory() as db:
+            row = await db.get(PiConsultation, UUID(review.consultation_id))
+            row.created_at = datetime.now(UTC) - STAGE_REVIEW_TIMEOUT - timedelta(minutes=1)
+            await db.commit()
+            run = await db.get(ResearchRun, env.run_id)
+            run.obligations = [
+                {
+                    "obligation_id": "R1",
+                    "source_stage_key": "x",
+                    "text": "t",
+                    "target_stage_key": "y",
+                }
+            ]
+            await flush_consultations(db, state, env.run_id)
+        assert (await env.consultation(review)).status == "sent"
+        (run,) = await env.rows(ResearchRun)
+        assert [o["obligation_id"] for o in run.obligations] == ["R1"]
 
 
 async def test_the_sweep_expires_a_late_critic_without_any_other_event(tmp_path):
