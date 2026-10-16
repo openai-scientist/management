@@ -478,7 +478,8 @@ async def accept_stage(
             )
     extra_refs = await _extra_input_refs(db, app_state, stage_run, artifact, next_config)
     transition(stage_run, "accept")
-    await carry_forward(db, app_state, run, stage_run, selection, next_config)
+    if pi_active(app_state, run):
+        await carry_forward(db, app_state, run, stage_run, selection, next_config)
     decision = StageDecision(
         stage_run_id=stage_run.id,
         action="accept",

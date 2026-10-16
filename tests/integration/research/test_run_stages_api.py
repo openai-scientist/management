@@ -3,6 +3,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import select
 
+from management.research import orchestrator
 from management.research.contracts import ResearchProfile
 from management.research.models import StageDecision, StageRun
 from tests.fakes.engines import engine_overrides, install_fake_engines, seed_models
@@ -151,6 +152,24 @@ async def test_gate_not_open_409(api):
     assert wrong.status_code == 409 and wrong.json()["error"]["code"] == "GATE_NOT_OPEN"
     assert (await approve(client, session, project, run, stage)).status_code == 200
     assert (await approve(client, session, project, run, stage)).status_code == 200
+
+
+async def test_a_run_without_the_pi_accepts_without_obligations(api, monkeypatch):
+    _, client, session, project, _ = api
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("storage error")
+
+    monkeypatch.setattr(orchestrator, "carry_forward", broken)
+    run = await begin(client, session, project)
+    stage = run["current_stage"]
+    assert (await approve(client, session, project, run, stage)).status_code == 200
+    accepted = await client.post(
+        stage_url(project, run, stage["stage_run_id"], "/accept"),
+        json={"selection": {"hypothesis_ids": ["H1"]}},
+        headers=csrf(session),
+    )
+    assert accepted.status_code == 200, accepted.text
 
 
 async def test_accept_while_running_and_invalid_selection(api):
