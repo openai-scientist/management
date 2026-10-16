@@ -74,6 +74,19 @@ The Platform owns the HTTP contract between itself and the research engines.
 - Never read or commit `.env`, `.env.local` or `docker/prod.env.local`. Use `.env.example` and `docker/prod.env.example`.
 - Secrets stored in the database go through `SecretBox` (`src/management/infra`). Never log or return them.
 
+## Errors
+
+- A failure the code can foresee answers with an `APIError` that has its own `code` and a message telling the user what to do, never a bare 500. Example: a secret sealed under an earlier `CONNECTION_SECRET_KEY` answers `409 MODEL_KEY_UNREADABLE`, "The saved API key for the stage model can't be read. An admin needs to enter it again."
+- The frontend shows `message` to the user and branches on `code`, so keep messages in plain English and codes stable.
+
+## Streaming
+
+- Server-sent event responses send `Cache-Control: no-cache, no-transform`, so a proxy in front of the API (the web app rewrites `/api/v1`) does not compress and buffer the stream.
+
+## Test data
+
+- Seeded users and records use `@example.com` addresses so no email reaches a real person. Remove what you seeded when the check is done.
+
 ## Git
 
 Work on a feature branch. Commit there. Do not push unless the user asks.
