@@ -1,0 +1,30 @@
+{
+  "$id": "urn:research-contract:1.4.0:CriticResolution",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The Critic's answer, in a repeat review, on one serious point of its earlier report.",
+  "properties": {
+    "point_id": {
+      "title": "Point Id",
+      "type": "string"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "resolved",
+        "maintained"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "point_id",
+    "status",
+    "reason"
+  ],
+  "title": "CriticResolution",
+  "type": "object"
+}

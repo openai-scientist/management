@@ -69,6 +69,9 @@ class ResearchRun(Base):
             "interaction_mode IS NULL OR interaction_mode IN ('auto','light','copilot','full')",
             name="ck_research_runs_interaction_mode",
         ),
+        CheckConstraint(
+            "charter_status IN ('none','pending','settled')", name="ck_research_runs_charter_status"
+        ),
         # A project works on one run at a time.
         Index(
             "uq_research_runs_active_project",
@@ -104,6 +107,15 @@ class ResearchRun(Base):
     interaction_mode: Mapped[str | None] = mapped_column(String(20))
     iteration: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     cost_unknown: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # The AI PI's research charter (current version) and whether it still awaits a decision.
+    charter: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    charter_status: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="none", server_default="none"
+    )
+    # Known risks carried to the stage that must control them (contract `Obligation`).
+    obligations: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list, server_default="[]"
+    )
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
     auto_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -328,7 +340,7 @@ class StageDecision(Base):
             "action IN ('answer_gate','approve','comment','accept','send_back','rerun','stop')",
             name="ck_stage_decisions_action",
         ),
-        CheckConstraint("actor IN ('user','system')", name="ck_stage_decisions_actor"),
+        CheckConstraint("actor IN ('user','system','pi')", name="ck_stage_decisions_actor"),
         CheckConstraint("status IN ('pending','applied')", name="ck_stage_decisions_status"),
         UniqueConstraint("stage_run_id", "gate_id", name="uq_stage_decisions_gate"),
     )
@@ -350,6 +362,86 @@ class StageDecision(Base):
     )
 
 
+PI_OPEN_STATUSES = ("queued", "sent", "decided", "awaiting_researcher")
+
+
+class PiConsultation(Base):
+    """One question the Platform put to the AI PI, and what came of the answer."""
+
+    __tablename__ = "pi_consultations"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('charter','gate_question','gate_review','stage_outcome','failure','close',"
+            "'stage_review')",
+            name="ck_pi_consultations_kind",
+        ),
+        CheckConstraint("authority IN ('pi','researcher')", name="ck_pi_consultations_authority"),
+        CheckConstraint(
+            "status IN ('queued','sent','decided','applied','awaiting_researcher',"
+            "'endorsed','overridden','stale','failed')",
+            name="ck_pi_consultations_status",
+        ),
+        Index("ix_pi_consultations_run_status", "research_run_id", "status"),
+        Index("ix_pi_consultations_stage_kind", "stage_run_id", "kind"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    research_run_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="RESTRICT"), nullable=False
+    )
+    stage_run_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("stage_runs.id", ondelete="RESTRICT")
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    gate_id: Mapped[str | None] = mapped_column(String(200))
+    authority: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    # The request without credentials: the model keys are added when it is sent.
+    request: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    failure: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    applied_decision_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("stage_decisions.id", ondelete="SET NULL")
+    )
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False, default=Decimal("0"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PiNote(Base):
+    """An entry in the research lab notebook the PI reads at every consultation."""
+
+    __tablename__ = "pi_notes"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('decision','lesson','risk','observation','question','directive',"
+            "'override','brief','critique')",
+            name="ck_pi_notes_kind",
+        ),
+        CheckConstraint("actor IN ('pi','user')", name="ck_pi_notes_actor"),
+        Index("ix_pi_notes_run_created", "research_run_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    research_run_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    consultation_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("pi_consultations.id", ondelete="SET NULL")
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    stage_key: Mapped[str | None] = mapped_column(String(100))
+    actor: Mapped[str] = mapped_column(String(8), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 def active_run_filter():
     return ResearchRun.status.in_(ACTIVE_RUN_STATUSES) | (
         (ResearchRun.status == "budget_exceeded") & ResearchRun.pipeline_key.is_not(None)
@@ -359,7 +451,7 @@ def active_run_filter():
 class ModelProfile(Base):
     __tablename__ = "model_profiles"
     __table_args__ = (
-        CheckConstraint("role IN ('stage','review')", name="ck_model_profiles_role"),
+        CheckConstraint("role IN ('stage','review','critic')", name="ck_model_profiles_role"),
         CheckConstraint("scope = 'global'", name="ck_model_profiles_scope"),
         UniqueConstraint("role", "scope", name="uq_model_profiles_role_scope"),
     )

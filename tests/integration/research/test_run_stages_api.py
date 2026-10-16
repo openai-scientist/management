@@ -3,7 +3,9 @@ from uuid import UUID
 import pytest
 from sqlalchemy import select
 
-from management.research.models import StageDecision
+from management.research import orchestrator
+from management.research.contracts import ResearchProfile
+from management.research.models import StageDecision, StageRun
 from tests.fakes.engines import engine_overrides, install_fake_engines, seed_models
 from tests.helpers.harness import open_harness
 from tests.helpers.identity import login, mutation_headers
@@ -59,6 +61,23 @@ async def approve(client, session, project, run, stage):
 
 async def get_run(client, project, run):
     return (await client.get(f"{PROJECTS}/{project['id']}/runs/{run['id']}")).json()["data"]
+
+
+async def test_engines_get_the_first_supported_run_domain_as_profile(api):
+    harness, client, session, project, fakes = api
+    fakes["i2h"].capabilities.profiles = [ResearchProfile(), ResearchProfile(domain="se")]
+    run = await begin(client, session, project, domains=[" Bio ", "SE"])
+    assert fakes["i2h"].requests[0].profile == ResearchProfile(domain="se")
+    async with harness.factory() as db:
+        snapshot = (await db.scalars(select(StageRun))).one().config_snapshot
+    assert snapshot["profile"] == {"domain": "se", "research_type": None}
+    assert run["current_stage"]["stage_key"] == "hypothesis"
+
+
+async def test_an_unsupported_domain_sends_the_base_profile(api):
+    _, client, session, project, fakes = api
+    await begin(client, session, project, domains=["se"])
+    assert fakes["i2h"].requests[0].profile == ResearchProfile()
 
 
 async def test_s1_flow_light_mode(api):
@@ -133,6 +152,24 @@ async def test_gate_not_open_409(api):
     assert wrong.status_code == 409 and wrong.json()["error"]["code"] == "GATE_NOT_OPEN"
     assert (await approve(client, session, project, run, stage)).status_code == 200
     assert (await approve(client, session, project, run, stage)).status_code == 200
+
+
+async def test_a_run_without_the_pi_accepts_without_obligations(api, monkeypatch):
+    _, client, session, project, _ = api
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("storage error")
+
+    monkeypatch.setattr(orchestrator, "carry_forward", broken)
+    run = await begin(client, session, project)
+    stage = run["current_stage"]
+    assert (await approve(client, session, project, run, stage)).status_code == 200
+    accepted = await client.post(
+        stage_url(project, run, stage["stage_run_id"], "/accept"),
+        json={"selection": {"hypothesis_ids": ["H1"]}},
+        headers=csrf(session),
+    )
+    assert accepted.status_code == 200, accepted.text
 
 
 async def test_accept_while_running_and_invalid_selection(api):

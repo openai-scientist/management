@@ -1,0 +1,58 @@
+{
+  "consultation_id": "c1",
+  "result": {
+    "assumptions": [],
+    "brief": "Accepted H1.",
+    "confidence": 0.7,
+    "consultation_id": "c1",
+    "critic_response": [
+      {
+        "point_id": "C1",
+        "reason": "R1 stays an open risk",
+        "response": "accepted"
+      }
+    ],
+    "critique": null,
+    "decision": {
+      "action": "accept",
+      "charter": null,
+      "findings": [],
+      "note": null,
+      "option_id": null,
+      "params": {},
+      "selection": {
+        "hypothesis_ids": [
+          "H1"
+        ]
+      },
+      "target_stage_key": null
+    },
+    "directives_applied": [
+      {
+        "entry_id": "n1",
+        "how": "Small models only"
+      }
+    ],
+    "escalate": null,
+    "evidence": [],
+    "failure": null,
+    "handoff": [
+      "Keep the baseline from the charter"
+    ],
+    "notebook": [],
+    "options_considered": [],
+    "rationale": "H1 fits the charter",
+    "report": null,
+    "status": "decided",
+    "trace": [
+      {
+        "actor": "pi",
+        "summary": "Read hypothesis H1",
+        "tool": "read_artifact"
+      }
+    ],
+    "usage": {},
+    "would_change_my_mind": []
+  },
+  "status": "decided"
+}

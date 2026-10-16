@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,7 +36,8 @@ from management.research.models import (
     RunEvent,
     RunGate,
 )
-from management.research.orchestrator import start_research_run
+from management.research.orchestrator import start_research_run, stop_research_run
+from management.research.pi.service import flush_consultations, mark_overridden
 from management.research.popper_client import (
     PopperClient,
     PopperNotFound,
@@ -73,6 +75,12 @@ router = APIRouter(prefix="/projects/{project_id}/runs", tags=["runs"])
 
 
 KEEP_ALIVE_SECONDS = 15
+
+
+class StopIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(default=None, max_length=2000)
 
 
 @router.get(
@@ -202,6 +210,8 @@ async def create_run(
                 "budget_usd": str(budget),
             },
         )
+        if run.charter_status == "pending":
+            await flush_consultations(db, request.app.state, run.id)
         return ok(await _item(db, run), "Run started")
 
     auto_review = body.review_mode == "auto"
@@ -727,6 +737,51 @@ async def resume_run(
         logger.warning("Could not notify engine of resume: %s", exc)
 
     return ok(await _item(db, run), "Run resumed")
+
+
+@router.post(
+    "/{run_id}/stop",
+    response_model=ApiResponse[RunItem],
+    summary="Stop a pipeline run",
+    description="Cancels the open stage on its engine. The run ends as stopped.",
+    responses=RUN_ERRORS,
+)
+async def stop_run(
+    project_id: UUID,
+    run_id: UUID,
+    request: Request,
+    body: StopIn | None = None,
+    principal: Principal = Depends(require_active_csrf),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[RunItem]:
+    await lock_project_scope(db, project_id)
+    project, _ = await require_project_access(db, principal, project_id, contribute=True, lock=True)
+    ensure_writable_project(project)
+    run = await get_run(db, project_id, run_id, lock=True)
+    await stop_research_run(
+        db,
+        request.app.state,
+        run,
+        actor="user",
+        user_id=principal.user.id,
+        reason=body.reason if body else None,
+    )
+    await mark_overridden(
+        db,
+        request.app.state,
+        run,
+        kinds=(
+            "charter",
+            "gate_question",
+            "gate_review",
+            "stage_review",
+            "stage_outcome",
+            "failure",
+        ),
+        what="stopped the run",
+        reason=body.reason if body else None,
+    )
+    return ok(await _item(db, run), "Run stopped")
 
 
 @router.post(

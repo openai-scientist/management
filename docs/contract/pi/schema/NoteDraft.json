@@ -1,0 +1,27 @@
+{
+  "$id": "urn:research-contract:1.4.0:NoteDraft",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "kind": {
+      "enum": [
+        "lesson",
+        "risk",
+        "observation",
+        "question"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "text": {
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "text"
+  ],
+  "title": "NoteDraft",
+  "type": "object"
+}

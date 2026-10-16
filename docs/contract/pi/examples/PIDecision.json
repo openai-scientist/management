@@ -1,0 +1,14 @@
+{
+  "action": "accept",
+  "charter": null,
+  "findings": [],
+  "note": null,
+  "option_id": null,
+  "params": {},
+  "selection": {
+    "hypothesis_ids": [
+      "H1"
+    ]
+  },
+  "target_stage_key": null
+}

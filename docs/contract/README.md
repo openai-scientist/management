@@ -1,9 +1,9 @@
 # Research engine HTTP contract
 
-Contract version: **1.1.0** (semantic versioning). This directory is the public
+Contract version: **1.4.0** (semantic versioning). This directory is the public
 contract; Python implementations belong to each service. Engines copy `schema/`,
 `examples/`, and this README into `tests/contract/vendor/`, with the management
-commit in `vendor/SOURCE`. No service imports code from another repository.
+commit in `vendor/SOURCE`. The PI service copies `pi/` and this README the same way. No service imports code from another repository.
 
 Regenerate with `uv run python scripts/export_contract.py`. Verify with
 `uv run python scripts/export_contract.py --check` and
@@ -42,6 +42,13 @@ Selection of hypotheses uses `{"hypothesis_ids": ["H1", "H2"]}`; values are each
 hypothesis's `id`. The `hypothesis` stage receives
 `inputs.params = {"topic": "12–2000 characters", "domains": []}` (at most six domains).
 Engine restart failure code: `engine_restarted`.
+
+Optional guidance: any stage may receive `inputs.params.guidance`, a list of at most 20
+strings of at most 500 characters. It carries the research lead's charter summary,
+directives and hand-off lines, one per line, each with a prefix (`Research question:`,
+`Objective:`, `Success criterion:`, `Directive:`, `Handoff:`). Platform recomputes it at
+every stage start and replaces any earlier value. An engine uses it as extra constraints
+and ignores it when absent. It never changes the engine contract otherwise.
 
 ## HTTP
 
@@ -137,6 +144,91 @@ exhaustion and resumes the same engine run after a budget increase.
 Platform timeline also has `class=platform`: `stage.status_changed`,
 `iteration.started`, `decision.recorded`, `budget.updated`, `engine.health_changed`,
 `attention.required`. Those events do not use the engine `EventEnvelope`.
+
+## PI contract
+
+The AI Principal Investigator (PI) is a separate service with its own contract. Platform
+owns the models (`pi/schema/` and `pi/examples/`; shared models such as `Finding` stay in
+`schema/`) and sends them with the same rules as engines: `X-Service-Key`, `X-Request-ID`,
+`traceparent`, same major `contract_version`. Return model bodies without wrappers.
+
+| Method | Relative path | Request / response |
+|---|---|---|
+| GET | `/health` | `PIHealth` |
+| GET | `/capabilities` | `PICapabilities` |
+| POST | `/consultations` | `ConsultationRequest` → 202 `ConsultationAccepted`; idempotent by `consultation_id` |
+| GET | `/consultations/{consultation_id}` | `ConsultationState` (reconciliation) |
+
+The PI answers by calling Platform with its service key:
+
+| Method | Platform path (under the API prefix) | Body |
+|---|---|---|
+| POST | `/internal/pi/consultations/{consultation_id}/result` | `ConsultationResult`; idempotent; 200 |
+| GET | `/internal/pi/artifacts/{artifact_id}` | artifact bytes (the `download_url` of a `ConsultArtifact`) |
+
+`ConsultationRequest.artifacts` lists every artifact the PI may need (`role`, `stage_key`,
+`size_bytes`). The PI reads what it chooses. `models` carries credentials for the call only;
+the PI must not write them to disk, logs or records. Platform does not store them.
+Kinds Platform sends: `charter`, `stage_review`, `stage_outcome`, `failure`, `close`.
+`gate_question` and `gate_review` stay in the enum for wire compatibility; Platform no longer
+sends them. It answers engine gates itself: a review gate in `auto` and `light` by a fixed rule
+(approve when no finding blocks; otherwise, only on the stage's first review round and only once
+per stage run, send the blocking findings of `kind=fix` back as a comment; in every other case
+approve and keep the still-blocking finding ids in the ledger), every other gate by the
+researcher. The engine's own auto-revisions count as the engine having revised, so its first
+visible gate is approved.
+`authority = decide` means Platform applies the decision; `advise` means a researcher decides.
+On the engine wire, a PI decision has `actor=system` and `decided_by=pi:<consultation_id>`;
+PI findings have `author=researcher`. The review-gate rule uses `actor=system` and
+`decided_by=policy:review_gate`. Platform stores the actor `pi` for the PI.
+
+### Stage end (1.3.0)
+
+When a stage run completes, Platform sends `stage_review` to a Critic that took no part in the
+work. `authority` is `advise`, `allowed` is empty, `models.critic` is the Critic model and
+`models.lead` the review model. The result has `status=decided`, `decision={"action":"report"}`
+and `report` (`CriticReport`). `CriticReport.points` have `lens` `charter`, `risk`, `directive`
+or `integrity`; `ref` is `charter:<field>[i]`, `risk:<obligation_id>`, `directive:<entry_id>`
+or `integrity:<tag>` (`post_hoc_criteria`, `spin`, `suppressed_result`, `fabrication`,
+`leakage`). Each point has a `fix_class` (default `fix`): `fix` means a revision of this stage can resolve it, `needs_evidence` means it needs an external lookup, verification or evidence, `later` means the next stage owns it; the ledger text of a point that is not `fix` starts with `[needs_evidence] ` or `[later] `.
+`report.obligations` has one `ObligationCheck` per obligation in the request.
+`report.model` is `provider/model`; `model_shared_with="lead"` means the Critic ran on the
+lead's model.
+
+Then Platform sends `stage_outcome` with `critique` (the report; none when the Critic was
+unavailable) and `obligations`. The PI answers every serious point in `critic_response`
+(`accepted` or `rejected`, with a reason) and lists in `directives_applied` how it used each
+user directive (`NotebookEntry.entry_id`). A serious point with no answer, or a rejected one,
+hands the decision to the researcher in every mode (`attention.required`,
+`reason=pi_overrides_critic`).
+
+`Obligation` is a known risk carried to the stage that must control it. Platform keeps one
+ledger. On accept it adds an obligation for each blocking finding of the stage's latest review
+that is still open (anchored to a selected item, or to the whole artifact), and for each serious
+Critic point of the stage run that the PI accepted (`finding_id` is the point id, for example
+`C2`; when the researcher decided alone, every serious point). It sends the open ones to the
+next engine as a `Known risk R1 (from hypothesis, H1, finding F4-1): ...` guidance line.
+`target_stage_key` is the next stage, or `close` for an obligation from the last stage; the
+close report must name every one that is not controlled.
+`stage_review` requests carry the obligations targeted at the stage; `stage_outcome` and
+`close` requests carry all of them. An obligation not controlled when its stage is accepted
+moves to the next stage with status `open`.
+
+### Repeat review (1.4.0)
+
+When a stage run repeats an earlier stage (send-back or rerun) and an earlier stage run with the
+same `stage_key` has an applied `stage_review`, the `stage_review` request carries the latest such
+report as `ConsultationRequest.prior_critique`. The Critic answers each serious point of it with
+one `CriticResolution` in `report.resolutions` (`resolved` or `maintained`, with a reason). A new
+serious point in a repeat review stays serious only for the `integrity` and `directive` lenses.
+
+When Platform accepts a stage, it starts the next engine with the primary artifact and the
+latest version of each other artifact of the stage whose schema is in the next engine's
+`input_schemas` (`primary=false`). Other schemas are not sent.
+
+Deploy order: deploy the PI service on 1.3.0 before Platform 1.3.0. Platform 1.3.0 no longer
+consults the PI at engine gates, so a `gate_*` consultation that is still in flight at the
+upgrade becomes stale and its answer is ignored.
 
 ## Mandatory engine behavior tests
 

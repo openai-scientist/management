@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     engine_callback_base_url: str | None = None
     engines: dict[str, EngineSettings] = Field(default_factory=dict)
     pipelines: dict[str, list[PipelineStage]] = Field(default_factory=dict)
+    # The AI PI service. Unset: no PI, and the pipeline runs as before.
+    pi_service: EngineSettings | None = None
     default_pipeline: str = "default"
     max_auto_revisions: int = Field(2, ge=0)
     max_iterations: int = Field(3, ge=1)
@@ -77,6 +79,8 @@ class Settings(BaseSettings):
     engine_unreachable_alert_seconds: int = Field(600, ge=1)
     run_default_budget_usd: Decimal = Field(default=Decimal("5"), gt=0)
     run_max_budget_usd: Decimal = Field(default=Decimal("20"), gt=0)
+    # Off: runs never stop on USD cost, and engines get a nominal cap of 100x the maximum budget.
+    run_budget_enforced: bool = False
     # Email goes through Resend. Without a key, local and test write each message to the log.
     resend_api_key: SecretStr | None = None
     email_from: str = "AI Research Platform <no-reply@beyond8.io.vn>"

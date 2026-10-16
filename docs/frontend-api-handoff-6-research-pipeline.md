@@ -1,7 +1,7 @@
 # Research pipeline API: S1–S2
 
 Updated 2026-10-14. This handoff covers the Platform implementation through M11,
-on `refactor/feature-packages`. Engine contract: [1.1.0](contract/README.md).
+on `refactor/feature-packages`. Engine contract: [1.2.0](contract/README.md).
 The three-service live smoke is pending a configured local environment; the
 automated flow uses FakeEngine. S3 auto decisions and send-back are not available yet.
 
@@ -195,6 +195,43 @@ in `auto`; S3 will add explicit cases where auto stops for human intervention.
 |---|---|---|
 | GET | `/api/v1/notifications` | Existing notification list, including `run_awaiting_review`. |
 | GET | `/api/v1/notifications/stream` | Existing `notifications` SSE snapshots; replace the list on each snapshot. |
+
+## AI PI (Principal Investigator)
+
+The PI is on only when the server sets `PI_SERVICE`. Without it nothing below applies and
+`GET .../pi` answers `enabled:false`. With it, a new run first asks the PI for a research
+**charter** (`charter_status`: `none`, `pending`, `settled`). The first stage starts when the
+charter is settled: by the PI (`auto`), by `endorse`, or by `PUT .../pi/charter`.
+Routes sit under `/api/v1/projects/{project_id}/runs/{run_id}/pi`. Reads need project access;
+writes need the same role as accept (Project Manager or Researcher).
+
+| Method | Path | Result |
+|---|---|---|
+| GET | `/pi` | `enabled`, `charter`, `charter_status`, `authority` per kind, `stage_outcome_authority` per stage, open consultations. |
+| GET | `/pi/notebook` | The lab notebook: `decision`, `lesson`, `risk`, `observation`, `question`, `directive`, `override`, `brief` entries (`actor` is `pi` or `user`). |
+| GET | `/pi/consultations` | Every consultation: `kind`, `authority`, `status`, `result` (decision, rationale, confidence, escalate, handoff, brief), `trace` (steps the PI took: `{actor, tool, summary}`), `failure`, `cost_usd`. |
+| POST | `/pi/consultations/{id}/endorse` | Use the PI recommendation as your decision. Body `{reason?}`. 409 `CONSULTATION_STALE` when the situation changed. |
+| POST | `/pi/consultations/{id}/retry` | Ask again after `failed` or `stale`. Makes a new consultation with a new id; the old one stays. |
+| PUT | `/pi/charter` | Write or approve the charter. Body `{charter, reason?}`. After a stage completed, the new version has `post_hoc: true`. |
+| POST | `/pi/directives` | Body `{text}`. Goes in the notebook and in every later PI question and stage brief. |
+
+Consultation `kind`: `charter`, `gate_question`, `gate_review`, `stage_outcome`, `failure`,
+`close`. `authority` is `pi` (the PI decides and the Platform applies it) or `researcher`
+(the PI advises). Status: `queued`, `sent`, `applied`, `awaiting_researcher`, `endorsed`,
+`overridden`, `stale`, `failed`. Failed stages are always the researcher's decision.
+
+Timeline events (class `platform`, except `pi.decision` which is `activity`):
+`pi.consultation_requested`, `pi.decision` (actor `pi`, `summary` is the PI brief; one per
+answer), `pi.recommendation` (a recommendation waits for the researcher),
+`pi.charter_settled`. `attention.required` now also fires when the point is the researcher's,
+when the PI escalates, fails or cannot be reached; its payload adds `consultation_id`,
+`reason` (`researcher_decision`, `escalation`, `pi_failed`, `apply_failed`) and sometimes
+`code`. In every mode `attention.required` follows these rules while the PI is on.
+`decision.recorded` has `actor` `pi` for PI decisions and `consultation_id` in its payload.
+
+Acting yourself on a point where the PI was asked (gate answer, accept, send-back, rerun,
+stop) marks the consultation `overridden` and writes an `override` note. Send `reason` on
+those routes to explain; the PI reads it in the next question.
 
 ## Administrator setup
 

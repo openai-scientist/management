@@ -6,6 +6,7 @@ Thumbs.db
 *.log
 /plans/
 /docs/*
+!/docs/test-audit.md
 .[e]nv
 .[e]nv.*
 !.[e]nv.example

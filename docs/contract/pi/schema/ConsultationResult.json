@@ -1,0 +1,965 @@
+{
+  "$defs": {
+    "Anchor": {
+      "properties": {
+        "artifact_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Id"
+        },
+        "locator": {
+          "minLength": 1,
+          "title": "Locator",
+          "type": "string"
+        }
+      },
+      "required": [
+        "locator"
+      ],
+      "title": "Anchor",
+      "type": "object"
+    },
+    "Charter": {
+      "description": "`pi.charter/v1`: fixed before results exist, in the spirit of a pre-registration.",
+      "properties": {
+        "constraints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Constraints",
+          "type": "array"
+        },
+        "kill_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Kill Criteria",
+          "type": "array"
+        },
+        "motivation": {
+          "default": "",
+          "title": "Motivation",
+          "type": "string"
+        },
+        "objectives": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Objectives",
+          "type": "array"
+        },
+        "profile": {
+          "$ref": "#/$defs/ResearchProfile"
+        },
+        "question": {
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        },
+        "risk_posture": {
+          "default": "exploratory",
+          "enum": [
+            "exploratory",
+            "confirmatory"
+          ],
+          "title": "Risk Posture",
+          "type": "string"
+        },
+        "scope_in": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scope In",
+          "type": "array"
+        },
+        "scope_out": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scope Out",
+          "type": "array"
+        },
+        "success_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Success Criteria",
+          "type": "array"
+        }
+      },
+      "required": [
+        "question",
+        "objectives",
+        "success_criteria"
+      ],
+      "title": "Charter",
+      "type": "object"
+    },
+    "ConsideredOption": {
+      "properties": {
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "why_not": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Why Not"
+        }
+      },
+      "required": [
+        "action",
+        "summary"
+      ],
+      "title": "ConsideredOption",
+      "type": "object"
+    },
+    "CriticPoint": {
+      "properties": {
+        "fix_class": {
+          "default": "fix",
+          "enum": [
+            "fix",
+            "needs_evidence",
+            "later"
+          ],
+          "title": "Fix Class",
+          "type": "string"
+        },
+        "lens": {
+          "enum": [
+            "charter",
+            "risk",
+            "directive",
+            "integrity"
+          ],
+          "title": "Lens",
+          "type": "string"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator"
+        },
+        "point": {
+          "title": "Point",
+          "type": "string"
+        },
+        "point_id": {
+          "title": "Point Id",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "serious",
+            "minor"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "suggestion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggestion"
+        }
+      },
+      "required": [
+        "point_id",
+        "severity",
+        "lens",
+        "ref",
+        "point"
+      ],
+      "title": "CriticPoint",
+      "type": "object"
+    },
+    "CriticReport": {
+      "description": "The independent stage-end review. The PI answers its serious points.",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "model_shared_with": {
+          "anyOf": [
+            {
+              "const": "lead",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Shared With"
+        },
+        "obligations": {
+          "items": {
+            "$ref": "#/$defs/ObligationCheck"
+          },
+          "title": "Obligations",
+          "type": "array"
+        },
+        "points": {
+          "items": {
+            "$ref": "#/$defs/CriticPoint"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "resolutions": {
+          "items": {
+            "$ref": "#/$defs/CriticResolution"
+          },
+          "title": "Resolutions",
+          "type": "array"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "sound",
+            "concerns",
+            "serious"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "verdict",
+        "summary"
+      ],
+      "title": "CriticReport",
+      "type": "object"
+    },
+    "CriticResolution": {
+      "description": "The Critic's answer, in a repeat review, on one serious point of its earlier report.",
+      "properties": {
+        "point_id": {
+          "title": "Point Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "resolved",
+            "maintained"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "point_id",
+        "status",
+        "reason"
+      ],
+      "title": "CriticResolution",
+      "type": "object"
+    },
+    "CriticResponse": {
+      "properties": {
+        "point_id": {
+          "title": "Point Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "response": {
+          "enum": [
+            "accepted",
+            "rejected"
+          ],
+          "title": "Response",
+          "type": "string"
+        }
+      },
+      "required": [
+        "point_id",
+        "response",
+        "reason"
+      ],
+      "title": "CriticResponse",
+      "type": "object"
+    },
+    "Critique": {
+      "properties": {
+        "points": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "verdict": {
+          "enum": [
+            "upheld",
+            "revised"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "verdict"
+      ],
+      "title": "Critique",
+      "type": "object"
+    },
+    "DirectiveApplied": {
+      "properties": {
+        "entry_id": {
+          "title": "Entry Id",
+          "type": "string"
+        },
+        "how": {
+          "title": "How",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entry_id",
+        "how"
+      ],
+      "title": "DirectiveApplied",
+      "type": "object"
+    },
+    "Escalation": {
+      "properties": {
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/EscalationReason"
+        }
+      },
+      "required": [
+        "reason_code",
+        "message"
+      ],
+      "title": "Escalation",
+      "type": "object"
+    },
+    "EscalationReason": {
+      "enum": [
+        "integrity",
+        "charter_conflict",
+        "low_confidence",
+        "out_of_scope",
+        "cannot_decide"
+      ],
+      "title": "EscalationReason",
+      "type": "string"
+    },
+    "EvidencePoint": {
+      "properties": {
+        "point": {
+          "title": "Point",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "point"
+      ],
+      "title": "EvidencePoint",
+      "type": "object"
+    },
+    "FailureInfo": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "FailureInfo",
+      "type": "object"
+    },
+    "Finding": {
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/Anchor"
+        },
+        "author": {
+          "enum": [
+            "reviewer",
+            "researcher"
+          ],
+          "title": "Author",
+          "type": "string"
+        },
+        "category": {
+          "$ref": "#/$defs/FindingCategory",
+          "default": "other"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "finding_id": {
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "issue": {
+          "minLength": 1,
+          "title": "Issue",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FindingKind",
+          "default": "fix"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "suggestion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggestion"
+        }
+      },
+      "required": [
+        "finding_id",
+        "anchor",
+        "severity",
+        "issue",
+        "author"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "FindingCategory": {
+      "enum": [
+        "leakage",
+        "baseline",
+        "control",
+        "statistics",
+        "reproducibility",
+        "evidence",
+        "other"
+      ],
+      "title": "FindingCategory",
+      "type": "string"
+    },
+    "FindingKind": {
+      "enum": [
+        "fix",
+        "needs_evidence"
+      ],
+      "title": "FindingKind",
+      "type": "string"
+    },
+    "NoteDraft": {
+      "properties": {
+        "kind": {
+          "enum": [
+            "lesson",
+            "risk",
+            "observation",
+            "question"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ],
+      "title": "NoteDraft",
+      "type": "object"
+    },
+    "ObligationCheck": {
+      "properties": {
+        "locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "obligation_id": {
+          "title": "Obligation Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "controlled",
+            "unresolved"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "obligation_id",
+        "status"
+      ],
+      "title": "ObligationCheck",
+      "type": "object"
+    },
+    "PIAction": {
+      "enum": [
+        "charter",
+        "answer",
+        "approve",
+        "comment",
+        "accept",
+        "send_back",
+        "stop",
+        "rerun",
+        "report"
+      ],
+      "title": "PIAction",
+      "type": "string"
+    },
+    "PIDecision": {
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/PIAction"
+        },
+        "charter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Charter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/Finding"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "option_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Option Id"
+        },
+        "params": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Params",
+          "type": "object"
+        },
+        "selection": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Selection",
+          "type": "object"
+        },
+        "target_stage_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Stage Key"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "PIDecision",
+      "type": "object"
+    },
+    "ResearchProfile": {
+      "properties": {
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "research_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Type"
+        }
+      },
+      "title": "ResearchProfile",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "blocking",
+        "major",
+        "minor"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "TokenUsage": {
+      "properties": {
+        "input_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        }
+      },
+      "title": "TokenUsage",
+      "type": "object"
+    },
+    "TraceStep": {
+      "description": "One step of the PI agent loop: what it looked at or did, never full content.",
+      "properties": {
+        "actor": {
+          "enum": [
+            "pi",
+            "critic"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "tool",
+        "summary"
+      ],
+      "title": "TraceStep",
+      "type": "object"
+    }
+  },
+  "$id": "urn:research-contract:1.4.0:ConsultationResult",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "brief": {
+      "default": "",
+      "title": "Brief",
+      "type": "string"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confidence"
+    },
+    "consultation_id": {
+      "title": "Consultation Id",
+      "type": "string"
+    },
+    "critic_response": {
+      "items": {
+        "$ref": "#/$defs/CriticResponse"
+      },
+      "title": "Critic Response",
+      "type": "array"
+    },
+    "critique": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Critique"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "decision": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PIDecision"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "directives_applied": {
+      "items": {
+        "$ref": "#/$defs/DirectiveApplied"
+      },
+      "title": "Directives Applied",
+      "type": "array"
+    },
+    "escalate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Escalation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/EvidencePoint"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FailureInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "handoff": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Handoff",
+      "type": "array"
+    },
+    "notebook": {
+      "items": {
+        "$ref": "#/$defs/NoteDraft"
+      },
+      "title": "Notebook",
+      "type": "array"
+    },
+    "options_considered": {
+      "items": {
+        "$ref": "#/$defs/ConsideredOption"
+      },
+      "title": "Options Considered",
+      "type": "array"
+    },
+    "rationale": {
+      "default": "",
+      "title": "Rationale",
+      "type": "string"
+    },
+    "report": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CriticReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "status": {
+      "enum": [
+        "decided",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "trace": {
+      "items": {
+        "$ref": "#/$defs/TraceStep"
+      },
+      "title": "Trace",
+      "type": "array"
+    },
+    "usage": {
+      "additionalProperties": {
+        "$ref": "#/$defs/TokenUsage"
+      },
+      "propertyNames": {
+        "enum": [
+          "lead",
+          "critic"
+        ]
+      },
+      "title": "Usage",
+      "type": "object"
+    },
+    "would_change_my_mind": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Would Change My Mind",
+      "type": "array"
+    }
+  },
+  "required": [
+    "consultation_id",
+    "status"
+  ],
+  "title": "ConsultationResult",
+  "type": "object"
+}

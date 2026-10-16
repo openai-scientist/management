@@ -25,6 +25,12 @@ def _models(parent: type[c.ContractModel]) -> dict[str, type[c.ContractModel]]:
 
 
 WIRE_MODELS = _models(c.ContractModel)
+DIRECTORIES = ("schema", "examples", "pi/schema", "pi/examples")
+
+
+def folder(model: type[c.ContractModel]) -> str:
+    """The PI contract has its own folder so engines vendor only what they implement."""
+    return "pi/" if model.__module__ == "management.research.contracts.pi" else ""
 
 
 def example_payloads() -> tuple[dict[str, Any], dict[str, Any]]:
@@ -68,6 +74,95 @@ def example_payloads() -> tuple[dict[str, Any], dict[str, Any]]:
         "callback_url": "http://platform.test/api/v1/internal/engines/i2h/runs/s1",
         "inputs": {"params": {"topic": "Compare retrieval methods for research", "domains": []}},
     }
+    charter = {
+        "question": "Does retrieval method A beat method B on long documents?",
+        "objectives": ["Compare A and B"],
+        "success_criteria": ["A beats B by 3 points"],
+    }
+    consult_ref = ref | {
+        "role": "primary",
+        "stage_key": "hypothesis",
+        "stage_run_id": "s1",
+        "size_bytes": 1024,
+    }
+    pi_decision = {"action": "accept", "selection": {"hypothesis_ids": ["H1"]}}
+    obligation = {
+        "obligation_id": "R1",
+        "source_stage_key": "hypothesis",
+        "item_id": "H1",
+        "finding_id": "F4-1",
+        "text": "The baseline is not named",
+        "target_stage_key": "experiment_design",
+        "status": "controlled",
+        "locator": "plan:baselines",
+        "checked_by": "c2",
+    }
+    critic_point = {
+        "point_id": "C1",
+        "severity": "serious",
+        "lens": "risk",
+        "ref": "risk:R1",
+        "locator": "plan:baselines",
+        "point": "The plan does not control the known risk R1",
+        "suggestion": "Name the baseline in the plan",
+    }
+    critic_report = {
+        "verdict": "serious",
+        "summary": "One accepted risk is not controlled.",
+        "points": [critic_point],
+        "obligations": [
+            {"obligation_id": "R1", "status": "unresolved", "note": "No baseline in the plan"}
+        ],
+        "model": "openai_compatible/critic-example",
+        "model_shared_with": None,
+    }
+    pi_result = {
+        "consultation_id": "c1",
+        "status": "decided",
+        "decision": pi_decision,
+        "rationale": "H1 fits the charter",
+        "confidence": 0.7,
+        "handoff": ["Keep the baseline from the charter"],
+        "brief": "Accepted H1.",
+        "critic_response": [
+            {"point_id": "C1", "response": "accepted", "reason": "R1 stays an open risk"}
+        ],
+        "directives_applied": [{"entry_id": "n1", "how": "Small models only"}],
+        "trace": [{"actor": "pi", "tool": "read_artifact", "summary": "Read hypothesis H1"}],
+    }
+    consult_request = {
+        "contract_version": c.CONTRACT_VERSION,
+        "consultation_id": "c1",
+        "platform_run_id": "r1",
+        "kind": "stage_outcome",
+        "interaction_mode": "light",
+        "authority": "decide",
+        "topic": "Compare retrieval methods for research",
+        "charter": charter,
+        "situation": {
+            "stage_key": "hypothesis",
+            "stage_run_id": "s1",
+            "iteration": 1,
+            "max_iterations": 3,
+            "pipeline": [{"stage_key": "hypothesis", "engine": "i2h", "status": "COMPLETED"}],
+            "budget": {"limit_usd": "10"},
+        },
+        "allowed": [{"action": "accept", "selection_key": "hypothesis_ids"}],
+        "artifacts": [consult_ref],
+        "notebook": [
+            {
+                "kind": "directive",
+                "text": "Prefer small models",
+                "actor": "user",
+                "at": now,
+                "entry_id": "n1",
+            }
+        ],
+        "obligations": [obligation],
+        "critique": critic_report,
+        "models": {"lead": model, "critic": model | {"model": "critic-example"}},
+        "callback_url": "http://platform.test/api/v1/internal/pi/consultations/c1/result",
+    }
     activity = {
         "source_seq": 1,
         "type": "i2h.screen.scored",
@@ -99,6 +194,46 @@ def example_payloads() -> tuple[dict[str, Any], dict[str, Any]]:
     }
     delivered = {"artifact_id": "a1", "schema": "i2h.hypotheses/v1", "version": 1, "primary": True}
     samples = {
+        "Charter": charter,
+        "PipelineStageView": {"stage_key": "hypothesis", "engine": "i2h", "status": None},
+        "BudgetView": {"limit_usd": "10"},
+        "Situation": consult_request["situation"],
+        "AllowedAction": {"action": "accept", "selection_key": "hypothesis_ids"},
+        "ConsultArtifact": consult_ref,
+        "NotebookEntry": consult_request["notebook"][0],
+        "Obligation": obligation,
+        "CriticPoint": critic_point,
+        "ObligationCheck": critic_report["obligations"][0],
+        "CriticReport": critic_report,
+        "CriticResolution": {
+            "point_id": "C1",
+            "status": "maintained",
+            "reason": "The seed is still inconsistent",
+        },
+        "CriticResponse": pi_result["critic_response"][0],
+        "DirectiveApplied": pi_result["directives_applied"][0],
+        "PIModels": consult_request["models"],
+        "ConsultationRequest": consult_request,
+        "ConsultationAccepted": {"consultation_id": "c1", "created": True},
+        "PIDecision": pi_decision,
+        "ConsideredOption": {"action": "send_back", "summary": "Rework", "why_not": "No gap"},
+        "EvidencePoint": {"ref": "a1", "point": "H1 states a falsifiable criterion"},
+        "Critique": {"verdict": "upheld", "points": ["Baseline is named"]},
+        "Escalation": {"reason_code": "low_confidence", "message": "Two hypotheses tie"},
+        "NoteDraft": {"kind": "lesson", "text": "Name baselines early"},
+        "TraceStep": pi_result["trace"][0],
+        "ConsultationResult": pi_result,
+        "ConsultationState": {"consultation_id": "c1", "status": "decided", "result": pi_result},
+        "PIHealth": {
+            "status": "ok",
+            "service_version": "example",
+            "contract_version": c.CONTRACT_VERSION,
+        },
+        "PICapabilities": {
+            "service_version": "example",
+            "contract_version": c.CONTRACT_VERSION,
+            "kinds": ["charter", "stage_outcome"],
+        },
         "Anchor": anchor,
         "Finding": finding,
         "ReviewFindings": {
@@ -299,8 +434,8 @@ def render_contract() -> dict[str, str]:
 
     for name, model in sorted(WIRE_MODELS.items()):
         example = model.model_validate(samples[name]).model_dump(mode="json", by_alias=True)
-        output[f"schema/{name}.json"] = render(wire_schema(model))
-        output[f"examples/{name}.json"] = render(example)
+        output[f"{folder(model)}schema/{name}.json"] = render(wire_schema(model))
+        output[f"{folder(model)}examples/{name}.json"] = render(example)
     for kind, event in sorted(events.items()):
         output[f"examples/event-{kind}.json"] = render(
             c.EventEnvelope.model_validate(event).model_dump(mode="json", by_alias=True)
@@ -317,7 +452,7 @@ def main() -> None:
     output = render_contract()
     existing = {
         p.relative_to(DOCS).as_posix()
-        for directory in ("schema", "examples")
+        for directory in DIRECTORIES
         for p in (DOCS / directory).glob("*.json")
     }
     if args.check:

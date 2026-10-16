@@ -1,0 +1,61 @@
+{
+  "$defs": {
+    "ConsultationKind": {
+      "enum": [
+        "charter",
+        "gate_question",
+        "gate_review",
+        "stage_outcome",
+        "failure",
+        "close",
+        "stage_review"
+      ],
+      "title": "ConsultationKind",
+      "type": "string"
+    }
+  },
+  "$id": "urn:research-contract:1.4.0:PICapabilities",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "contract_version": {
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "kinds": {
+      "items": {
+        "$ref": "#/$defs/ConsultationKind"
+      },
+      "minItems": 1,
+      "title": "Kinds",
+      "type": "array"
+    },
+    "providers": {
+      "items": {
+        "enum": [
+          "openai_compatible",
+          "bedrock"
+        ],
+        "type": "string"
+      },
+      "title": "Providers",
+      "type": "array"
+    },
+    "service_key": {
+      "const": "pi",
+      "default": "pi",
+      "title": "Service Key",
+      "type": "string"
+    },
+    "service_version": {
+      "title": "Service Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "service_version",
+    "contract_version",
+    "kinds"
+  ],
+  "title": "PICapabilities",
+  "type": "object"
+}

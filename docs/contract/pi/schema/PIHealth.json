@@ -1,0 +1,35 @@
+{
+  "$id": "urn:research-contract:1.4.0:PIHealth",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "active_consultations": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Active Consultations",
+      "type": "integer"
+    },
+    "contract_version": {
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "service_version": {
+      "title": "Service Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "degraded"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "service_version",
+    "contract_version"
+  ],
+  "title": "PIHealth",
+  "type": "object"
+}

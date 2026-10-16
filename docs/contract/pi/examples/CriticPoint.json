@@ -1,0 +1,10 @@
+{
+  "fix_class": "fix",
+  "lens": "risk",
+  "locator": "plan:baselines",
+  "point": "The plan does not control the known risk R1",
+  "point_id": "C1",
+  "ref": "risk:R1",
+  "severity": "serious",
+  "suggestion": "Name the baseline in the plan"
+}

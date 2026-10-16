@@ -11,6 +11,8 @@ class PipelineStage(BaseModel):
     stage_key: str = Field(min_length=1)
     engine: str
     loop_back_to: list[str] = Field(default_factory=list)
+    # At `light`, the researcher decides the outcome of a checkpoint stage; the PI decides the rest.
+    checkpoint: bool = True
 
 
 def validate_pipelines(engines, pipelines, default_pipeline, callback_base) -> None:

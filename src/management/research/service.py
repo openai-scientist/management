@@ -319,6 +319,7 @@ def _run_item(
         auto_review=run.auto_review,
         budget_usd=run.budget_usd,
         cost_usd=run.cost_usd,
+        cost_unknown=bool(run.cost_unknown),
         failure_message=run.failure_message,
         created_at=run.created_at,
         started_at=run.started_at,

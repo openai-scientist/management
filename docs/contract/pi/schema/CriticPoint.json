@@ -1,0 +1,79 @@
+{
+  "$id": "urn:research-contract:1.4.0:CriticPoint",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "fix_class": {
+      "default": "fix",
+      "enum": [
+        "fix",
+        "needs_evidence",
+        "later"
+      ],
+      "title": "Fix Class",
+      "type": "string"
+    },
+    "lens": {
+      "enum": [
+        "charter",
+        "risk",
+        "directive",
+        "integrity"
+      ],
+      "title": "Lens",
+      "type": "string"
+    },
+    "locator": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Locator"
+    },
+    "point": {
+      "title": "Point",
+      "type": "string"
+    },
+    "point_id": {
+      "title": "Point Id",
+      "type": "string"
+    },
+    "ref": {
+      "title": "Ref",
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "serious",
+        "minor"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "suggestion": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Suggestion"
+    }
+  },
+  "required": [
+    "point_id",
+    "severity",
+    "lens",
+    "ref",
+    "point"
+  ],
+  "title": "CriticPoint",
+  "type": "object"
+}

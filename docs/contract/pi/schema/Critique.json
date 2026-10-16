@@ -1,0 +1,26 @@
+{
+  "$id": "urn:research-contract:1.4.0:Critique",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "points": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Points",
+      "type": "array"
+    },
+    "verdict": {
+      "enum": [
+        "upheld",
+        "revised"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "required": [
+    "verdict"
+  ],
+  "title": "Critique",
+  "type": "object"
+}

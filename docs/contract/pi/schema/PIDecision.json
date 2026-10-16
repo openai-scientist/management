@@ -1,0 +1,332 @@
+{
+  "$defs": {
+    "Anchor": {
+      "properties": {
+        "artifact_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Id"
+        },
+        "locator": {
+          "minLength": 1,
+          "title": "Locator",
+          "type": "string"
+        }
+      },
+      "required": [
+        "locator"
+      ],
+      "title": "Anchor",
+      "type": "object"
+    },
+    "Charter": {
+      "description": "`pi.charter/v1`: fixed before results exist, in the spirit of a pre-registration.",
+      "properties": {
+        "constraints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Constraints",
+          "type": "array"
+        },
+        "kill_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Kill Criteria",
+          "type": "array"
+        },
+        "motivation": {
+          "default": "",
+          "title": "Motivation",
+          "type": "string"
+        },
+        "objectives": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Objectives",
+          "type": "array"
+        },
+        "profile": {
+          "$ref": "#/$defs/ResearchProfile"
+        },
+        "question": {
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        },
+        "risk_posture": {
+          "default": "exploratory",
+          "enum": [
+            "exploratory",
+            "confirmatory"
+          ],
+          "title": "Risk Posture",
+          "type": "string"
+        },
+        "scope_in": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scope In",
+          "type": "array"
+        },
+        "scope_out": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scope Out",
+          "type": "array"
+        },
+        "success_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Success Criteria",
+          "type": "array"
+        }
+      },
+      "required": [
+        "question",
+        "objectives",
+        "success_criteria"
+      ],
+      "title": "Charter",
+      "type": "object"
+    },
+    "Finding": {
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/Anchor"
+        },
+        "author": {
+          "enum": [
+            "reviewer",
+            "researcher"
+          ],
+          "title": "Author",
+          "type": "string"
+        },
+        "category": {
+          "$ref": "#/$defs/FindingCategory",
+          "default": "other"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "finding_id": {
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "issue": {
+          "minLength": 1,
+          "title": "Issue",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FindingKind",
+          "default": "fix"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "suggestion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggestion"
+        }
+      },
+      "required": [
+        "finding_id",
+        "anchor",
+        "severity",
+        "issue",
+        "author"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "FindingCategory": {
+      "enum": [
+        "leakage",
+        "baseline",
+        "control",
+        "statistics",
+        "reproducibility",
+        "evidence",
+        "other"
+      ],
+      "title": "FindingCategory",
+      "type": "string"
+    },
+    "FindingKind": {
+      "enum": [
+        "fix",
+        "needs_evidence"
+      ],
+      "title": "FindingKind",
+      "type": "string"
+    },
+    "PIAction": {
+      "enum": [
+        "charter",
+        "answer",
+        "approve",
+        "comment",
+        "accept",
+        "send_back",
+        "stop",
+        "rerun",
+        "report"
+      ],
+      "title": "PIAction",
+      "type": "string"
+    },
+    "ResearchProfile": {
+      "properties": {
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "research_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Type"
+        }
+      },
+      "title": "ResearchProfile",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "blocking",
+        "major",
+        "minor"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "$id": "urn:research-contract:1.4.0:PIDecision",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/PIAction"
+    },
+    "charter": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Charter"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "option_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Option Id"
+    },
+    "params": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Params",
+      "type": "object"
+    },
+    "selection": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Selection",
+      "type": "object"
+    },
+    "target_stage_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Stage Key"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "title": "PIDecision",
+  "type": "object"
+}

@@ -65,24 +65,34 @@ async def get_models(principal: Principal = Depends(require_platform_admin), db=
         p.role: p
         for p in await db.scalars(select(ModelProfile).where(ModelProfile.scope == "global"))
     }
-    return ok({role: profile_out(profiles.get(role)) for role in ("stage", "review")})
+    return ok({role: profile_out(profiles.get(role)) for role in ("stage", "review", "critic")})
 
 
 @router.put("/models/{role}", dependencies=[Depends(require_active_csrf)])
 async def put_model(
-    role: Literal["stage", "review"],
+    role: Literal["stage", "review", "critic"],
     body: ModelProfileIn,
     request: Request,
     principal: Principal = Depends(require_platform_admin),
     db=Depends(get_db),
 ):
     box = require_secret_box(request.app.state.secret_box)
-    other = await db.scalar(
+    # Stage and review must differ. The Critic must differ from the stage model; it may share
+    # the review model (the lead).
+    other_roles = {"stage": ("review", "critic"), "review": ("stage",), "critic": ("stage",)}
+    others = await db.scalars(
         select(ModelProfile)
-        .where(ModelProfile.role != role, ModelProfile.scope == "global")
+        .where(ModelProfile.role.in_(other_roles[role]), ModelProfile.scope == "global")
         .with_for_update()
     )
-    if other and (other.provider, other.model) == (body.provider, body.model):
+    clash = [o.role for o in others if (o.provider, o.model) == (body.provider, body.model)]
+    if clash:
+        if "critic" in (role, *clash):
+            raise APIError(
+                422,
+                "CRITIC_MODEL_SAME_AS_STAGE",
+                "Critic model must differ from stage model",
+            )
         raise APIError(
             422, "REVIEW_MODEL_SAME_AS_STAGE", "Review model must differ from stage model"
         )

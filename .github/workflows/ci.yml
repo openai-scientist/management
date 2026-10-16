@@ -3,7 +3,14 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
+    tags: ['**']
+  merge_group:
+  release:
+    types: [published]
+  schedule:
+    - cron: '21 2 * * *'
+  workflow_dispatch:
 
 jobs:
   test:
@@ -30,6 +37,8 @@ jobs:
       SESSION_SIGNING_SECRET: ci-only-session-signing-secret-change-me
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -37,9 +46,33 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen --all-groups
-      - run: uv run ruff format --check src alembic tests
-      - run: uv run ruff check src alembic tests
+      - name: Select affected tests once
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TARGET_BRANCH: ${{ github.base_ref }}
+        shell: bash
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            uv run python scripts/affected_tests.py --base "origin/$TARGET_BRANCH" --output "$RUNNER_TEMP/test-selection.json"
+          else
+            uv run python scripts/affected_tests.py --full --output "$RUNNER_TEMP/test-selection.json"
+          fi
+      - run: uv run ruff format --check src alembic tests scripts
+      - run: uv run ruff check src alembic tests scripts
       - run: uv run lint-imports
       - run: uv run alembic upgrade head
-      - run: uv run pytest -q
+      - name: Run selected tests
+        shell: bash
+        run: uv run python scripts/affected_tests.py --run-plan "$RUNNER_TEMP/test-selection.json"
       - run: docker build --file docker/Dockerfile --tag ai-research-platform-be:ci .
+
+  gate:
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require all checks to succeed
+        env:
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: python scripts/affected_tests.py --gate "$CHECK_RESULTS"

@@ -21,34 +21,44 @@ def _open(box: SecretBox | None, ciphertext: str, code: str, message: str) -> di
         raise APIError(409, code, message) from None
 
 
-async def load_models(db, box) -> Models:
-    profiles = {
+def _config(row, box) -> ModelConfig:
+    key = (
+        _open(
+            box,
+            row.api_key_encrypted,
+            "MODEL_KEY_UNREADABLE",
+            f"The saved API key for the {row.role} model can't be read. "
+            "An admin needs to enter it again.",
+        )["api_key"]
+        if row.api_key_encrypted
+        else None
+    )
+    return ModelConfig(
+        provider=row.provider, base_url=row.base_url, model=row.model, api_key=key, extra=row.extra
+    )
+
+
+async def _profiles(db) -> dict[str, ModelProfile]:
+    return {
         row.role: row
         for row in await db.scalars(select(ModelProfile).where(ModelProfile.scope == "global"))
     }
-    if set(profiles) != {"stage", "review"}:
+
+
+async def load_models(db, box) -> Models:
+    profiles = await _profiles(db)
+    if not {"stage", "review"} <= set(profiles):
         raise APIError(409, "MODELS_NOT_CONFIGURED", "Configure both stage and review models")
-    models = {}
-    for role, row in profiles.items():
-        key = (
-            _open(
-                box,
-                row.api_key_encrypted,
-                "MODEL_KEY_UNREADABLE",
-                f"The saved API key for the {role} model can't be read. "
-                "An admin needs to enter it again.",
-            )["api_key"]
-            if row.api_key_encrypted
-            else None
-        )
-        models[role] = ModelConfig(
-            provider=row.provider,
-            base_url=row.base_url,
-            model=row.model,
-            api_key=key,
-            extra=row.extra,
-        )
-    return Models(**models)
+    return Models(**{role: _config(profiles[role], box) for role in ("stage", "review")})
+
+
+async def load_critic_model(db, box) -> ModelConfig:
+    """The Critic model: the global `critic` profile, else the `review` profile."""
+    profiles = await _profiles(db)
+    row = profiles.get("critic") or profiles.get("review")
+    if row is None:
+        raise APIError(409, "MODELS_NOT_CONFIGURED", "Configure both stage and review models")
+    return _config(row, box)
 
 
 async def load_integrations(db, box) -> dict[str, SecretStr]:

@@ -1,6 +1,6 @@
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -12,6 +12,8 @@ from management.infra.file_store import attachment_headers, safe_filename
 from management.research.contracts import ArtifactMeta, EventBatch
 from management.research.models import ResearchRun, RunArtifact, StageRun
 from management.research.orchestrator import apply_engine_event
+from management.research.pi.review_gate import answer_review_gates_safely
+from management.research.pi.service import flush_consultations, pi_active
 from management.research.stage_runs import append_run_event
 
 
@@ -55,7 +57,14 @@ async def locked_stage(db, engine_key, stage_run_id):
 
 
 @router.post("/{engine_key}/runs/{stage_run_id}/events")
-async def events(engine_key: str, stage_run_id: UUID, body: EventBatch, db=Depends(get_db)):
+async def events(
+    engine_key: str,
+    stage_run_id: UUID,
+    body: EventBatch,
+    request: Request,
+    background: BackgroundTasks,
+    db=Depends(get_db),
+):
     run, stage = await locked_stage(db, engine_key, stage_run_id)
     delivered = stage.last_source_seq
     accepted, skipped = [], 0
@@ -85,9 +94,12 @@ async def events(engine_key: str, stage_run_id: UUID, body: EventBatch, db=Depen
             source_seq=event.source_seq,
             envelope=event,
         )
-        await apply_engine_event(db, stage, event)
+        await apply_engine_event(db, stage, event, request.app.state)
         stage.last_source_seq = event.source_seq
     await db.flush()
+    if accepted and pi_active(request.app.state, run):
+        await flush_consultations(db, request.app.state, run.id, answer_gates=False)
+        background.add_task(answer_review_gates_safely, request.app.state, run.id)
     return {"accepted": len(accepted), "skipped": skipped}
 
 

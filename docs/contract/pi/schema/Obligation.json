@@ -1,0 +1,102 @@
+{
+  "$id": "urn:research-contract:1.4.0:Obligation",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A known risk carried to the stage that must control it.",
+  "properties": {
+    "checked_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Checked By"
+    },
+    "finding_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finding Id"
+    },
+    "item_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Item Id"
+    },
+    "locator": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Locator"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "obligation_id": {
+      "title": "Obligation Id",
+      "type": "string"
+    },
+    "source_stage_key": {
+      "title": "Source Stage Key",
+      "type": "string"
+    },
+    "status": {
+      "default": "open",
+      "enum": [
+        "open",
+        "controlled",
+        "unresolved"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "target_stage_key": {
+      "title": "Target Stage Key",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 600,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "obligation_id",
+    "source_stage_key",
+    "text",
+    "target_stage_key"
+  ],
+  "title": "Obligation",
+  "type": "object"
+}

@@ -1,5 +1,5 @@
 {
-  "$id": "urn:research-contract:1.1.0:Anchor",
+  "$id": "urn:research-contract:1.4.0:Anchor",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "artifact_id": {

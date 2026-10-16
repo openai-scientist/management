@@ -3,7 +3,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
-CONTRACT_VERSION = "1.1.0"
+CONTRACT_VERSION = "1.4.0"
 
 
 class ContractModel(BaseModel):
