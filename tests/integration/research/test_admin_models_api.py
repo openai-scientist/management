@@ -1,9 +1,13 @@
 import json
 
+import pytest
+from cryptography.fernet import Fernet
 from sqlalchemy import select
 
 from management.audit.models import AuditEvent
+from management.core.errors import APIError
 from management.identity.bootstrap_admin import bootstrap_admin
+from management.infra.secret_box import SecretBox
 from management.research.model_profiles import load_models
 from management.research.models import ModelProfile
 from tests.helpers.identity import login, mutation_headers
@@ -55,6 +59,19 @@ async def test_put_and_get_hides_key_and_secret_not_in_audit(harness):
         assert models.stage.api_key.get_secret_value() == "model-secret"
         audit = list((await db.scalars(select(AuditEvent))).all())
         assert "model-secret" not in json.dumps([a.details for a in audit])
+
+
+async def test_key_sealed_under_another_secret_key_names_the_model(harness):
+    async with harness.client() as client:
+        session = await admin_session(harness, client)
+        headers = mutation_headers(session["csrf_token"])
+        await client.put(MODELS + "/stage", json=model_payload(), headers=headers)
+        await client.put(MODELS + "/review", json=model_payload("review"), headers=headers)
+    async with harness.factory() as db:
+        with pytest.raises(APIError) as caught:
+            await load_models(db, SecretBox(Fernet.generate_key().decode()))
+    assert caught.value.status_code == 409
+    assert caught.value.code == "MODEL_KEY_UNREADABLE"
 
 
 async def test_review_same_as_stage_rejected(harness):
