@@ -197,11 +197,7 @@ async def start_stage(
     }
     if any(value is None for prices in pricing.values() for value in prices.values()):
         run.cost_unknown = True
-    enforced = (
-        not run.cost_unknown
-        if settings.run_budget_enforced is None
-        else settings.run_budget_enforced
-    )
+    enforced = settings.run_budget_enforced
     remaining = Decimal(run.budget_usd) - Decimal(run.cost_usd or 0)
     # Not enforced: engines get a large nominal cap, so they never pause on their own.
     engine_budget = (
