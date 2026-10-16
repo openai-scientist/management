@@ -241,6 +241,10 @@ class FakeGoogleDrive:
         # Set to an event to send half of a download and the rest once the event is set.
         self.stall_downloads: asyncio.Event | None = None
         self.stalled = asyncio.Event()
+        # Set to an event to keep every Drive request waiting until the event is set; each
+        # one counts in `held` before it waits.
+        self.hold: asyncio.Event | None = None
+        self.held = 0
         self.transport = httpx.MockTransport(self._answer)
 
     async def _answer(self, request: httpx.Request) -> httpx.Response:
@@ -248,6 +252,9 @@ class FakeGoogleDrive:
             return await self.sheets._answer(request)
         assert request.method == "GET"
         assert request.url.host == "www.googleapis.com" and request.url.scheme == "https"
+        if self.hold is not None:
+            self.held += 1
+            await self.hold.wait()
         if isinstance(self.fail_with, Exception):
             raise self.fail_with
         if isinstance(self.fail_with, httpx.Response):

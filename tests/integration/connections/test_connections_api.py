@@ -1,5 +1,6 @@
 import asyncio
 import json
+from uuid import UUID
 
 import pytest
 from sqlalchemy import select
@@ -64,7 +65,9 @@ async def test_create_read_rename_test_and_delete(harness: Harness) -> None:
         assert [item["name"] for item in found.json()["data"]] == ["Warehouse"]
         assert without_times((await client.get(url)).json()["data"]) == without_times(created)
 
-        taken = await create_connection(client, session, project["id"], name="warehouse")
+        taken = await create_connection(
+            client, session, project["id"], name="warehouse", database="other"
+        )
         assert taken.status_code == 409
         assert taken.json()["error"]["code"] == "CONNECTION_NAME_EXISTS"
         taken = await client.patch(url, json={"name": "REPLICA"}, headers=headers)
@@ -323,26 +326,32 @@ async def test_slow_servers_fill_a_project_without_blocking_the_others(harness: 
         quiet = await create_project(client, session, name="Quiet")
 
         waiting = [
-            asyncio.create_task(create_connection(client, session, busy["id"], name=f"Slow {n}"))
+            asyncio.create_task(
+                create_connection(client, session, busy["id"], name=f"Slow {n}", database=f"db{n}")
+            )
             for n in range(2)
         ]
         await wait_until(lambda: harness.connectors.tests_started == 2)
         # No Platform database transaction is held while those two wait on their servers.
-        refused = await create_connection(client, session, busy["id"], name="One too many")
+        refused = await create_connection(
+            client, session, busy["id"], name="One too many", database="db2"
+        )
         assert refused.status_code == 429
         assert refused.json()["error"]["code"] == "CONNECTION_BUSY"
 
         other = asyncio.create_task(create_connection(client, session, quiet["id"]))
         await wait_until(lambda: harness.connectors.tests_started == 3)
         # The process-wide limit is the last line: with it reached, nobody starts another.
-        full = await create_connection(client, session, quiet["id"], name="Overall limit")
+        full = await create_connection(
+            client, session, quiet["id"], name="Overall limit", database="db3"
+        )
         assert full.json()["error"]["code"] == "CONNECTION_BUSY"
 
         harness.connectors.hold.set()
         responses = await asyncio.gather(*waiting, other)
         assert [response.status_code for response in responses] == [201, 201, 201]
         harness.connectors.hold = None
-        after = await create_connection(client, session, busy["id"], name="After")
+        after = await create_connection(client, session, busy["id"], name="After", database="db4")
         assert after.status_code == 201, after.text
 
 
@@ -531,7 +540,12 @@ async def test_a_mysql_connection_is_created_with_its_own_defaults(harness: Harn
         assert (built["kind"], built["secret"]) == ("mysql", {"password": SECRET})
 
         # A public server may have no password at all, but there is always a database.
-        open_to_all = {**body, "name": "Open", "secret": {}}
+        open_to_all = {
+            **body,
+            "name": "Open",
+            "config": {**body["config"], "username": "anonymous"},
+            "secret": {},
+        }
         assert (await client.post(base, json=open_to_all, headers=headers)).status_code == 201
         assert harness.connectors.built[-1]["secret"] == {"password": ""}
 
@@ -733,3 +747,64 @@ async def test_the_real_factory_builds_a_bigquery_connection_without_a_host(
     assert type(connector).__name__ == "BigQueryConnector"
     assert connector._max_bytes_billed == harness.settings.connection_bigquery_max_bytes_billed
     assert harness.settings.connection_bigquery_max_bytes_billed == 1024**3
+
+
+@pytest.mark.asyncio
+async def test_a_source_is_connected_once_and_a_broken_one_takes_new_credentials(
+    harness: Harness,
+) -> None:
+    async with harness.client() as client, harness.client() as member_client:
+        session = await login(harness, client, uid="owner", email="owner@example.com")
+        member = await login(harness, member_client, uid="member", email="member@example.com")
+        project = await create_project(client, session)
+        await add_member(client, session, project["id"], "member@example.com", "researcher")
+        base = f"{PROJECTS}/{project['id']}/connections"
+        created = await create_connection(client, session, project["id"])
+        assert created.status_code == 201, created.text
+        connection_id = created.json()["data"]["id"]
+
+        # The same server, database and user under another name: the saved one answers.
+        again = await create_connection(
+            client, session, project["id"], name="Copy", host="DB.Example.com"
+        )
+        assert again.status_code == 200, again.text
+        assert again.json()["message"] == "Already connected"
+        assert again.json()["data"]["id"] == connection_id
+        tests_before = harness.connectors.tests_started
+        theirs = await create_connection(member_client, member, project["id"], name="Theirs")
+        assert theirs.json()["data"]["id"] == connection_id
+        assert harness.connectors.tests_started == tests_before
+
+        # Another port, database or user is another source.
+        for change in ({"port": 6543}, {"database": "other"}, {"username": "writer"}):
+            other = await create_connection(
+                client, session, project["id"], name=f"Other {list(change)[0]}", **change
+            )
+            assert other.status_code == 201, other.text
+
+        # It stopped working: its creator's new password is tried and kept.
+        async with harness.factory() as db:
+            row = await db.get(DataConnection, UUID(connection_id))
+            row.last_error_code = "auth_failed"
+            await db.commit()
+        body = connection_body(name="Fixed") | {"secret": {"password": "a-new-password"}}
+        unchanged = await member_client.post(
+            base, json=body, headers=mutation_headers(member["csrf_token"])
+        )
+        assert unchanged.status_code == 200, unchanged.text
+        assert unchanged.json()["data"]["last_error_code"] == "auth_failed"
+        fixed = await client.post(base, json=body, headers=mutation_headers(session["csrf_token"]))
+        assert fixed.status_code == 200, fixed.text
+        assert fixed.json()["data"]["id"] == connection_id
+        assert fixed.json()["data"]["last_error_code"] is None
+        assert "a-new-password" not in fixed.text
+        assert harness.connectors.built[-1]["secret"] == {"password": "a-new-password"}
+
+    async with harness.factory() as db:
+        rows = list(await db.scalars(select(DataConnection)))
+    assert len(rows) == 4
+    (row,) = [row for row in rows if str(row.id) == connection_id]
+    assert row.name == "Warehouse"
+    assert SecretBox(CONNECTION_KEY).open(row.secret_ciphertext) == {"password": "a-new-password"}
+    (event,) = await audit_events(harness, "connection.reauthorized")
+    assert event.details == {"kind": "postgres", "host": "db.example.com", "port": 5432}

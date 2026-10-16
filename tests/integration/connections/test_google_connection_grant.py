@@ -121,7 +121,8 @@ async def test_the_client_asks_for_drive_and_trades_the_code_for_a_refresh_token
         "scope": ["openid email https://www.googleapis.com/auth/drive.readonly"],
         "state": ["the-state"],
         "access_type": ["offline"],
-        "prompt": ["consent"],
+        # Google always asks which account: not necessarily the one signed in here.
+        "prompt": ["select_account consent"],
     }
     assert CLIENT_SECRET not in url.query
 

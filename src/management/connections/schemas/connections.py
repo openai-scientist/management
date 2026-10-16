@@ -159,6 +159,16 @@ class GoogleSheetsConfig(BaseModel, extra="forbid"):
         return parse_spreadsheet_id(value)
 
 
+GRANT_ID = (
+    "The `google_grant` the browser came back from Google with. It works once, for the user "
+    "who started and in that project, within 10 minutes."
+)
+ACCOUNT_ID = (
+    "The caller's own `google` connection in this project, whose access the new connection "
+    "gets a copy of. Nothing is asked of Google again."
+)
+
+
 class CreateGoogleSheetsConnection(BaseModel, extra="forbid"):
     """One Google spreadsheet, read as the Google account that gave access.
 
@@ -170,12 +180,25 @@ class CreateGoogleSheetsConnection(BaseModel, extra="forbid"):
     name: ConnectionName
     kind: Literal["google_sheets"]
     config: GoogleSheetsConfig
-    grant_id: UUID = Field(
+    account_id: UUID = Field(description=ACCOUNT_ID)
+
+
+class CreateGoogleConnection(BaseModel, extra="forbid"):
+    """A member's Google account, kept for them alone to pick spreadsheets and folders with.
+
+    It is not read itself and only its creator sees it. Each member has at most one in a
+    project. The saved `config` holds `account_email` and `google_subject`.
+    """
+
+    name: ConnectionName | None = Field(
+        default=None,
         description=(
-            "The `google_grant` the browser came back from Google with. It works once, for "
-            "the user who started and in that project, within 10 minutes."
-        )
+            "Left out, `Google account`, with ` (2)`, ` (3)` and so on when the project "
+            "already has a connection by that name."
+        ),
     )
+    kind: Literal["google"]
+    grant_id: UUID = Field(description=GRANT_ID)
 
 
 class GoogleDriveConfig(BaseModel, extra="forbid"):
@@ -205,12 +228,7 @@ class CreateGoogleDriveConnection(BaseModel, extra="forbid"):
     name: ConnectionName
     kind: Literal["google_drive"]
     config: GoogleDriveConfig
-    grant_id: UUID = Field(
-        description=(
-            "The `google_grant` the browser came back from Google with. It works once, for "
-            "the user and the project it was given to."
-        )
-    )
+    account_id: UUID = Field(description=ACCOUNT_ID)
 
 
 class _HttpServerConfig(BaseModel, extra="forbid"):
@@ -333,6 +351,7 @@ CreateConnection = Annotated[
     CreatePostgresConnection
     | CreateMysqlConnection
     | CreateBigQueryConnection
+    | CreateGoogleConnection
     | CreateGoogleSheetsConnection
     | CreateGoogleDriveConnection
     | CreatePrometheusConnection
@@ -432,10 +451,6 @@ class LiveData(BaseModel):
             "Ask for fewer tags."
         )
     )
-
-
-class GooglePickerRequest(BaseModel, extra="forbid"):
-    grant_id: UUID
 
 
 class GooglePickerCredentials(BaseModel):

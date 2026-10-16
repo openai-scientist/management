@@ -7,6 +7,7 @@ from fastapi import Request
 
 from management.connections.connectors.base import Connector, ConnectorError
 from management.connections.connectors.bigquery import BigQueryConnector
+from management.connections.connectors.google_account import GoogleAccountConnector
 from management.connections.connectors.google_drive import GoogleDriveConnector
 from management.connections.connectors.google_sheets import GoogleSheetsConnector
 from management.connections.connectors.http_source import PinnedHttp, parse_server_url
@@ -72,11 +73,19 @@ class _DefaultConnectorFactory:
                 query_timeout=self._settings.connection_query_timeout_seconds,
                 max_bytes_billed=self._settings.connection_bigquery_max_bytes_billed,
             )
-        if kind in ("google_sheets", "google_drive"):
+        if kind in ("google", "google_sheets", "google_drive"):
             # No host to check either: the addresses are fixed and only what is read varies.
             if self._google_oauth is None:
                 raise ConnectorError(
                     "unreachable", "Google connections are not configured on this server"
+                )
+            if kind == "google":
+                return GoogleAccountConnector(
+                    secret,
+                    oauth=self._google_oauth,
+                    connect_timeout=self._settings.connection_connect_timeout_seconds,
+                    query_timeout=self._settings.connection_query_timeout_seconds,
+                    transport=self._google_transport,
                 )
             if kind == "google_drive":
                 return GoogleDriveConnector(

@@ -358,8 +358,25 @@ async def google_grant(harness: Harness, session: dict, project: dict, refresh_t
     return str(grant.id)
 
 
+async def keep_google_account(client: AsyncClient, session: dict, project: dict, grant_id: str):
+    """Keep the member's Google account from a grant; spreadsheets and folders are picked
+    with it."""
+    return await client.post(
+        f"{PROJECTS}/{project['id']}/connections",
+        json={"kind": "google", "grant_id": grant_id},
+        headers=mutation_headers(session["csrf_token"]),
+    )
+
+
+async def google_account(client: AsyncClient, session: dict, project: dict, grant_id: str) -> str:
+    kept = await keep_google_account(client, session, project, grant_id)
+    assert kept.status_code == 201, kept.text
+    assert GOOGLE_REFRESH_TOKEN not in kept.text
+    return kept.json()["data"]["id"]
+
+
 async def create_google_connection(
-    client: AsyncClient, session: dict, project: dict, grant_id: str, kind: str, config: dict
+    client: AsyncClient, session: dict, project: dict, account_id: str, kind: str, config: dict
 ):
     return await client.post(
         f"{PROJECTS}/{project['id']}/connections",
@@ -367,7 +384,7 @@ async def create_google_connection(
             "name": f"Live {kind} {secrets.token_hex(4)}",
             "kind": kind,
             "config": config,
-            "grant_id": grant_id,
+            "account_id": account_id,
         },
         headers=mutation_headers(session["csrf_token"]),
     )
@@ -416,16 +433,8 @@ async def test_google_refuses_a_refresh_token_it_never_issued(google_live: Harne
     async with google_live.client() as client:
         session, project = await google_project(google_live, client)
         grant_id = await google_grant(google_live, session, project, "1//not-a-refresh-token")
-        created = await create_google_connection(
-            client,
-            session,
-            project,
-            grant_id,
-            "google_sheets",
-            # A well-formed ID; Google is never asked about it.
-            {"spreadsheet": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"},
-        )
-        assert failure(created) == (422, "CONNECTION_FAILED", "access_revoked")
+        kept = await keep_google_account(client, session, project, grant_id)
+        assert failure(kept) == (422, "CONNECTION_FAILED", "access_revoked")
 
 
 @needs_google_client
@@ -439,21 +448,28 @@ async def test_google_sheets_from_connection_to_dataset(google_live: Harness) ->
     async with google_live.client() as client:
         session, project = await google_project(google_live, client)
         grant_id = await google_grant(google_live, session, project, GOOGLE_REFRESH_TOKEN)
+        account_id = await google_account(client, session, project, grant_id)
+        steps.done("keep_account")
 
         nowhere = await create_google_connection(
             client,
             session,
             project,
-            grant_id,
+            account_id,
             "google_sheets",
             {"spreadsheet": "1-no-spreadsheet-has-this-id-0123456789abcdefghij"},
         )
         assert failure(nowhere) == (422, "CONNECTION_FAILED", "permission_denied")
         steps.done("refused_unknown_spreadsheet")
 
-        # The grant is still good: the connection it was meant for does not exist yet.
+        # The account is still there to pick another spreadsheet with.
         created = await create_google_connection(
-            client, session, project, grant_id, "google_sheets", {"spreadsheet": GOOGLE_SPREADSHEET}
+            client,
+            session,
+            project,
+            account_id,
+            "google_sheets",
+            {"spreadsheet": GOOGLE_SPREADSHEET},
         )
         assert created.status_code == 201, created.text
         connection = created.json()["data"]
@@ -488,8 +504,9 @@ async def test_google_drive_from_connection_to_datasets(google_live: Harness) ->
     async with google_live.client() as client:
         session, project = await google_project(google_live, client)
         grant_id = await google_grant(google_live, session, project, GOOGLE_REFRESH_TOKEN)
+        account_id = await google_account(client, session, project, grant_id)
         created = await create_google_connection(
-            client, session, project, grant_id, "google_drive", {"folder": GOOGLE_FOLDER}
+            client, session, project, account_id, "google_drive", {"folder": GOOGLE_FOLDER}
         )
         assert created.status_code == 201, created.text
         connection = created.json()["data"]

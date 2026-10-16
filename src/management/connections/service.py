@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -9,7 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import Request
-from sqlalchemy import delete, func, select
+from sqlalchemy import ColumnElement, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.access.service import (
@@ -34,14 +35,22 @@ from management.connections.models import DataConnection, GoogleConnectionGrant
 from management.connections.schemas.connections import PREVIEW_CELL_CHARS, ConnectionItem
 from management.core.errors import APIError
 from management.core.responses import ErrorResponse
+from management.core.roles import ProjectRole
 from management.core.sessions import Principal
 from management.infra.secret_box import SecretBox, SecretBoxError
+from management.projects.models import ProjectMembership
 
 logger = logging.getLogger("management.connectors")
 
 
 CONNECTION_ERRORS = {
-    403: {"model": ErrorResponse, "description": "Project Manager or Researcher role is required"},
+    403: {
+        "model": ErrorResponse,
+        "description": (
+            "Project Manager or Researcher role is required, or only the connection's creator "
+            "or a Project Manager may change it (`CONNECTION_OWNER_ONLY`)"
+        ),
+    },
     404: {"model": ErrorResponse, "description": "The project or connection was not found"},
     409: {"model": ErrorResponse, "description": "The project is archived or the name is taken"},
 }
@@ -89,6 +98,47 @@ async def find_connection(
     return row
 
 
+def manages(membership: ProjectMembership | None) -> bool:
+    """A Project Manager, or a Platform Admin, who has no membership."""
+    return membership is None or membership.role_code == ProjectRole.MANAGER
+
+
+def own_account(row: DataConnection, principal: Principal) -> bool:
+    return row.kind == "google" and row.created_by_user_id == principal.user.id
+
+
+def listed_for(principal: Principal) -> list[ColumnElement]:
+    """Every connection of the project but other members' Google accounts: an account opens
+    its owner's whole Drive, so it is theirs alone. What they pick with it is the project's."""
+    return [
+        or_(
+            DataConnection.kind != "google",
+            DataConnection.created_by_user_id == principal.user.id,
+        )
+    ]
+
+
+async def visible_connection(
+    db: AsyncSession, principal: Principal, project_id: UUID, connection_id: UUID
+) -> DataConnection:
+    """The connection, unless it is another member's Google account."""
+    row = await find_connection(db, project_id, connection_id)
+    if row.kind == "google" and not own_account(row, principal):
+        raise APIError(404, "NOT_FOUND", "Connection was not found")
+    return row
+
+
+def require_owner_or_manager(
+    row: DataConnection, principal: Principal, membership: ProjectMembership | None
+) -> None:
+    if row.created_by_user_id != principal.user.id and not manages(membership):
+        raise APIError(
+            403,
+            "CONNECTION_OWNER_ONLY",
+            "Only the member who created this connection or a Project Manager can change it.",
+        )
+
+
 def open_secret(box: SecretBox, row: DataConnection) -> dict[str, Any]:
     try:
         return box.open(row.secret_ciphertext)
@@ -98,6 +148,56 @@ def open_secret(box: SecretBox, row: DataConnection) -> dict[str, Any]:
             "CONNECTION_SECRET_UNREADABLE",
             "The stored credentials cannot be read. Delete this connection and create it again.",
         ) from None
+
+
+def _source_identity(kind: str, config: dict[str, Any], secret: dict[str, Any]) -> tuple | None:
+    """What a connection reads, as whom: two connections with the same identity read the same
+    data with the same rights. Google files are matched by the frontend, by file."""
+    if kind in ("postgres", "mysql"):
+        host = str(config["host"]).lower()
+        return (kind, host, int(config["port"]), config["database"], config["username"])
+    if kind == "bigquery":
+        try:
+            account = json.loads(secret.get("service_account_json", ""))
+        except ValueError:
+            return None
+        if not isinstance(account, dict):
+            return None
+        project = config.get("project_id") or account.get("project_id")
+        return (kind, project, account.get("client_email"))
+    if kind in ("prometheus", "influxdb"):
+        url = str(config["url"]).rstrip("/").lower()
+        return (kind, url, config.get("database"), secret.get("username", ""))
+    return None
+
+
+async def same_source(
+    db: AsyncSession,
+    box: SecretBox,
+    project_id: UUID,
+    kind: str,
+    config: dict[str, Any],
+    secret: dict[str, Any],
+) -> DataConnection | None:
+    """A connection of the project that already reads this source as the same user."""
+    wanted = _source_identity(kind, config, secret)
+    if wanted is None:
+        return None
+    rows = await db.scalars(
+        select(DataConnection)
+        .where(DataConnection.project_id == project_id, DataConnection.kind == kind)
+        .order_by(DataConnection.created_at)
+    )
+    # A database is told apart by its config; the others by a user name or key in the secret.
+    needs_secret = kind not in ("postgres", "mysql")
+    for row in rows:
+        try:
+            stored = box.open(row.secret_ciphertext) if needs_secret else {}
+        except SecretBoxError:
+            continue
+        if _source_identity(row.kind, row.config, stored) == wanted:
+            return row
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +226,13 @@ async def saved_connection(
     ensure_writable_project(project)
     box = require_box(box)
     gate.check_query_rate(principal.user.id)
-    row = await find_connection(db, project_id, connection_id)
+    row = await visible_connection(db, principal, project_id, connection_id)
+    if row.kind == "google":
+        raise APIError(
+            422,
+            "CONNECTION_IS_ACCOUNT",
+            "A Google account is not read itself. Pick a spreadsheet or folder with it first.",
+        )
     return SavedConnection(row.name, row.kind, row.config, open_secret(box, row))
 
 
@@ -258,6 +364,15 @@ def _preview_cell(value: Any) -> str | None:
     return text
 
 
+async def _free_name(db: AsyncSession, project_id: UUID, base: str) -> str:
+    """`base`, or `base (2)`, `base (3)` and so on: the first the project has no connection by."""
+    name, number = base[:120], 2
+    while await _name_taken(db, project_id, name):
+        suffix = f" ({number})"
+        name, number = base[: 120 - len(suffix)] + suffix, number + 1
+    return name
+
+
 def _name_exists() -> APIError:
     return APIError(
         409, "CONNECTION_NAME_EXISTS", "The project already has a connection by that name"
@@ -295,6 +410,9 @@ def _audit_target(config: dict[str, Any]) -> dict[str, Any]:
         return {"spreadsheet_id": config["spreadsheet_id"]}
     if "folder_id" in config:
         return {"folder_id": config["folder_id"]}
+    if "google_subject" in config:
+        # A whole Google account: nothing to name but the account itself.
+        return {}
     return {"project_id": config["project_id"]}
 
 

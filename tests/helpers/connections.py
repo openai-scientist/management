@@ -21,7 +21,14 @@ from management.connections.connectors.base import Column
 from management.connections.google_drive_oauth import GoogleGrant
 from management.connections.models import DataConnection, GoogleConnectionGrant
 from management.infra.secret_box import SecretBox
-from tests.fakes import FakeGoogleSheets, FakeInfluxDB, FakePrometheus, FakeSpreadsheet, FakeTable
+from tests.fakes import (
+    FakeGoogleDrive,
+    FakeGoogleSheets,
+    FakeInfluxDB,
+    FakePrometheus,
+    FakeSpreadsheet,
+    FakeTable,
+)
 from tests.helpers.harness import CONNECTION_KEY, Harness
 from tests.helpers.identity import login, mutation_headers
 from tests.helpers.projects import PROJECTS, create_project
@@ -114,9 +121,11 @@ async def connected_prometheus(harness: Harness, client: AsyncClient, **secret: 
     return session, project, url
 
 
-async def connections(harness: Harness) -> list[DataConnection]:
+async def connections(harness: Harness, kind: str | None = None) -> list[DataConnection]:
+    """The saved connections, or only those of one kind."""
     async with harness.factory() as db:
-        return list(await db.scalars(select(DataConnection)))
+        rows = list(await db.scalars(select(DataConnection)))
+    return [row for row in rows if kind is None or row.kind == kind]
 
 
 ORDERS = FakeTable(
@@ -216,8 +225,10 @@ EMAIL = "dat@gmail.com"
 REFRESH_TOKEN = "refresh-token-that-must-never-be-shown"
 
 
-def with_sheets(harness: Harness) -> FakeGoogleSheets:
-    """Put a fake Sheets API behind the real connector factory; one spreadsheet is in it."""
+def with_google(harness: Harness) -> FakeGoogleDrive:
+    """Put a fake Drive in front of a fake Sheets API behind the real connector factory; one
+    spreadsheet is in it. Who can open the spreadsheet can use Drive, which a Google account
+    is checked against when it is connected."""
     sheets = FakeGoogleSheets()
     sheets.spreadsheets[SPREADSHEET_ID] = FakeSpreadsheet(
         title=TITLE,
@@ -234,10 +245,17 @@ def with_sheets(harness: Harness) -> FakeGoogleSheets:
         readers={REFRESH_TOKEN},
     )
     sheets.spreadsheets[PRIVATE_ID] = FakeSpreadsheet(title="Private", tabs={}, readers=set())
+    drive = FakeGoogleDrive(sheets)
+    drive.readers = sheets.spreadsheets[SPREADSHEET_ID].readers
     harness.app.state.connector_factory = build_connector_factory(
-        harness.settings, google_oauth=harness.google_drive, google_transport=sheets.transport
+        harness.settings, google_oauth=harness.google_drive, google_transport=drive.transport
     )
-    return sheets
+    return drive
+
+
+def with_sheets(harness: Harness) -> FakeGoogleSheets:
+    """`with_google`, for a test that only looks at the Sheets API."""
+    return with_google(harness).sheets
 
 
 async def google_grant(
@@ -255,21 +273,42 @@ async def google_grant(
     return parse_qs(urlsplit(done.headers["location"]).query)["google_grant"][0]
 
 
-def sheets_body(grant_id: str, name: str = "Survey", spreadsheet: str = SPREADSHEET_URL) -> dict:
+async def connect_account(
+    client: AsyncClient, session: dict, project_id: str, grant_id: str, **more: object
+):
+    """Keep the caller's Google account in the project from a grant."""
+    return await client.post(
+        f"{PROJECTS}/{project_id}/connections",
+        json={"kind": "google", "grant_id": grant_id, **more},
+        headers=mutation_headers(session["csrf_token"]),
+    )
+
+
+async def google_account(
+    harness: Harness, client: AsyncClient, session: dict, project_id: str, **grant: str
+) -> str:
+    """Sign in with Google from this browser and keep the account; its connection ID."""
+    grant_id = await google_grant(harness, client, project_id, **grant)
+    kept = await connect_account(client, session, project_id, grant_id)
+    assert kept.status_code in (200, 201), kept.text
+    return kept.json()["data"]["id"]
+
+
+def sheets_body(account_id: str, name: str = "Survey", spreadsheet: str = SPREADSHEET_URL) -> dict:
     return {
         "name": name,
         "kind": "google_sheets",
         "config": {"spreadsheet": spreadsheet},
-        "grant_id": grant_id,
+        "account_id": account_id,
     }
 
 
 async def create_sheets_connection(
-    client: AsyncClient, session: dict, project_id: str, grant_id: str, **body: str
+    client: AsyncClient, session: dict, project_id: str, account_id: str, **body: str
 ):
     return await client.post(
         f"{PROJECTS}/{project_id}/connections",
-        json=sheets_body(grant_id, **body),
+        json=sheets_body(account_id, **body),
         headers=mutation_headers(session["csrf_token"]),
     )
 
@@ -297,22 +336,20 @@ async def one_grant_makes_one_connection(harness: Harness) -> None:
     For a harness on PostgreSQL: the in-memory SQLite one runs every request on a single
     database connection, where one request's rollback undoes the other's work.
     """
-    sheets = with_sheets(harness)
-    sheets.hold = asyncio.Event()
+    drive = with_google(harness)
+    drive.hold = asyncio.Event()
     async with harness.client() as client:
         session = await login(harness, client, uid="owner", email="owner@example.com")
         project = await create_project(client, session)
         grant_id = await google_grant(harness, client, project["id"])
 
-        # Both find the grant unused, and both are still asking Google about the spreadsheet.
+        # Both find the grant unused, and both are still asking Google about the account.
         attempts = [
-            asyncio.create_task(
-                create_sheets_connection(client, session, project["id"], grant_id, name=name)
-            )
-            for name in ("First", "Second")
+            asyncio.create_task(connect_account(client, session, project["id"], grant_id))
+            for _ in range(2)
         ]
-        await wait_until(lambda: len(sheets.requests) == 2)
-        sheets.hold.set()
+        await wait_until(lambda: drive.held == 2)
+        drive.hold.set()
         answers = await asyncio.gather(*attempts)
 
     assert sorted(answer.status_code for answer in answers) == [201, 422]

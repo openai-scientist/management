@@ -17,6 +17,7 @@ from tests.helpers.connections import (
     SUBJECT,
     connections,
     failure,
+    google_account,
     google_grant,
     grant_ids,
     preview,
@@ -67,21 +68,21 @@ def with_drive(harness: Harness) -> FakeGoogleDrive:
     return drive
 
 
-def drive_body(grant_id: str, name: str = "Survey folder", folder: str = FOLDER_URL) -> dict:
+def drive_body(account_id: str, name: str = "Survey folder", folder: str = FOLDER_URL) -> dict:
     return {
         "name": name,
         "kind": "google_drive",
         "config": {"folder": folder},
-        "grant_id": grant_id,
+        "account_id": account_id,
     }
 
 
 async def create_drive_connection(
-    client: AsyncClient, session: dict, project_id: str, grant_id: str, **body: str
+    client: AsyncClient, session: dict, project_id: str, account_id: str, **body: str
 ):
     return await client.post(
         f"{PROJECTS}/{project_id}/connections",
-        json=drive_body(grant_id, **body),
+        json=drive_body(account_id, **body),
         headers=mutation_headers(session["csrf_token"]),
     )
 
@@ -90,8 +91,8 @@ async def connected_folder(harness: Harness, client: AsyncClient):
     """A signed-in owner, their project and the URL of a saved Google Drive connection."""
     session = await login(harness, client, uid="owner", email="owner@example.com")
     project = await create_project(client, session)
-    grant_id = await google_grant(harness, client, project["id"])
-    created = await create_drive_connection(client, session, project["id"], grant_id)
+    account_id = await google_account(harness, client, session, project["id"])
+    created = await create_drive_connection(client, session, project["id"], account_id)
     assert created.status_code == 201, created.text
     url = f"{PROJECTS}/{project['id']}/connections/{created.json()['data']['id']}"
     return session, project, url
@@ -108,10 +109,10 @@ async def test_a_folder_is_connected_browsed_and_previewed(google_harness: Harne
     async with harness.client() as client:
         session = await login(harness, client, uid="owner", email="owner@example.com")
         project = await create_project(client, session)
-        grant_id = await google_grant(harness, client, project["id"])
+        account_id = await google_account(harness, client, session, project["id"])
         headers = mutation_headers(session["csrf_token"])
 
-        response = await create_drive_connection(client, session, project["id"], grant_id)
+        response = await create_drive_connection(client, session, project["id"], account_id)
         assert response.status_code == 201, response.text
         created = response.json()["data"]
         assert created["kind"] == "google_drive"
@@ -122,9 +123,9 @@ async def test_a_folder_is_connected_browsed_and_previewed(google_harness: Harne
             "google_subject": SUBJECT,
         }
         assert created["last_tested_at"] is not None and created["last_error_code"] is None
-        # The grant became the connection: it is gone, and the token is stored encrypted.
+        # The account's access was copied, and the token is stored encrypted.
         assert await grant_ids(harness) == set()
-        (row,) = await connections(harness)
+        (row,) = await connections(harness, "google_drive")
         assert REFRESH_TOKEN not in row.secret_ciphertext
         assert stored_token(row) == REFRESH_TOKEN
         url = f"{PROJECTS}/{project['id']}/connections/{created['id']}"
@@ -207,7 +208,11 @@ async def test_a_folder_is_connected_browsed_and_previewed(google_harness: Harne
             assert REFRESH_TOKEN not in answer.text
             assert access_token_for(REFRESH_TOKEN) not in answer.text
 
-    (event,) = await audit_events(harness, "connection.created")
+    (event,) = [
+        event
+        for event in await audit_events(harness, "connection.created")
+        if event.details["kind"] == "google_drive"
+    ]
     # Where it points, not whose account: no address in the audit trail.
     assert event.details == {
         "name": "Survey folder",
@@ -220,29 +225,27 @@ async def test_a_folder_is_connected_browsed_and_previewed(google_harness: Harne
 
 
 @pytest.mark.asyncio
-async def test_what_is_not_an_open_folder_saves_nothing_and_keeps_the_grant(
-    google_harness: Harness,
-) -> None:
+async def test_what_is_not_an_open_folder_saves_nothing(google_harness: Harness) -> None:
     harness = google_harness
     with_drive(harness)
     async with harness.client() as client:
         session = await login(harness, client, uid="owner", email="owner@example.com")
         project = await create_project(client, session)
-        grant_id = await google_grant(harness, client, project["id"])
+        account_id = await google_account(harness, client, session, project["id"])
 
         for folder in (SHEET_ID, "1-no-such-folder-anywhere-at-all"):
             failed = await create_drive_connection(
-                client, session, project["id"], grant_id, folder=folder
+                client, session, project["id"], account_id, folder=folder
             )
             assert failure(failed) == (422, "CONNECTION_FAILED", "permission_denied"), folder
             assert "folder" in failed.json()["message"]
         for folder in ("", "not a folder", "https://example.com/drive/folders/" + FOLDER_ID):
             invalid = await create_drive_connection(
-                client, session, project["id"], grant_id, folder=folder
+                client, session, project["id"], account_id, folder=folder
             )
             assert invalid.status_code == 422, folder
             assert invalid.json()["error"]["code"] == "VALIDATION_ERROR"
-        extra = drive_body(grant_id) | {"secret": {"password": "x"}}
+        extra = drive_body(account_id) | {"secret": {"password": "x"}}
         strict = await client.post(
             f"{PROJECTS}/{project['id']}/connections",
             json=extra,
@@ -250,10 +253,9 @@ async def test_what_is_not_an_open_folder_saves_nothing_and_keeps_the_grant(
         )
         assert strict.status_code == 422
 
-        assert await connections(harness) == []
-        assert await grant_ids(harness) == {grant_id}
-        # The same grant, with the right address.
-        created = await create_drive_connection(client, session, project["id"], grant_id)
+        assert await connections(harness, "google_drive") == []
+        # The same account, with the right address.
+        created = await create_drive_connection(client, session, project["id"], account_id)
         assert created.status_code == 201, created.text
 
     failures = await audit_events(harness, "connection.test_failed")
@@ -290,7 +292,7 @@ async def test_a_revoked_folder_connection_is_reauthorized(google_harness: Harne
         )
         mismatch = await reauthorize(client, session, url, other)
         assert failure(mismatch) == (422, "GOOGLE_ACCOUNT_MISMATCH", None)
-        (row,) = await connections(harness)
+        (row,) = await connections(harness, "google_drive")
         assert stored_token(row) == REFRESH_TOKEN
 
         drive.readers |= {NEW_REFRESH_TOKEN}
@@ -299,7 +301,7 @@ async def test_a_revoked_folder_connection_is_reauthorized(google_harness: Harne
         assert renewed.status_code == 200, renewed.text
         assert renewed.json()["data"]["last_error_code"] is None
         assert renewed.json()["data"]["config"]["folder_id"] == FOLDER_ID
-        (row,) = await connections(harness)
+        (row,) = await connections(harness, "google_drive")
         assert stored_token(row) == NEW_REFRESH_TOKEN
         shown = await preview(client, session, url, source("scores.csv"))
         assert shown.status_code == 200, shown.text

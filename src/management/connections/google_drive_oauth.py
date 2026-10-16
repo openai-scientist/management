@@ -65,8 +65,10 @@ class GoogleDriveOAuth:
             "scope": f"openid email {DRIVE_SCOPE}",
             "state": state,
             "access_type": "offline",
-            # Google sends a refresh token only when the user is asked again.
-            "prompt": "consent",
+            # Always ask which account: the one that gives data access need not be the one
+            # signed in to the browser or to the Platform. Google sends a refresh token only
+            # when the user is asked for consent again.
+            "prompt": "select_account consent",
         }
         return f"{AUTHORIZATION_URL}?{urlencode(query)}"
 
