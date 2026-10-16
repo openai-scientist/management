@@ -98,8 +98,11 @@ async def carry_forward(db, app_state, run, stage_run, selection, next_config) -
     The risks are the open blocking findings of the latest review (anchored to a selected item, or
     to the whole artifact) and the serious Critic points the PI did not reject. The last stage
     targets `close`.
+
+    Finding and point ids restart in every stage run, so an obligation that an earlier run of this
+    stage left (the run was sent back here) is dropped: it describes an artifact that is replaced.
     """
-    obligations = load(run)
+    obligations = [item for item in load(run) if item.source_stage_key != stage_run.stage_key]
     if next_config is not None:
         for item in obligations:
             if item.target_stage_key == stage_run.stage_key and item.status != "controlled":

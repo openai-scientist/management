@@ -256,8 +256,22 @@ async def test_serious_critic_points_become_obligations_without_duplicates():
     await carry_forward(db, None, run, STAGE, {}, NEXT)
     assert summary(run) == [("C1", None, "experiment_plan"), ("C3", None, "experiment_plan")]
     assert load(run)[0].text == "[integrity] Point 1"
+    assert len({o.obligation_id for o in load(run)}) == 2
+
+
+async def test_a_stage_accepted_again_replaces_the_obligations_of_its_earlier_run():
+    run = run_with()
     await carry_forward(FakeDb(critic_result("serious")), None, run, STAGE, {}, NEXT)
-    assert len(load(run)) == 2
+    other = Obligation.model_validate(item("R9", target="close") | {"source_stage_key": "charter"})
+    run.obligations.append(other.model_dump(mode="json"))
+    # The run was sent back to the stage: its new run has a different serious C1.
+    result = critic_result("serious")
+    result["report"]["points"][0]["point"] = "New risk"
+    await carry_forward(FakeDb(result), None, run, STAGE, {}, NEXT)
+    assert [(o.obligation_id, o.source_stage_key, o.text) for o in load(run)] == [
+        ("R9", "charter", "The baseline is not named."),
+        ("R10", "hypothesis", "[integrity] New risk"),
+    ]
 
 
 async def test_the_points_the_outcome_rejected_do_not_become_obligations():
