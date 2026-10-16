@@ -126,6 +126,12 @@ async def test_budget_not_enforced_sends_large_cap(pipeline):
     assert len(requests) == 2 and requests[-1].budget_usd == Decimal("2000")
 
 
+async def test_budget_is_enforced_by_default_once_every_price_is_known(pipeline):
+    run, fakes = await accept_first_stage_with_spend(pipeline, None)
+    assert run.status == "budget_exceeded"
+    assert sum(len(fake.requests) for fake in fakes.values()) == 1
+
+
 async def test_budget_enforced_pauses_when_spent(pipeline):
     run, fakes = await accept_first_stage_with_spend(pipeline, True)
     assert run.status == "budget_exceeded"

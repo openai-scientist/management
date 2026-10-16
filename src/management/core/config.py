@@ -79,8 +79,9 @@ class Settings(BaseSettings):
     engine_unreachable_alert_seconds: int = Field(600, ge=1)
     run_default_budget_usd: Decimal = Field(default=Decimal("5"), gt=0)
     run_max_budget_usd: Decimal = Field(default=Decimal("20"), gt=0)
-    # Off: runs never stop on USD cost, and engines get a nominal cap of 100x the maximum budget.
-    run_budget_enforced: bool = False
+    # Unset: the USD cap is enforced once every model price is known (unknown costs cannot be
+    # capped). False: never; engines get a nominal cap of 100x the maximum. True: always.
+    run_budget_enforced: bool | None = None
     # Email goes through Resend. Without a key, local and test write each message to the log.
     resend_api_key: SecretStr | None = None
     email_from: str = "AI Research Platform <no-reply@beyond8.io.vn>"

@@ -129,7 +129,7 @@ Register and sign in
 
 `queued`, `running`, `paused`, `awaiting_review`, `completed`, `budget_exceeded`, `failed`, `stopped`
 
-`RUN_BUDGET_ENFORCED` (default `false`) switches the USD cap on: off, a run never ends as `budget_exceeded` and engines get a nominal cap of `RUN_MAX_BUDGET_USD` x 100.
+`RUN_BUDGET_ENFORCED` controls the USD cap. Unset (the default), the cap is enforced once every model profile has token prices, because an unknown cost cannot be capped. `false` never enforces it: a run never ends as `budget_exceeded` and engines get a nominal cap of `RUN_MAX_BUDGET_USD` x 100. `true` always enforces it.
 
 `queued`, `running`, `paused` and `awaiting_review` are active. The other four are not. A Project Manager can abandon a stuck run: the Platform marks it `failed` and does not tell the engine, so check the engine side. `POST .../runs/{run}/sync` asks Popper for the current state; the Platform does not poll.
 
