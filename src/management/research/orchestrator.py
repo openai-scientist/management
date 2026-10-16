@@ -491,6 +491,7 @@ async def accept_stage(
         stage_run,
         "decision.recorded",
         {"action": "accept", "selection": selection}
+        | ({"note": note} if note else {})
         | ({"reason": reason} if reason else {})
         | _consultation_payload(consultation_id),
         actor=actor,
@@ -666,8 +667,19 @@ async def answer_stage_gate(
     stage_run = await _relock(db, StageRun, stage_id)
     decision = await db.get(StageDecision, decision_id, populate_existing=True)
     decision.status = "applied"
+    # The choice itself, so a client replaying the run can show what was decided.
+    choice = {
+        key: decision.payload[key]
+        for key in ("option_id", "text", "params", "findings")
+        if decision.payload.get(key)
+    }
     _decision_event(
-        db, run, stage_run, decision, {"gate_id": gate_id} | (event_extra or {}), actor=actor
+        db,
+        run,
+        stage_run,
+        decision,
+        {"gate_id": gate_id} | choice | (event_extra or {}),
+        actor=actor,
     )
     return decision
 

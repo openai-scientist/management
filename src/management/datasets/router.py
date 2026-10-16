@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
@@ -52,8 +53,11 @@ from management.infra.file_store import (
     get_file_store,
 )
 from management.infra.secret_box import SecretBox, get_secret_box
+from management.projects.project_status import refresh_project_status
+from management.research.models import ResearchRun
 
 router = APIRouter(prefix="/projects/{project_id}/datasets", tags=["datasets"])
+logger = logging.getLogger("management.datasets")
 
 
 DATASET_ERRORS = {
@@ -289,6 +293,72 @@ async def update_dataset(
     await db.flush()
     latest = await _latest_versions(db, [dataset.id])
     return ok(_dataset_item(dataset, latest.get(dataset.id)), "Dataset updated")
+
+
+@router.delete(
+    "/{dataset_id}",
+    response_model=ApiResponse[None],
+    summary="Delete a dataset and all its versions",
+    description=(
+        "Only a dataset no research run has used: a run must always be traceable to its input, "
+        "so `DATASET_IN_USE` (409) names how many runs use it instead."
+    ),
+    responses=DATASET_ERRORS,
+)
+async def delete_dataset(
+    project_id: UUID,
+    dataset_id: UUID,
+    request: Request,
+    principal: Principal = Depends(require_active_csrf),
+    db: AsyncSession = Depends(get_db),
+    store: FileStore = Depends(get_file_store),
+) -> ApiResponse[None]:
+    await lock_project_scope(db, project_id)
+    project, _ = await require_project_access(db, principal, project_id, contribute=True, lock=True)
+    ensure_writable_project(project)
+    dataset = await _get_dataset(db, project_id, dataset_id)
+    versions = (
+        await db.scalars(select(DatasetVersion).where(DatasetVersion.dataset_id == dataset.id))
+    ).all()
+    runs = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(ResearchRun)
+            .where(ResearchRun.dataset_version_id.in_([version.id for version in versions]))
+        )
+        or 0
+    )
+    if runs:
+        raise APIError(
+            409,
+            "DATASET_IN_USE",
+            f"{dataset.name} is used by {runs} research run{'s' if runs != 1 else ''} "
+            "and can't be deleted",
+        )
+    storage_keys = [version.storage_key for version in versions]
+    for version in versions:
+        await db.delete(version)
+    await db.flush()
+    await db.delete(dataset)
+    record_audit(
+        db,
+        actor_user_id=principal.user.id,
+        action="dataset.deleted",
+        resource_type="dataset",
+        resource_id=dataset_id,
+        project_id=project_id,
+        request_id=getattr(request.state, "request_id", None),
+        details={"name": dataset.name, "versions": len(versions)},
+    )
+    await refresh_project_status(db, project)
+    # Commit first: a row pointing at a missing file is worse than a file nothing points at.
+    await db.commit()
+    for key in storage_keys:
+        try:
+            await store.delete(key)
+        except Exception:
+            logger.warning("stored file was not removed", exc_info=True, extra={"key": key})
+    return ok(None, "Dataset deleted")
 
 
 @router.get(

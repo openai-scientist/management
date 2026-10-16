@@ -1,9 +1,14 @@
 import hashlib
 import io
+from decimal import Decimal
+from uuid import UUID, uuid4
 
 import openpyxl
 import pytest
+from sqlalchemy import select
 
+from management.identity.models import User
+from management.research.models import ResearchRun
 from tests.helpers.datasets import CSV, upload_dataset
 from tests.helpers.harness import Harness
 from tests.helpers.identity import login, mutation_headers
@@ -262,3 +267,62 @@ async def test_excel_upload_is_stored_as_the_csv_of_its_first_sheet(
             assert refused.json()["error"]["code"] == "INVALID_DATASET"
         stored = [path for path in (tmp_path / "storage").rglob("*") if path.is_file()]
         assert stored == stored_before
+
+
+@pytest.mark.asyncio
+async def test_delete_dataset_only_when_no_run_used_it(harness: Harness, tmp_path) -> None:
+    async with harness.client() as client, harness.client() as reviewer_client:
+        session = await login(harness, client, uid="owner", email="owner@example.com")
+        reviewer = await login(
+            harness, reviewer_client, uid="reviewer", email="reviewer@example.com"
+        )
+        project = await create_project(client, session)
+        await add_member(client, session, project["id"], "reviewer@example.com", "reviewer")
+        base = f"{PROJECTS}/{project['id']}/datasets"
+        headers = mutation_headers(session["csrf_token"])
+
+        unused = (await upload_dataset(client, session, project["id"])).json()["data"]
+        await client.post(
+            f"{base}/{unused['id']}/versions",
+            files={"file": ("scores-v2.csv", CSV + b"3,A,90\n", "text/csv")},
+            headers=headers,
+        )
+        used = (await upload_dataset(client, session, project["id"], name="Used")).json()["data"]
+        async with harness.factory() as db:
+            owner = await db.scalar(select(User).where(User.email == "owner@example.com"))
+            db.add(
+                ResearchRun(
+                    id=uuid4(),
+                    project_id=UUID(project["id"]),
+                    created_by_user_id=owner.id,
+                    dataset_version_id=UUID(used["latest_version"]["id"]),
+                    budget_usd=Decimal("10"),
+                    status="completed",
+                )
+            )
+            await db.commit()
+
+        def stored() -> int:
+            return len([path for path in (tmp_path / "storage").rglob("*") if path.is_file()])
+
+        assert stored() == 3
+
+        denied = await reviewer_client.delete(
+            f"{base}/{unused['id']}", headers=mutation_headers(reviewer["csrf_token"])
+        )
+        assert denied.status_code == 403
+
+        in_use = await client.delete(f"{base}/{used['id']}", headers=headers)
+        assert in_use.status_code == 409
+        assert in_use.json()["error"]["code"] == "DATASET_IN_USE"
+        assert "1 research run " in in_use.json()["message"]
+
+        deleted = await client.delete(f"{base}/{unused['id']}", headers=headers)
+        assert deleted.status_code == 200, deleted.text
+        assert [item["id"] for item in (await client.get(base)).json()["data"]] == [used["id"]]
+        assert (await client.get(f"{base}/{unused['id']}")).status_code == 404
+        assert stored() == 1
+        assert (await client.delete(f"{base}/{unused['id']}", headers=headers)).status_code == 404
+
+        audit = await client.get("/api/v1/audit", params={"project_id": project["id"]})
+        assert "dataset.deleted" in {item["action"] for item in audit.json()["data"]}

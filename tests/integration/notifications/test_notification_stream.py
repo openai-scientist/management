@@ -29,7 +29,7 @@ async def test_stream_delivers_new_notifications_and_read_changes(harness: Harne
             assert started["status"] == 200
             headers = dict(started["headers"])
             assert headers[b"content-type"].startswith(b"text/event-stream")
-            assert headers[b"cache-control"] == b"no-cache"
+            assert headers[b"cache-control"] == b"no-cache, no-transform"
             assert headers[b"x-accel-buffering"] == b"no"
             assert await stream.snapshot() == {"items": [], "unread_count": 0}
 
