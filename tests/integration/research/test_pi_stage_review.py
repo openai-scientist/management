@@ -357,7 +357,31 @@ async def test_a_researcher_decision_overrides_the_open_critic_review(tmp_path):
         )
         assert response.status_code == 200, response.text
         assert (await env.consultation(review)).status == "overridden"
-        assert await env.rows(PiNote, PiNote.kind == "override") == []
+        # The Critic had not reported, so nothing was overridden; the choice is still kept.
+        (note,) = await env.rows(PiNote, PiNote.kind == "override")
+        assert note.text == (
+            "The researcher decided before the PI: accepted the stage, "
+            "selecting hypothesis_ids: H1."
+        )
+        assert note.stage_key == "hypothesis"
+
+
+async def test_a_send_back_note_is_kept_when_only_the_critic_review_was_open(tmp_path):
+    # Live v11: the note of a send-back made while the Critic was reviewing was lost.
+    async with pi_env(tmp_path, "copilot") as env:
+        await env.settle_charter()
+        assert (await env.gate(await env.current(), action="approve")).status_code == 200
+        stage = await env.current()
+        response = await env.post(
+            f"/stages/{stage['stage_run_id']}/send-back",
+            target_stage_key="hypothesis",
+            note="Make H1's prediction a number.",
+            reason="Too vague.",
+        )
+        assert response.status_code == 200, response.text
+        (note,) = await env.rows(PiNote, PiNote.kind == "override")
+        assert "sent the stage back to hypothesis" in note.text
+        assert note.text.endswith("Researcher's note: Make H1's prediction a number.")
 
 
 async def test_a_failed_critic_leaves_the_outcome_without_a_critique(tmp_path):

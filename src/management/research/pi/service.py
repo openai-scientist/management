@@ -439,6 +439,8 @@ async def mark_overridden(
         query = query.where(PiConsultation.stage_run_id == stage_run_id)
     if gate_id is not None:
         query = query.where(PiConsultation.gate_id == gate_id)
+    chosen = describe_selection(selection)
+    noted = False
     for consultation in list(await db.scalars(query)):
         decision = (consultation.result or {}).get("decision") or {}
         recommended = decision.get("action")
@@ -446,7 +448,6 @@ async def mark_overridden(
         consultation.resolved_at = datetime.now(UTC)
         if consultation.kind == "stage_review":
             continue  # the Critic had not reported: nothing the researcher overrode
-        chosen = describe_selection(selection)
         text = f"The researcher overrode the PI at {consultation.kind}: {what}"
         text += f", selecting {chosen}." if chosen else "."
         if recommended:
@@ -465,4 +466,18 @@ async def mark_overridden(
             "user",
             consultation_id=consultation.id,
             stage_key=(consultation.request.get("situation") or {}).get("stage_key"),
+        )
+        noted = True
+    # Live v11: a send-back while only the Critic review was open lost the researcher's note.
+    # What the researcher chose still binds later consultations when the PI had no say yet.
+    if not noted and (note or chosen) and stage_run_id is not None:
+        stage_run = await db.get(StageRun, stage_run_id)
+        text = f"The researcher decided before the PI: {what}"
+        text += f", selecting {chosen}." if chosen else "."
+        if reason:
+            text += f" Reason: {reason}"
+        if note:
+            text += f" Researcher's note: {note}"
+        add_note(
+            db, run, "override", text, "user", stage_key=stage_run.stage_key if stage_run else None
         )
