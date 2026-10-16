@@ -444,6 +444,8 @@ async def mark_overridden(
         recommended = decision.get("action")
         consultation.status = "overridden"
         consultation.resolved_at = datetime.now(UTC)
+        if consultation.kind == "stage_review":
+            continue  # the Critic had not reported: nothing the researcher overrode
         chosen = describe_selection(selection)
         text = f"The researcher overrode the PI at {consultation.kind}: {what}"
         text += f", selecting {chosen}." if chosen else "."

@@ -357,6 +357,7 @@ async def test_a_researcher_decision_overrides_the_open_critic_review(tmp_path):
         )
         assert response.status_code == 200, response.text
         assert (await env.consultation(review)).status == "overridden"
+        assert await env.rows(PiNote, PiNote.kind == "override") == []
 
 
 async def test_a_failed_critic_leaves_the_outcome_without_a_critique(tmp_path):
