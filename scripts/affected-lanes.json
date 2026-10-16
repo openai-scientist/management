@@ -25,5 +25,5 @@
     "tests/conftest.py", "tests/__init__.py", "tests/unit/__init__.py",
     "tests/integration/__init__.py"
   ],
-  "ignored_files": ["README.md", "AGENTS.md", "docs/test-audit.md"]
+  "ignored_files": ["README.md", "AGENTS.md", "docs/testing.md"]
 }

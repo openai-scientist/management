@@ -23,7 +23,7 @@ from scripts import affected_tests as affected
         (["scripts/affected-lanes.json"], None, True),
         (["docs/contract/schema/Capabilities.json"], None, True),
         (["new_package/unknown.py"], None, True),
-        (["README.md", "AGENTS.md", "docs/test-audit.md"], [], False),
+        (["README.md", "AGENTS.md", "docs/testing.md"], [], False),
     ],
 )
 def test_selection_preserves_coverage(paths, lanes, full):

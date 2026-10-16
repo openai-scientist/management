@@ -23,7 +23,7 @@ These are scoped checks. Use the affected command for conservative dependency co
 source changes currently select the full suite because the harness imports the whole app.
 Run the full suite once, in parallel, with lint, format and import rules before final handoff
 or commit; do not run it serially.
-The shared lane map, timings and CI gate are documented in `docs/test-audit.md`.
+The shared lane map, timings and CI gate are documented in `docs/testing.md`.
 Tests run on SQLite in memory. Tests marked `live` need a real service and are skipped unless a `PLATFORM_*` variable is set (see `README.md`).
 
 ## Feature layout and layers
