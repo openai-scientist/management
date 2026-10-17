@@ -66,9 +66,24 @@ class SeriesPoint(BaseModel):
 
 
 class ChartSeries(BaseModel):
+    """One chart line. Buckets start at `from`, have a fixed length and cover `[from, to)`.
+
+    Keys: `execution_reliability` (overview) and `project_execution_health` (projects) are
+    the percent of runs finished in the bucket that completed, using the same finished
+    statuses as `successful_runs_rate`; a bucket with no finished run is null, not 0.
+    `active_runs` counts runs between `started_at` and `finished_at`, so paused and
+    awaiting-review time counts; this differs from the `active_runs` metric, which is a
+    snapshot of running runs. `request_rate` is requests per second from request telemetry.
+    `service_reliability` and `queue_depth` (SOURCE_NOT_CONFIGURED) and
+    `decision_gate_quality` (OUTCOME_MAPPING_UNDEFINED) stay unavailable; their reason is
+    listed in `unavailable_fields` as `series.<key>`.
+    """
+
     key: str
     unit: str
-    interval_seconds: int
+    interval_seconds: int = Field(
+        description="Bucket length; the shortest of 60s–1d keeping at most 500 points."
+    )
     points: list[SeriesPoint]
     available: bool
 
@@ -157,7 +172,7 @@ async def get_admin_overview(
         default="UTC",
         min_length=1,
         max_length=100,
-        description="IANA timezone used to align returned series.",
+        description="IANA timezone of the caller; buckets start at `from`.",
     ),
     _: Principal = Depends(require_platform_admin),
     db: AsyncSession = Depends(get_db),

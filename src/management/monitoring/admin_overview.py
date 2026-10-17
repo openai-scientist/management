@@ -1,4 +1,3 @@
-import math
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
@@ -8,6 +7,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.core.errors import APIError
+from management.monitoring.admin_overview_series import (
+    active_runs_series,
+    run_success_series,
+    series_interval,
+)
 from management.monitoring.models import MonitoringEvent
 from management.monitoring.queries import (
     MAX_EVENT_ROWS,
@@ -360,6 +364,16 @@ async def build_admin_overview(
             if previous_terminal_total
             else None
         )
+        reliability_key = (
+            "project_execution_health" if section == "projects" else "execution_reliability"
+        )
+        run_series = {
+            reliability_key: await run_success_series(
+                db, key=reliability_key, start=start, end=end
+            ),
+            "active_runs": await active_runs_series(db, start=start, end=end),
+        }
+        series = [run_series.get(item["key"], item) for item in series]
         recent_runs = await _recent_runs(db, start, end)
         runs_by_project = await _run_project_breakdown(db, start, end)
         all_statuses = ("queued", "running", "paused", "awaiting_review", *FINISHED_RUN_STATUSES)
@@ -463,8 +477,6 @@ async def build_admin_overview(
                 metrics[key] = _unavailable()
                 _mark_unavailable(unavailable_fields, f"metrics.{key}")
             _mark_unavailable(unavailable_fields, "money_metrics.estimated_spend")
-            _mark_unavailable(unavailable_fields, "series.project_execution_health")
-            _mark_unavailable(unavailable_fields, "series.active_runs")
             _mark_unavailable(unavailable_fields, "breakdowns.runs_by_owner")
         else:
             metrics["runs_by_status_total"] = _count_metric(
@@ -472,8 +484,6 @@ async def build_admin_overview(
                 scope="window",
                 previous_value=sum(previous_runs.values()),
             )
-            for key in ("execution_reliability", "active_runs"):
-                _mark_unavailable(unavailable_fields, f"series.{key}")
             _mark_unavailable(unavailable_fields, "breakdowns.token_usage_by_model")
             _mark_unavailable(unavailable_fields, "breakdowns.activity_by_service")
             _mark_unavailable(unavailable_fields, "breakdowns.active_runs_by_service")
@@ -540,11 +550,7 @@ async def build_admin_overview(
         for key in ("queue_depth", "service_uptime"):
             _mark_unavailable(unavailable_fields, f"metrics.{key}")
 
-        interval_seconds = next(
-            interval
-            for interval in (60, 300, 900, 3600, 21_600, 86_400)
-            if math.ceil(duration.total_seconds() / interval) <= 500
-        )
+        interval_seconds = series_interval(start, end)
         point_rows = request_bucket_points(
             current_events,
             start=start,
@@ -665,7 +671,9 @@ async def build_admin_overview(
             _mark_unavailable(unavailable_fields, f"breakdowns.{key}")
         _mark_unavailable(unavailable_fields, "governance_events")
         _mark_unavailable(unavailable_fields, "decision_gates")
-        _mark_unavailable(unavailable_fields, "series.decision_gate_quality")
+        _mark_unavailable(
+            unavailable_fields, "series.decision_gate_quality", "OUTCOME_MAPPING_UNDEFINED"
+        )
 
     return {
         "section": section,
