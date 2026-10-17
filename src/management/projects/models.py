@@ -178,3 +178,25 @@ class ProjectFile(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+
+
+class ProjectSetting(Base):
+    """Project settings, one JSON object per settings section. No row means all defaults."""
+
+    __tablename__ = "project_settings"
+
+    project_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Raised on every save; a client sends the version it read to detect a concurrent edit.
+    version: Mapped[int] = mapped_column(nullable=False, default=0)
+    sections: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    updated_by_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
