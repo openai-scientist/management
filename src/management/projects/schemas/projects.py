@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from management.core.roles import ProjectRole
 
@@ -78,6 +79,12 @@ class ProjectItem(BaseModel):
 class ProjectMemberCreate(BaseModel):
     email: EmailStr = Field(description="Email of a user who already has an account.")
     role: ProjectRole
+
+
+class ProjectOwnershipTransfer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    new_owner_user_id: UUID = Field(description="User id of an active member of the project.")
 
 
 class ProjectMemberRoleUpdate(BaseModel):
