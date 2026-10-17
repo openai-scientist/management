@@ -115,6 +115,14 @@ def account_invite(
     return f"Your {PRODUCT} account: sign-in details", text, html
 
 
+def _duration(hours: int) -> str:
+    """Whole days when the length is a number of days, otherwise hours."""
+    if hours >= 24 and hours % 24 == 0:
+        days = hours // 24
+        return f"{days} day" if days == 1 else f"{days} days"
+    return f"{hours} hour" if hours == 1 else f"{hours} hours"
+
+
 def project_invite(
     *,
     recipient_name: str,
@@ -130,7 +138,7 @@ def project_invite(
         ("Project", project_name),
         ("Your role", role_name),
         ("Invited by", inviter_name),
-        ("Valid until", f"{local_time(expires_at)}, in {expires_hours} hours"),
+        ("Valid until", f"{local_time(expires_at)}, in {_duration(expires_hours)}"),
     ]
     if app_url:
         details.append(("Sign-in page", app_url))

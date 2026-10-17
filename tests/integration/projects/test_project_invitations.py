@@ -134,7 +134,8 @@ async def test_an_invitation_gives_access_only_once_accepted(harness: Harness) -
         lifetime = datetime.fromisoformat(invited["invite_expires_at"]) - datetime.fromisoformat(
             invited["invite_sent_at"]
         )
-        assert lifetime == timedelta(hours=24)
+        # A project that never changed its access settings gives 7 days.
+        assert lifetime == timedelta(days=7)
         (mail,) = harness.emails.sent
         assert mail["to"] == "invitee@example.com"
         assert mail["subject"] == 'Invitation to the project "Study A" on the AI Research Platform'
@@ -142,7 +143,7 @@ async def test_an_invitation_gives_access_only_once_accepted(harness: Harness) -
         for line in ("Project: Study A", "Your role: Researcher", "Invited by: Manager"):
             assert f"{line}\n" in mail["text"]
         expires = datetime.fromisoformat(invited["invite_expires_at"])
-        assert f"Valid until: {local_time(expires)}, in 24 hours\n" in mail["text"]
+        assert f"Valid until: {local_time(expires)}, in 7 days\n" in mail["text"]
         # 09:00 UTC is 16:00 in Vietnam.
         assert local_time(datetime(2026, 10, 5, 9, 0, tzinfo=UTC)) == (
             "05 Oct 2026, 16:00 (Vietnam time, GMT+7)"
@@ -534,3 +535,78 @@ async def test_the_email_goes_out_after_the_invitation_is_saved(
         assert unsent["invite_email_sent"] is False
         assert unsent["status"] == "invited"
         assert len(await members(manager_client, project["id"], status="invited")) == 2
+
+
+@pytest.mark.asyncio
+async def test_an_invitation_lasts_as_long_as_the_project_settings_say(harness: Harness) -> None:
+    async with harness.client() as client:
+        manager = await login(harness, client, uid="manager", email="manager@example.com")
+        for uid in ("first", "second"):
+            async with harness.client() as other:
+                await login(harness, other, uid=uid, email=f"{uid}@example.com")
+        project = await create_project(client, manager)
+        settings_url = f"{PROJECTS}/{project['id']}/settings"
+        saved = await client.patch(
+            f"{settings_url}/access",
+            json={"version": 0, "values": {"expiry_days": "3"}},
+            headers=mutation_headers(manager["csrf_token"]),
+        )
+        assert saved.status_code == 200, saved.text
+
+        first = await invite_member(client, manager, project["id"], "first@example.com", "reviewer")
+        sent_at = datetime.fromisoformat(first["invite_sent_at"])
+        assert datetime.fromisoformat(first["invite_expires_at"]) - sent_at == timedelta(days=3)
+        assert ", in 3 days\n" in harness.emails.sent[-1]["text"]
+
+        # The Platform ceiling wins over a longer project choice.
+        harness.settings.project_invite_ttl_hours = 24
+        saved = await client.patch(
+            f"{settings_url}/access",
+            json={"version": 1, "values": {"expiry_days": "30"}},
+            headers=mutation_headers(manager["csrf_token"]),
+        )
+        assert saved.status_code == 200, saved.text
+        second = await invite_member(
+            client, manager, project["id"], "second@example.com", "reviewer"
+        )
+        lifetime = datetime.fromisoformat(second["invite_expires_at"]) - datetime.fromisoformat(
+            second["invite_sent_at"]
+        )
+        assert lifetime == timedelta(hours=24)
+        assert ", in 1 day\n" in harness.emails.sent[-1]["text"]
+
+        # An invitation already sent keeps the length it was given.
+        members = (await client.get(f"{PROJECTS}/{project['id']}/members")).json()["data"]
+        kept = next(item for item in members if item["id"] == first["id"])
+        # SQLite reads the time back without its zone.
+        assert kept["invite_expires_at"].rstrip("Z") == first["invite_expires_at"].rstrip("Z")
+
+
+@pytest.mark.asyncio
+async def test_only_a_manager_learns_whether_an_email_has_an_account(harness: Harness) -> None:
+    async with harness.client() as manager_client, harness.client() as outsider_client:
+        manager = await login(harness, manager_client, uid="manager", email="manager@example.com")
+        outsider = await login(
+            harness, outsider_client, uid="outsider", email="outsider@example.com"
+        )
+        project = await create_project(manager_client, manager)
+        members_url = f"{PROJECTS}/{project['id']}/members"
+        for email in ("nobody@example.com", "manager@example.com"):
+            probe = await outsider_client.post(
+                members_url,
+                json={"email": email, "role": "researcher"},
+                headers=mutation_headers(outsider["csrf_token"]),
+            )
+            assert code(probe) == (404, "NOT_FOUND")
+
+        archived = await manager_client.post(
+            f"{PROJECTS}/{project['id']}/archive",
+            headers=mutation_headers(manager["csrf_token"]),
+        )
+        assert archived.status_code == 200
+        late = await manager_client.post(
+            members_url,
+            json={"email": "nobody@example.com", "role": "researcher"},
+            headers=mutation_headers(manager["csrf_token"]),
+        )
+        assert code(late) == (409, "PROJECT_ARCHIVED")

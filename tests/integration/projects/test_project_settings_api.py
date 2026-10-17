@@ -95,6 +95,10 @@ async def test_settings_start_at_the_web_app_defaults_and_save_by_section(
         assert fresh["updated_at"] is None
         assert fresh["sections"] == FRONTEND_DEFAULTS
         assert fresh["capabilities"]["access.expiry_days"] == {
+            "supported": True,
+            "reason_code": None,
+        }
+        assert fresh["capabilities"]["access.default_role"] == {
             "supported": False,
             "reason_code": "NOT_ENFORCED_YET",
         }

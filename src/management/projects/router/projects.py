@@ -65,6 +65,7 @@ from management.projects.service import (
     _project_item,
     _send_invitation,
 )
+from management.projects.settings_service import effective_invite_ttl_hours
 from management.research.models import ResearchRun, active_run_filter
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -538,7 +539,8 @@ async def stream_project_invite_candidates(
     description=(
         "The person must already have an account. They are told in the app and by email "
         "and join with the given role once they accept; until then they have no access. "
-        "The invitation can be accepted for 24 hours."
+        "The invitation can be accepted for as long as the project's access settings say "
+        "(7 days unless changed)."
     ),
     responses=PROJECT_ERRORS,
 )
@@ -553,8 +555,11 @@ async def add_project_member(
 ) -> ApiResponse[ProjectMemberItem]:
     settings: Settings = request.app.state.settings
     await lock_project_scope(db, project_id)
-    await require_project_access(db, principal, project_id, manage=True)
-    # User rows are locked before the project row, the same order a suspension uses.
+    # Refuse callers who cannot invite before looking the email up, so the answer never
+    # tells them whether an account exists. Not locked yet: user rows are locked before the
+    # project row, the same order a suspension uses.
+    current, _ = await require_project_access(db, principal, project_id, manage=True)
+    ensure_writable_project(current)
     user = await db.scalar(
         select(User)
         .where(
@@ -589,7 +594,12 @@ async def add_project_member(
         status="invited",
         created_by_user_id=principal.user.id,
     )
-    _send_invitation(db, settings, membership, principal.user.id)
+    _send_invitation(
+        db,
+        membership,
+        principal.user.id,
+        ttl_hours=await effective_invite_ttl_hours(db, project_id, settings),
+    )
     db.add(membership)
     await db.flush()
     record_audit(
@@ -615,7 +625,8 @@ async def add_project_member(
     response_model=ApiResponse[ProjectMemberItem],
     summary="Send an expired invitation again",
     description=(
-        "Only an invitation that has expired can be sent again; that starts a new 24 hours. "
+        "Only an invitation that has expired can be sent again. It is valid again for as "
+        "long as the project's access settings say. "
         "To reach the user sooner, cancel the invitation and invite them again."
     ),
     responses=PROJECT_ERRORS,
@@ -647,7 +658,12 @@ async def resend_project_invitation(
     await drop_invitation_notices(db, user.id, project_id)
     # Whoever sends it again is the inviter from now on, and is told the answer.
     membership.created_by_user_id = principal.user.id
-    _send_invitation(db, settings, membership, principal.user.id)
+    _send_invitation(
+        db,
+        membership,
+        principal.user.id,
+        ttl_hours=await effective_invite_ttl_hours(db, project_id, settings),
+    )
     record_audit(
         db,
         actor_user_id=principal.user.id,

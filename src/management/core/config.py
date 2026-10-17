@@ -101,8 +101,9 @@ class Settings(BaseSettings):
     google_picker_app_id: str | None = Field(default=None, pattern=r"^\d+$")
     # How long an admin waits before sending a user's sign-in details again.
     invite_resend_cooldown_seconds: int = Field(default=60, ge=0, le=3600)
-    # How long a project invitation can be accepted after it was last sent.
-    project_invite_ttl_hours: int = Field(default=24, ge=1, le=168)
+    # The longest a project invitation can be accepted after it was last sent. Each project
+    # picks its own length in its access settings (7 days by default); this caps it.
+    project_invite_ttl_hours: int = Field(default=720, ge=1, le=720)
     # A Platform Admin created at startup when both are set. For development only: the
     # password is a known value, so production refuses these settings.
     default_admin_email: str | None = None

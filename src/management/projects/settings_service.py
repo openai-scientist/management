@@ -21,7 +21,7 @@ from management.projects.schemas.settings import (
 
 # Settings the Platform applies today. Every other stored field is kept for the web app
 # but changes nothing yet, and says so in `capabilities`.
-SUPPORTED_FIELDS: frozenset[str] = frozenset()
+SUPPORTED_FIELDS = frozenset({"access.expiry_days"})
 
 # Free-text fields: the audit log records that they changed, never their values.
 PRIVATE_FIELDS = frozenset({"domains", "billing_email", "languages", "exclude", "fields"})

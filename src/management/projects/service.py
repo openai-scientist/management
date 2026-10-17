@@ -86,12 +86,12 @@ OPEN_STATUSES = ("invited", "active")
 
 
 def _send_invitation(
-    db: AsyncSession, settings: Settings, membership: ProjectMembership, actor_user_id: UUID
+    db: AsyncSession, membership: ProjectMembership, actor_user_id: UUID, *, ttl_hours: int
 ) -> None:
     """Start the invitation's validity and tell the user in the app, replacing older notices."""
     now = datetime.now(UTC)
     membership.invite_sent_at = now
-    membership.invite_expires_at = now + timedelta(hours=settings.project_invite_ttl_hours)
+    membership.invite_expires_at = now + timedelta(hours=ttl_hours)
     if membership.user_id != actor_user_id:
         notify_user(
             db,
@@ -117,7 +117,10 @@ async def _email_invitation(
         role=membership.role_code,
         inviter_name=inviter.display_name or inviter.email,
         expires_at=membership.invite_expires_at,
-        expires_hours=settings.project_invite_ttl_hours,
+        # The length this invitation was given, even if the project's setting changed since.
+        expires_hours=round(
+            (membership.invite_expires_at - membership.invite_sent_at).total_seconds() / 3600
+        ),
         app_url=settings.app_url,
     )
     return await sender.send(to=user.email, subject=subject, text=text, html=html)
