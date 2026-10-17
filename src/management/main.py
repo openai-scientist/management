@@ -54,6 +54,7 @@ from management.projects.router.comments import router as comments_router
 from management.projects.router.invitations import router as invitations_router
 from management.projects.router.project_files import router as project_files_router
 from management.projects.router.projects import router as projects_router
+from management.projects.router.settings import router as project_settings_router
 from management.research.engines.registry import build_engine_registry
 from management.research.pi.client import build_pi_client
 from management.research.pi.service import sweep_forever
@@ -81,6 +82,7 @@ v1_router.include_router(auth_google_router)
 v1_router.include_router(users_router)
 v1_router.include_router(audit_router)
 v1_router.include_router(projects_router)
+v1_router.include_router(project_settings_router)
 v1_router.include_router(invitations_router)
 v1_router.include_router(connections_google_router)
 v1_router.include_router(connections_router)

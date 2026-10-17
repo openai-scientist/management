@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +12,7 @@ from management.core.responses import ApiResponse, paginated
 from management.core.roles import ProjectRole
 from management.core.sessions import Principal, require_active_principal
 from management.db.session import get_db
-from management.identity.models import UserPlatformRole
+from management.identity.models import User, UserPlatformRole
 from management.projects.models import ProjectMembership
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -21,6 +21,9 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 class AuditItem(BaseModel):
     id: str
     actor_user_id: str | None
+    actor_display_name: str | None = Field(
+        default=None, description="The actor's display name, or null for system events."
+    )
     action: str
     resource_type: str
     resource_id: str
@@ -93,11 +96,19 @@ async def list_audit_events(
             .offset(offset)
         )
     ).all()
+    actor_ids = {row.actor_user_id for row in rows if row.actor_user_id}
+    names: dict = {}
+    if actor_ids:
+        name_rows = await db.execute(
+            select(User.id, User.display_name).where(User.id.in_(actor_ids))
+        )
+        names = {user_id: name for user_id, name in name_rows.all()}
     return paginated(
         [
             AuditItem(
                 id=str(row.id),
                 actor_user_id=str(row.actor_user_id) if row.actor_user_id else None,
+                actor_display_name=names.get(row.actor_user_id),
                 action=row.action,
                 resource_type=row.resource_type,
                 resource_id=row.resource_id,
