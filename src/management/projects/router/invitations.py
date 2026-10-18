@@ -27,6 +27,7 @@ from management.db.session import get_db
 from management.identity.models import User, UserStatus
 from management.notifications.service import drop_invitation_notices, notify_project_members
 from management.projects.models import Project, ProjectMembership
+from management.projects.settings_service import effective_section, email_domain_allowed
 
 router = APIRouter(prefix="/invitations", tags=["invitations"])
 
@@ -142,9 +143,13 @@ async def list_invitations(
     "/{membership_id}/accept",
     response_model=ApiResponse[InvitationItem],
     summary="Accept a project invitation",
-    description="You become a member with the invited role and can open the project.",
+    description=(
+        "You become a member with the invited role and can open the project. When the "
+        "project's allowed `domains` no longer include your email, 403 INVITE_DOMAIN_NOT_ALLOWED."
+    ),
     responses={
         **INVITATION_ERRORS,
+        403: {"model": ErrorResponse, "description": "INVITE_DOMAIN_NOT_ALLOWED"},
         409: {
             "model": ErrorResponse,
             "description": "The invitation expired or the project is archived",
@@ -164,6 +169,14 @@ async def accept_invitation(
             409, "INVITE_EXPIRED", "The invitation has expired; ask for it to be sent again"
         )
     ensure_writable_project(project)
+    # Checked under the project lock, so a policy saved meanwhile is the one applied.
+    domains = (await effective_section(db, project.id, "access"))["domains"]
+    if not email_domain_allowed(principal.user.email, domains):
+        raise APIError(
+            403,
+            "INVITE_DOMAIN_NOT_ALLOWED",
+            "This project now only accepts people with an email at " + ", ".join(domains),
+        )
     item = _item(membership, project.name, inviter, prefix)
     membership.status = "active"
     # The same action as before invitations existed: the moment someone became a member.

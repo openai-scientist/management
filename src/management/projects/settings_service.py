@@ -21,7 +21,22 @@ from management.projects.schemas.settings import (
 
 # Settings the Platform applies today. Every other stored field is kept for the web app
 # but changes nothing yet, and says so in `capabilities`.
-SUPPORTED_FIELDS = frozenset({"access.expiry_days"})
+SUPPORTED_FIELDS = frozenset(
+    {
+        "access.inviters",
+        "access.default_role",
+        "access.expiry_days",
+        "access.domains",
+        "access.reviewers_see_data",
+        "data.types",
+        "data.same_name",
+        "data.pii",
+        "data.mask",
+    }
+)
+
+# File types the Platform can read. The form offers more; those cannot be saved yet.
+READABLE_FILE_TYPES = frozenset({"CSV", "Excel"})
 
 # Free-text fields: the audit log records that they changed, never their values.
 PRIVATE_FIELDS = frozenset({"domains", "billing_email", "languages", "exclude", "fields"})
@@ -95,6 +110,14 @@ async def patch_section(
             "SETTING_UNSUPPORTED",
             "Organization-wide visibility is not available yet. Keep the project to members.",
         )
+    if section == "data" and isinstance(values.get("types"), list):
+        unreadable = sorted({str(t) for t in values["types"]} - READABLE_FILE_TYPES)
+        if unreadable:
+            raise APIError(
+                422,
+                "SETTING_UNSUPPORTED",
+                f"{', '.join(unreadable)} files can't be read yet. Allow CSV or Excel.",
+            )
 
     row = await _row(db, project_id)
     current_version = row.version if row else 0
@@ -150,8 +173,26 @@ async def patch_section(
     return _snapshot(row)
 
 
-async def effective_invite_ttl_hours(db: AsyncSession, project_id: UUID, settings: Settings) -> int:
-    """Invitation lifetime: the project's choice, never above the Platform ceiling."""
+async def effective_section(db: AsyncSession, project_id: UUID, section: str) -> dict[str, Any]:
+    """One section as the Platform applies it now: stored values over the defaults."""
     row = await _row(db, project_id)
-    days = int(_section_values(row.sections if row else {}, "access")["expiry_days"])
-    return min(days * 24, settings.project_invite_ttl_hours)
+    return _section_values(row.sections if row else {}, section)
+
+
+def invite_ttl_hours(access: dict[str, Any], settings: Settings) -> int:
+    """Invitation lifetime: the project's choice, never above the Platform ceiling."""
+    return min(int(access["expiry_days"]) * 24, settings.project_invite_ttl_hours)
+
+
+async def effective_invite_ttl_hours(db: AsyncSession, project_id: UUID, settings: Settings) -> int:
+    return invite_ttl_hours(await effective_section(db, project_id, "access"), settings)
+
+
+def email_domain_allowed(email: str, domains: list[str]) -> bool:
+    """An empty list allows every domain; otherwise the domain must match one exactly.
+
+    `example.com` does not allow `sub.example.com` or `evil-example.com`.
+    """
+    if not domains:
+        return True
+    return email.strip().rsplit("@", 1)[-1].lower() in domains

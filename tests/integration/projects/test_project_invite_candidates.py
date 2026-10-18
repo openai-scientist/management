@@ -145,8 +145,8 @@ async def test_only_project_managers_and_platform_admins_can_list_candidates(
         await add_member(pm, manager, project["id"], "researcher@example.com", "researcher")
         await add_member(pm, manager, project["id"], "reviewer@example.com", "reviewer")
         assert (await anonymous.get(url)).status_code == 401
-        assert code(await researcher.get(url)) == (403, "ROLE_REQUIRED")
-        assert code(await reviewer.get(url)) == (403, "ROLE_REQUIRED")
+        assert code(await researcher.get(url)) == (403, "INVITE_NOT_ALLOWED")
+        assert code(await reviewer.get(url)) == (403, "INVITE_NOT_ALLOWED")
         assert code(await outsider.get(url)) == (404, "NOT_FOUND")
         assert (await pm.get(url)).status_code == 200
         assert (await admin.get(url)).status_code == 200

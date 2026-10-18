@@ -140,7 +140,11 @@ class ReviewSettings(_Section):
 class DataSettings(_Section):
     pinning: Literal["latest", "pinned"] = "latest"
     same_name: Literal["version", "copy"] = "version"
-    types: Annotated[list[FileType], Field(min_length=1), AfterValidator(_unique)] = ["CSV"]
+    # Both file types the Platform reads, so a project that never saved this keeps accepting them.
+    types: Annotated[list[FileType], Field(min_length=1), AfterValidator(_unique)] = [
+        "CSV",
+        "Excel",
+    ]
     pii: bool = True
     mask: bool = True
     artifacts: Literal["90", "180", "365", "forever"] = "forever"
@@ -206,3 +210,33 @@ class ProjectSettingsPatch(BaseModel):
     values: dict[str, Any] = Field(
         description="Fields of this section to change; arrays replace the stored list."
     )
+
+
+class AccessPermissions(BaseModel):
+    can_invite: bool = Field(description="May invite people; follows `access.inviters`.")
+    can_view_invite_candidates: bool = Field(description="Same as `can_invite`.")
+    can_manage_members: bool = Field(
+        description="May change roles, remove members, resend or cancel invitations."
+    )
+    can_manage_settings: bool
+    can_read_raw_datasets: bool = Field(
+        description="May list, preview and download datasets; follows `reviewers_see_data`."
+    )
+
+
+class InvitationDefaults(BaseModel):
+    default_role: Literal["researcher", "reviewer"] = Field(
+        description="Preselect it in the invite dialog; any allowed role may still be sent."
+    )
+    allowed_roles: list[Literal["project_manager", "researcher", "reviewer"]]
+    allowed_domains: list[str] = Field(description="Empty means any domain.")
+    configured_expiry_days: Literal["3", "7", "14", "30"]
+    effective_ttl_hours: int = Field(
+        description="What an invitation sent now lasts: the setting, capped by the Platform."
+    )
+
+
+class AccessContext(BaseModel):
+    settings_version: int
+    permissions: AccessPermissions
+    invitation: InvitationDefaults | None = Field(description="Null when the caller cannot invite.")

@@ -63,7 +63,7 @@ FRONTEND_DEFAULTS = {
     "data": {
         "pinning": "latest",
         "same_name": "version",
-        "types": ["CSV"],
+        "types": ["CSV", "Excel"],
         "pii": True,
         "mask": True,
         "artifacts": "forever",
@@ -98,7 +98,19 @@ async def test_settings_start_at_the_web_app_defaults_and_save_by_section(
             "supported": True,
             "reason_code": None,
         }
-        assert fresh["capabilities"]["access.default_role"] == {
+        supported = {
+            "access.inviters",
+            "access.default_role",
+            "access.expiry_days",
+            "access.domains",
+            "access.reviewers_see_data",
+            "data.types",
+            "data.same_name",
+            "data.pii",
+            "data.mask",
+        }
+        assert {key for key, c in fresh["capabilities"].items() if c["supported"]} == supported
+        assert fresh["capabilities"]["access.join_link"] == {
             "supported": False,
             "reason_code": "NOT_ENFORCED_YET",
         }

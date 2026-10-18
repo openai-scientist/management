@@ -64,8 +64,12 @@ from management.projects.service import (
     _member_item,
     _project_item,
     _send_invitation,
+    ensure_invitable_email,
+    ensure_invitable_role,
+    project_access,
+    require_invite_access,
 )
-from management.projects.settings_service import effective_invite_ttl_hours
+from management.projects.settings_service import invite_ttl_hours
 from management.research.models import ResearchRun, active_run_filter
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -422,7 +426,10 @@ async def list_project_members(
     response_model=ApiResponse[list[ProjectInviteCandidate]],
     summary="List users available for a project invitation",
     description=(
-        "Project Managers and Platform Admins can choose active, email-verified regular users. "
+        "Whoever may invite can choose active, email-verified regular users: Project Managers, "
+        "Platform Admins, and Researchers when the access setting `inviters` is "
+        "`researchers` (403 INVITE_NOT_ALLOWED otherwise). With allowed `domains` set, only "
+        "emails at one of them are listed. "
         "Platform Admin accounts are excluded from the candidates. "
         "Existing active members and pending invitations (including expired ones) are "
         "excluded before pagination. Removed members and cancelled or declined invitations "
@@ -442,9 +449,11 @@ async def list_project_invite_candidates(
     db: AsyncSession = Depends(get_db),
     prefix: str = Depends(api_prefix),
 ) -> ApiResponse[list[ProjectInviteCandidate]]:
-    project, _ = await require_project_access(db, principal, project_id, manage=True)
-    ensure_writable_project(project)
-    return await _invite_candidates(db, project_id, q, limit, offset, prefix)
+    rights = await require_invite_access(db, principal, project_id)
+    ensure_writable_project(rights.project)
+    return await _invite_candidates(
+        db, project_id, q, limit, offset, prefix, rights.access["domains"]
+    )
 
 
 @router.get(
@@ -452,7 +461,7 @@ async def list_project_invite_candidates(
     response_class=StreamingResponse,
     summary="Follow project invitation candidates in realtime",
     description=(
-        "Authenticated SSE for Project Managers and Platform Admins. An invite-candidates "
+        "Authenticated SSE for whoever may invite (see the GET list). An invite-candidates "
         "event contains the same envelope and filtered page as the GET list, immediately "
         "and after committed changes. Replace the page on every snapshot. session-ended "
         "or access-ended means close the stream. Reconnect to obtain current state."
@@ -476,10 +485,12 @@ async def stream_project_invite_candidates(
     factory = request.app.state.session_factory
     prefix = api_prefix(request)
 
-    async def authorize(db: AsyncSession) -> None:
+    async def authorize(db: AsyncSession) -> list[str]:
+        """Checked again on every event, so a changed role or setting ends the stream."""
         principal = await get_principal(request, db)
-        project, _ = await require_project_access(db, principal, project_id, manage=True)
-        ensure_writable_project(project)
+        rights = await require_invite_access(db, principal, project_id)
+        ensure_writable_project(rights.project)
+        return rights.access["domains"]
 
     async with factory() as db:
         await authorize(db)
@@ -494,15 +505,16 @@ async def stream_project_invite_candidates(
 
     async def events():
         async with hub.subscribe(project_id) as changes:
-            refresh = True
+            refresh, last_domains = True, None
             while True:
                 try:
                     # Never keep a database transaction/connection across an SSE wait.
                     async with factory() as db:
-                        await authorize(db)
-                        if refresh:
+                        domains = await authorize(db)
+                        if refresh or domains != last_domains:
+                            last_domains, refresh = domains, True
                             snapshot = await _invite_candidates(
-                                db, project_id, q, limit, offset, prefix
+                                db, project_id, q, limit, offset, prefix, domains
                             )
                             await db.commit()
                 except APIError as exc:
@@ -540,7 +552,9 @@ async def stream_project_invite_candidates(
         "The person must already have an account. They are told in the app and by email "
         "and join with the given role once they accept; until then they have no access. "
         "The invitation can be accepted for as long as the project's access settings say "
-        "(7 days unless changed)."
+        "(7 days unless changed). Who may invite follows the access setting `inviters` "
+        "(403 INVITE_NOT_ALLOWED); a Researcher may not invite a Project Manager. An email "
+        "outside the allowed `domains` answers 403 INVITE_DOMAIN_NOT_ALLOWED."
     ),
     responses=PROJECT_ERRORS,
 )
@@ -558,8 +572,10 @@ async def add_project_member(
     # Refuse callers who cannot invite before looking the email up, so the answer never
     # tells them whether an account exists. Not locked yet: user rows are locked before the
     # project row, the same order a suspension uses.
-    current, _ = await require_project_access(db, principal, project_id, manage=True)
-    ensure_writable_project(current)
+    current = await require_invite_access(db, principal, project_id)
+    ensure_writable_project(current.project)
+    ensure_invitable_role(current, body.role)
+    ensure_invitable_email(current, str(body.email))
     user = await db.scalar(
         select(User)
         .where(
@@ -574,7 +590,8 @@ async def add_project_member(
         )
     if user.status == UserStatus.SUSPENDED:
         raise APIError(409, "USER_SUSPENDED", "A suspended user cannot be added to a project")
-    project, _ = await require_project_access(db, principal, project_id, manage=True, lock=True)
+    rights = await require_invite_access(db, principal, project_id, lock=True)
+    project = rights.project
     ensure_writable_project(project)
     existing = await db.scalar(
         select(ProjectMembership.id).where(
@@ -595,10 +612,7 @@ async def add_project_member(
         created_by_user_id=principal.user.id,
     )
     _send_invitation(
-        db,
-        membership,
-        principal.user.id,
-        ttl_hours=await effective_invite_ttl_hours(db, project_id, settings),
+        db, membership, principal.user.id, ttl_hours=invite_ttl_hours(rights.access, settings)
     )
     db.add(membership)
     await db.flush()
@@ -626,7 +640,8 @@ async def add_project_member(
     summary="Send an expired invitation again",
     description=(
         "Only an invitation that has expired can be sent again. It is valid again for as "
-        "long as the project's access settings say. "
+        "long as the project's access settings say. Project Manager only. An email outside "
+        "the allowed `domains` now answers 403 INVITE_DOMAIN_NOT_ALLOWED. "
         "To reach the user sooner, cancel the invitation and invite them again."
     ),
     responses=PROJECT_ERRORS,
@@ -646,6 +661,7 @@ async def resend_project_invitation(
     membership, user = await _locked_member(db, project_id, membership_id)
     project, _ = await require_project_access(db, principal, project_id, manage=True, lock=True)
     ensure_writable_project(project)
+    rights = await project_access(db, principal, project_id)
     if membership.status != "invited":
         raise APIError(409, "INVITE_NOT_PENDING", "This user is already a project member")
     if user.status == UserStatus.SUSPENDED:
@@ -654,15 +670,13 @@ async def resend_project_invitation(
         raise APIError(
             409, "INVITE_STILL_VALID", "The invitation can be sent again once it has expired"
         )
+    ensure_invitable_email(rights, user.email)
     # The new notice replaces the one about the expired invitation.
     await drop_invitation_notices(db, user.id, project_id)
     # Whoever sends it again is the inviter from now on, and is told the answer.
     membership.created_by_user_id = principal.user.id
     _send_invitation(
-        db,
-        membership,
-        principal.user.id,
-        ttl_hours=await effective_invite_ttl_hours(db, project_id, settings),
+        db, membership, principal.user.id, ttl_hours=invite_ttl_hours(rights.access, settings)
     )
     record_audit(
         db,

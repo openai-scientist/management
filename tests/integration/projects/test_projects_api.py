@@ -93,7 +93,11 @@ async def test_project_roles_decide_who_can_read_and_manage(harness: Harness) ->
             ),
         ]
         assert [response.status_code for response in denied] == [403, 403, 403]
-        assert {response.json()["error"]["code"] for response in denied} == {"ROLE_REQUIRED"}
+        assert [response.json()["error"]["code"] for response in denied] == [
+            "ROLE_REQUIRED",
+            "ROLE_REQUIRED",
+            "INVITE_NOT_ALLOWED",
+        ]
 
         # A Platform Admin sees and manages every project without being a member.
         admin_view = await admin_client.get(url)

@@ -7,11 +7,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.access.service import ensure_writable_project, require_project_access
 from management.core.responses import ApiResponse, ErrorResponse, ok
+from management.core.roles import ProjectRole
 from management.core.sessions import Principal, require_active_csrf, require_active_principal
 from management.db.session import get_db
-from management.projects.schemas.settings import ProjectSettingsData, ProjectSettingsPatch
-from management.projects.service import _manage_project
-from management.projects.settings_service import get_snapshot, patch_section
+from management.projects.schemas.settings import (
+    AccessContext,
+    AccessPermissions,
+    InvitationDefaults,
+    ProjectSettingsData,
+    ProjectSettingsPatch,
+)
+from management.projects.service import _manage_project, project_access
+from management.projects.settings_service import get_snapshot, invite_ttl_hours, patch_section
 
 router = APIRouter(prefix="/projects", tags=["project-settings"])
 
@@ -23,6 +30,53 @@ SETTINGS_ERRORS = {
         "or the section does not exist (SETTINGS_SECTION_NOT_FOUND)",
     },
 }
+
+
+@router.get(
+    "/{project_id}/access-context",
+    response_model=ApiResponse[AccessContext],
+    summary="What I may do in this project",
+    description=(
+        "For any member: permissions worked out from the session, the membership and the "
+        "project's settings as they are now, plus invitation defaults when you may invite. "
+        "These drive the UI only; every API checks again. Refresh after a settings change, a "
+        "role change, a restore, or a 403."
+    ),
+    responses={404: SETTINGS_ERRORS[404]},
+)
+async def read_access_context(
+    project_id: UUID,
+    request: Request,
+    principal: Principal = Depends(require_active_principal),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[AccessContext]:
+    rights = await project_access(db, principal, project_id)
+    snapshot = await get_snapshot(db, project_id)
+    writable = rights.project.archived_at is None
+    invitation = None
+    if rights.can_invite:
+        access = rights.access
+        invitation = InvitationDefaults(
+            default_role=access["default_role"],
+            allowed_roles=([ProjectRole.MANAGER] if rights.can_manage else [])
+            + [ProjectRole.RESEARCHER, ProjectRole.REVIEWER],
+            allowed_domains=access["domains"],
+            configured_expiry_days=access["expiry_days"],
+            effective_ttl_hours=invite_ttl_hours(access, request.app.state.settings),
+        )
+    return ok(
+        AccessContext(
+            settings_version=snapshot.version,
+            permissions=AccessPermissions(
+                can_invite=writable and rights.can_invite,
+                can_view_invite_candidates=writable and rights.can_invite,
+                can_manage_members=writable and rights.can_manage,
+                can_manage_settings=writable and rights.can_manage,
+                can_read_raw_datasets=rights.can_read_raw_data,
+            ),
+            invitation=invitation,
+        )
+    )
 
 
 @router.get(

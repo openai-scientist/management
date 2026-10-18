@@ -1,11 +1,14 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.access.service import (
     invite_expired,
+    is_platform_admin,
     lock_project_scope,
     lock_user,
     require_project_access,
@@ -13,6 +16,7 @@ from management.access.service import (
 from management.core.config import Settings
 from management.core.errors import APIError
 from management.core.responses import ApiResponse, paginated
+from management.core.roles import ProjectRole
 from management.core.search import matches
 from management.core.sessions import (
     Principal,
@@ -30,6 +34,7 @@ from management.projects.schemas.projects import (
     ProjectItem,
     ProjectMemberItem,
 )
+from management.projects.settings_service import effective_section, email_domain_allowed
 from management.research.models import ResearchRun
 
 
@@ -126,6 +131,77 @@ async def _email_invitation(
     return await sender.send(to=user.email, subject=subject, text=text, html=html)
 
 
+@dataclass(frozen=True, slots=True)
+class ProjectAccess:
+    """What the caller may do in one project under its settings as they are now."""
+
+    project: Project
+    membership: ProjectMembership | None
+    is_admin: bool
+    access: dict[str, Any]
+
+    @property
+    def role(self) -> str | None:
+        return self.membership.role_code if self.membership else None
+
+    @property
+    def can_manage(self) -> bool:
+        return self.is_admin or self.role == ProjectRole.MANAGER
+
+    @property
+    def can_invite(self) -> bool:
+        return self.can_manage or (
+            self.role == ProjectRole.RESEARCHER and self.access["inviters"] == "researchers"
+        )
+
+    @property
+    def can_read_raw_data(self) -> bool:
+        return (
+            self.is_admin or self.role != ProjectRole.REVIEWER or self.access["reviewers_see_data"]
+        )
+
+
+async def project_access(
+    db: AsyncSession, principal: Principal, project_id: UUID, *, lock: bool = False
+) -> ProjectAccess:
+    """The project and the caller's rights in it; 404 for anyone outside it."""
+    project, membership = await require_project_access(db, principal, project_id, lock=lock)
+    return ProjectAccess(
+        project=project,
+        membership=membership,
+        is_admin=await is_platform_admin(db, principal.user.id),
+        access=await effective_section(db, project_id, "access"),
+    )
+
+
+async def require_invite_access(
+    db: AsyncSession, principal: Principal, project_id: UUID, *, lock: bool = False
+) -> ProjectAccess:
+    """Access for someone the project's `inviters` setting lets invite; 403 for other members."""
+    rights = await project_access(db, principal, project_id, lock=lock)
+    if not rights.can_invite:
+        raise APIError(403, "INVITE_NOT_ALLOWED", "You can't invite people to this project")
+    return rights
+
+
+def ensure_invitable_role(rights: ProjectAccess, role: str) -> None:
+    """A Researcher who may invite gives out Researcher or Reviewer, never Project Manager."""
+    if role == ProjectRole.MANAGER and not rights.can_manage:
+        raise APIError(
+            403, "INVITE_NOT_ALLOWED", "Only a Project Manager can invite a Project Manager"
+        )
+
+
+def ensure_invitable_email(rights: ProjectAccess, email: str) -> None:
+    if not email_domain_allowed(email, rights.access["domains"]):
+        raise APIError(
+            403,
+            "INVITE_DOMAIN_NOT_ALLOWED",
+            "This project only accepts people with an email at "
+            + ", ".join(rights.access["domains"]),
+        )
+
+
 async def _manage_project(
     db: AsyncSession, principal: Principal, project_id: UUID
 ) -> tuple[Project, ProjectMembership | None]:
@@ -156,7 +232,13 @@ async def _locked_member(db: AsyncSession, project_id: UUID, membership_id: UUID
 
 
 async def _invite_candidates(
-    db: AsyncSession, project_id: UUID, q: str | None, limit: int, offset: int, prefix: str
+    db: AsyncSession,
+    project_id: UUID,
+    q: str | None,
+    limit: int,
+    offset: int,
+    prefix: str,
+    domains: list[str],
 ) -> ApiResponse[list[ProjectInviteCandidate]]:
     existing_membership = (
         select(ProjectMembership.id)
@@ -173,6 +255,11 @@ async def _invite_candidates(
         User.id.not_in(select(UserPlatformRole.user_id)),
         ~existing_membership,
     ]
+    if domains:
+        # Exact domain after the @, the same rule an invitation is checked against.
+        filters.append(
+            or_(*(User.email_normalized.endswith(f"@{d}", autoescape=True) for d in domains))
+        )
     if q:
         filters.append(matches(q, User.email, User.display_name))
     total = int(await db.scalar(select(func.count()).select_from(User).where(*filters)) or 0)
