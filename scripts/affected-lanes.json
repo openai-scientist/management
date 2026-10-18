@@ -3,6 +3,7 @@
     "architecture": "tests/unit/test_architecture.py",
     "tooling": "tests/unit/test_affected_tests.py",
     "unit-connections": "tests/unit/connections",
+    "unit-datasets": "tests/unit/datasets",
     "unit-infra": "tests/unit/infra",
     "unit-research": "tests/unit/research",
     "integration-audit": "tests/integration/audit",
