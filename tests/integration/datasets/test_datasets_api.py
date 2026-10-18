@@ -92,9 +92,17 @@ async def test_rejected_uploads_leave_nothing_behind(harness: Harness, tmp_path)
         assert (await client.get(f"{PROJECTS}/{project['id']}")).json()["data"]["status"] == "draft"
 
         assert (await upload_dataset(client, session, project["id"])).status_code == 201
-        duplicate = await upload_dataset(client, session, project["id"], name="exam SCORES")
-        assert duplicate.status_code == 409
-        assert duplicate.json()["error"]["code"] == "DATASET_NAME_EXISTS"
+        # A file type the project's `data.types` leaves out is refused before it is stored.
+        settings_url = f"{PROJECTS}/{project['id']}/settings"
+        saved = await client.patch(
+            f"{settings_url}/data",
+            json={"version": 0, "values": {"types": ["Excel"]}},
+            headers=mutation_headers(session["csrf_token"]),
+        )
+        assert saved.status_code == 200, saved.text
+        refused = await upload_dataset(client, session, project["id"], name="Other")
+        assert refused.status_code == 422
+        assert refused.json()["error"]["code"] == "DATASET_FILE_TYPE_NOT_ALLOWED"
         stored = [path for path in (tmp_path / "storage").rglob("*") if path.is_file()]
         assert len(stored) == 1
 

@@ -343,10 +343,14 @@ async def test_importing_follows_project_roles_and_stays_inside_the_project(
         ):
             assert failure(crossed) == (404, "NOT_FOUND", None)
 
+        # A taken name adds a version by default (`data.same_name` is `version`).
         duplicate = await import_dataset(
             manager_client, manager, project["id"], connection_id, name="exam SCORES"
         )
-        assert failure(duplicate) == (409, "DATASET_NAME_EXISTS", None)
+        assert duplicate.status_code == 201, duplicate.text
+        assert duplicate.json()["meta"]["upload"]["outcome"] == "created_version"
+        assert duplicate.json()["data"]["id"] == dataset["id"]
+        built = len(harness.connectors.built)
 
         url = f"{base}/from-connection"
         body = {"name": "Other", "connection_id": connection_id, "source": TABLE}
@@ -382,7 +386,7 @@ async def test_importing_follows_project_roles_and_stays_inside_the_project(
 
         # None of the refused requests reached the external server or stored a file.
         assert len(harness.connectors.built) == built
-        assert len(stored_files(tmp_path)) == 2
+        assert len(stored_files(tmp_path)) == 3
 
 
 @pytest.mark.asyncio
@@ -585,26 +589,23 @@ async def test_a_file_that_cannot_be_removed_does_not_hide_the_refusal(
     async with harness.client() as client:
         session, project, connection_id = await imported_project(harness, client)
         connectors, store = harness.connectors, harness.app.state.file_store
-        taken = await upload_dataset(client, session, project["id"], name="Late")
-        assert taken.status_code == 201, taken.text
 
         async def broken_delete(key) -> None:
             raise OSError("the store is unreachable")
 
-        # The name is free when the import starts and taken by the time it is recorded.
+        # The project is writable when the import starts and archived by the time it is recorded.
         connectors.hold = asyncio.Event()
         calls = connectors.tests_started
         pending = asyncio.create_task(import_dataset(client, session, project["id"], connection_id))
         await wait_until(lambda: connectors.tests_started == calls + 1)
-        renamed = await client.patch(
-            f"{PROJECTS}/{project['id']}/datasets/{taken.json()['data']['id']}",
-            json={"name": "Exam scores"},
+        archived = await client.post(
+            f"{PROJECTS}/{project['id']}/archive",
             headers=mutation_headers(session["csrf_token"]),
         )
-        assert renamed.status_code == 200, renamed.text
+        assert archived.status_code == 200, archived.text
         store.delete = broken_delete
         connectors.hold.set()
-        assert failure(await pending) == (409, "DATASET_NAME_EXISTS", None)
+        assert failure(await pending) == (409, "PROJECT_ARCHIVED", None)
 
 
 def test_the_stored_csv_is_what_a_csv_reader_expects() -> None:

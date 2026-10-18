@@ -3,8 +3,8 @@
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import IO, Any
-from uuid import UUID
+from typing import IO, Any, Literal
+from uuid import UUID, uuid4
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
@@ -22,6 +22,7 @@ from management.datasets.csv_inspection import CsvSummary, InvalidCsv, inspect_c
 from management.datasets.models import Dataset, DatasetVersion
 from management.infra.file_store import FileStore, StoredFile, iter_file
 from management.projects.project_status import refresh_project_status
+from management.projects.settings_service import effective_section
 
 logger = logging.getLogger("management.datasets")
 
@@ -36,6 +37,8 @@ class StoredCsv:
     summary: CsvSummary
     stored: StoredFile
     source_type: str = "upload"
+    # The kind of file uploaded, as `data.types` names it; None for rows read from a connection.
+    file_type: str | None = None
     source_details: dict[str, Any] | None = None
     # What the audit event says about the source, beyond its type.
     audit_details: dict[str, Any] = field(default_factory=dict)
@@ -58,6 +61,61 @@ async def name_taken(
 
 def name_exists() -> APIError:
     return APIError(409, "DATASET_NAME_EXISTS", "The project already has a dataset by that name")
+
+
+# What an upload under an existing name did, by the project's `data.same_name` setting.
+UploadOutcome = Literal["created_dataset", "created_version", "created_copy"]
+MAX_NAME_LENGTH = 160
+
+
+def ensure_file_type_allowed(data: dict[str, Any], file_type: str | None) -> None:
+    """The project's `data.types` decides which uploaded files it takes."""
+    if file_type is not None and file_type not in data["types"]:
+        raise APIError(
+            422,
+            "DATASET_FILE_TYPE_NOT_ALLOWED",
+            f"This project doesn't accept {file_type} files. Upload "
+            + " or ".join(data["types"])
+            + ", or ask a Project Manager to change the data settings.",
+        )
+
+
+async def dataset_by_name(db: AsyncSession, project_id: UUID, name: str) -> Dataset | None:
+    return await db.scalar(
+        select(Dataset).where(
+            Dataset.project_id == project_id, func.lower(Dataset.name) == name.lower()
+        )
+    )
+
+
+async def _copy_name(db: AsyncSession, project_id: UUID, name: str) -> str:
+    """`name (2)`, `name (3)`, ...: the first one free, the name cut to fit the length limit."""
+    taken = set(
+        (
+            await db.scalars(
+                select(func.lower(Dataset.name)).where(Dataset.project_id == project_id)
+            )
+        ).all()
+    )
+    number = 2
+    while True:
+        suffix = f" ({number})"
+        candidate = name[: MAX_NAME_LENGTH - len(suffix)].rstrip() + suffix
+        if candidate.lower() not in taken:
+            return candidate
+        number += 1
+
+
+async def _locked_writable_project(
+    db: AsyncSession, principal: Principal, project_id: UUID, csv: StoredCsv
+):
+    """Lock the project, check access again and the file type under the settings as they are now."""
+    await lock_project_scope(db, project_id)
+    project, _ = await require_project_access(db, principal, project_id, contribute=True, lock=True)
+    ensure_writable_project(project)
+    data = await effective_section(db, project_id, "data")
+    ensure_file_type_allowed(data, csv.file_type)
+    return project, data
 
 
 async def store_csv(handle: IO[bytes], store: FileStore, key: str) -> tuple[CsvSummary, StoredFile]:
@@ -151,47 +209,86 @@ async def create_dataset_with_version(
     description: str | None,
     csv: StoredCsv,
     request_id: str | None,
-) -> tuple[Dataset, DatasetVersion]:
-    """Record a new dataset whose version 1 is the stored file, and commit.
+) -> tuple[Dataset, DatasetVersion, UploadOutcome]:
+    """Record the stored file under `name`, and commit.
 
-    The file was stored without any lock held, so access and the name are checked again here.
+    When the project already has a dataset by that name, `data.same_name` decides:
+    `version` adds the file as that dataset's next version, `copy` makes a new dataset
+    named `name (2)`, `name (3)`, ... The file was stored without any lock held, so access,
+    the file type and the name are checked here, under the project lock.
     When this raises, for any reason, the file is removed unless its record was committed.
     """
     try:
-        await lock_project_scope(db, project_id)
-        project, _ = await require_project_access(
-            db, principal, project_id, contribute=True, lock=True
-        )
-        ensure_writable_project(project)
-        if await name_taken(db, project_id, name):
-            raise name_exists()
-        dataset = Dataset(
-            id=dataset_id,
-            project_id=project_id,
-            name=name,
-            description=description,
-            created_by_user_id=principal.user.id,
-        )
-        db.add(dataset)
-        await db.flush()
-        version = _version(dataset_id, 1, csv, principal.user.id)
-        db.add(version)
-        record_audit(
-            db,
-            actor_user_id=principal.user.id,
-            action="dataset.created",
-            resource_type="dataset",
-            resource_id=dataset_id,
-            project_id=project_id,
-            request_id=request_id,
-            details={"name": name, **_audit_source(csv)},
-        )
+        project, data = await _locked_writable_project(db, principal, project_id, csv)
+        existing = await dataset_by_name(db, project_id, name)
+        outcome: UploadOutcome = "created_dataset"
+        if existing is not None and data["same_name"] == "version":
+            version = await _add_version(
+                db,
+                project_id=project_id,
+                principal=principal,
+                dataset_id=existing.id,
+                csv=csv,
+                request_id=request_id,
+            )
+            dataset, outcome = existing, "created_version"
+        else:
+            if existing is not None:
+                name, outcome = await _copy_name(db, project_id, name), "created_copy"
+            if await db.get(Dataset, dataset_id) is not None:
+                # The file was stored for a same-name version and the setting changed since.
+                dataset_id = uuid4()
+            dataset, version = await _add_dataset(
+                db,
+                project_id=project_id,
+                principal=principal,
+                dataset_id=dataset_id,
+                name=name,
+                description=description,
+                csv=csv,
+                request_id=request_id,
+            )
         await refresh_project_status(db, project)
     except BaseException:
         # Not only Exception: a cancelled request must not leave the file behind either.
         await asyncio.shield(_discard(store, csv.storage_key))
         raise
     await _commit(db, store, csv)
+    return dataset, version, outcome
+
+
+async def _add_dataset(
+    db: AsyncSession,
+    *,
+    project_id: UUID,
+    principal: Principal,
+    dataset_id: UUID,
+    name: str,
+    description: str | None,
+    csv: StoredCsv,
+    request_id: str | None,
+) -> tuple[Dataset, DatasetVersion]:
+    dataset = Dataset(
+        id=dataset_id,
+        project_id=project_id,
+        name=name,
+        description=description,
+        created_by_user_id=principal.user.id,
+    )
+    db.add(dataset)
+    await db.flush()
+    version = _version(dataset_id, 1, csv, principal.user.id)
+    db.add(version)
+    record_audit(
+        db,
+        actor_user_id=principal.user.id,
+        action="dataset.created",
+        resource_type="dataset",
+        resource_id=dataset_id,
+        project_id=project_id,
+        request_id=request_id,
+        details={"name": name, **_audit_source(csv)},
+    )
     return dataset, version
 
 
@@ -211,31 +308,14 @@ async def append_version(
     When this raises, for any reason, the file is removed unless its record was committed.
     """
     try:
-        await lock_project_scope(db, project_id)
-        project, _ = await require_project_access(
-            db, principal, project_id, contribute=True, lock=True
-        )
-        ensure_writable_project(project)
-        newest = await db.scalar(
-            select(func.max(DatasetVersion.version_number)).where(
-                DatasetVersion.dataset_id == dataset_id
-            )
-        )
-        version = _version(dataset_id, int(newest or 0) + 1, csv, principal.user.id)
-        db.add(version)
-        record_audit(
+        project, _ = await _locked_writable_project(db, principal, project_id, csv)
+        version = await _add_version(
             db,
-            actor_user_id=principal.user.id,
-            action="dataset.version_added",
-            resource_type="dataset_version",
-            resource_id=csv.version_id,
             project_id=project_id,
+            principal=principal,
+            dataset_id=dataset_id,
+            csv=csv,
             request_id=request_id,
-            details={
-                "dataset_id": str(dataset_id),
-                "version_number": version.version_number,
-                **_audit_source(csv),
-            },
         )
         await refresh_project_status(db, project)
     except BaseException:
@@ -243,4 +323,38 @@ async def append_version(
         await asyncio.shield(_discard(store, csv.storage_key))
         raise
     await _commit(db, store, csv)
+    return version
+
+
+async def _add_version(
+    db: AsyncSession,
+    *,
+    project_id: UUID,
+    principal: Principal,
+    dataset_id: UUID,
+    csv: StoredCsv,
+    request_id: str | None,
+) -> DatasetVersion:
+    """The next version number is given out under the project lock the caller holds."""
+    newest = await db.scalar(
+        select(func.max(DatasetVersion.version_number)).where(
+            DatasetVersion.dataset_id == dataset_id
+        )
+    )
+    version = _version(dataset_id, int(newest or 0) + 1, csv, principal.user.id)
+    db.add(version)
+    record_audit(
+        db,
+        actor_user_id=principal.user.id,
+        action="dataset.version_added",
+        resource_type="dataset_version",
+        resource_id=csv.version_id,
+        project_id=project_id,
+        request_id=request_id,
+        details={
+            "dataset_id": str(dataset_id),
+            "version_number": version.version_number,
+            **_audit_source(csv),
+        },
+    )
     return version

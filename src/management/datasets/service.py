@@ -35,6 +35,7 @@ from management.core.sessions import Principal
 from management.datasets.csv_inspection import DuplicateColumns, InvalidCsv, check_header
 from management.datasets.dataset_ingest import (
     StoredCsv,
+    ensure_file_type_allowed,
     storage_key,
     store_csv,
 )
@@ -44,6 +45,24 @@ from management.infra.file_store import (
     FileStore,
     safe_filename,
 )
+from management.projects.service import ProjectAccess, project_access
+
+# Uploaded file extensions the Platform reads, by the name `data.types` gives them.
+FILE_TYPES = {".csv": "CSV", ".xlsx": "Excel"}
+
+
+async def require_dataset_reader(
+    db: AsyncSession, principal: Principal, project_id: UUID
+) -> ProjectAccess:
+    """Any member, except a Reviewer while `access.reviewers_see_data` is off (403)."""
+    rights = await project_access(db, principal, project_id)
+    if not rights.can_read_raw_data:
+        raise APIError(
+            403,
+            "DATASET_ACCESS_DENIED",
+            "Reviewers can't see this project's data. Ask a Project Manager for access.",
+        )
+    return rights
 
 
 def _version_item(version: DatasetVersion) -> DatasetVersionItem:
@@ -140,14 +159,24 @@ async def _workbook_csv(file: IO[bytes], max_bytes: int) -> IO[bytes]:
 
 
 async def _receive_csv(
-    upload: UploadFile, store: FileStore, version_id: UUID, key: str, max_bytes: int
+    upload: UploadFile,
+    store: FileStore,
+    version_id: UUID,
+    key: str,
+    max_bytes: int,
+    data: dict[str, Any],
 ) -> StoredCsv:
     """Validate the uploaded CSV or Excel file and store it as CSV.
 
-    Nothing is stored when the file is rejected.
+    The extension picks the parser and the parser must read the file, so a renamed file
+    fails as INVALID_DATASET. Nothing is stored when the file is rejected.
     """
     filename = safe_filename(upload.filename, "dataset.csv")
     extension = PurePosixPath(filename).suffix.lower()
+    if extension not in FILE_TYPES:
+        raise APIError(415, "UNSUPPORTED_FILE_TYPE", "Only .csv and .xlsx files are accepted")
+    # Checked before reading so a refused file is never stored; again under the lock.
+    ensure_file_type_allowed(data, FILE_TYPES[extension])
     if extension == ".csv":
         summary, stored = await store_csv(upload.file, store, key)
     elif extension == ".xlsx":
@@ -155,9 +184,7 @@ async def _receive_csv(
             summary, stored = await store_csv(handle, store, key)
         # What is stored and downloaded is the CSV, so the name says so.
         filename = filename[: -len(extension)] + ".csv"
-    else:
-        raise APIError(415, "UNSUPPORTED_FILE_TYPE", "Only .csv and .xlsx files are accepted")
-    return StoredCsv(version_id, key, filename, summary, stored)
+    return StoredCsv(version_id, key, filename, summary, stored, file_type=FILE_TYPES[extension])
 
 
 def _import_filename(source: Source) -> str:

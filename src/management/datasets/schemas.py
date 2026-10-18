@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 from management.connections.connectors.base import (
     Source,
 )
+from management.core.responses import ApiResponse, ResponseMeta
 
 
 class DatasetVersionItem(BaseModel):
@@ -42,6 +43,43 @@ class DatasetItem(BaseModel):
     created_at: datetime
     updated_at: datetime
     latest_version: DatasetVersionItem | None
+
+
+class UploadResult(BaseModel):
+    outcome: Literal["created_dataset", "created_version", "created_copy"] = Field(
+        description=(
+            "`created_version`: the name was taken and `data.same_name` is `version`, so the "
+            "file became the next version of that dataset. `created_copy`: `same_name` is "
+            "`copy`, so a new dataset was made under a free name such as `Scores (2)`."
+        )
+    )
+    dataset_id: str
+    version_id: str
+
+
+class DatasetUploadMeta(ResponseMeta):
+    upload: UploadResult
+
+
+class DatasetUploadResponse(ApiResponse[DatasetItem]):
+    meta: DatasetUploadMeta
+
+
+class DatasetPreview(BaseModel):
+    dataset_id: str
+    version_id: str
+    columns: list[str] = Field(description="In file order.")
+    rows: list[list[str]] = Field(
+        description="Each row has one string per column; an empty cell is an empty string."
+    )
+    truncated: bool = Field(description="True when the version has more rows than are shown.")
+    masking_applied: bool = Field(
+        description="True when `data.pii` and `data.mask` are both on and the rows were masked."
+    )
+    masked_cells: int = Field(description="Cells replaced by `[REDACTED]`.")
+    detection_status: Literal["ready", "off"] = Field(
+        description="`ready`: detection ran on these rows. `off`: no masking was asked for."
+    )
 
 
 class DatasetPatch(BaseModel):
