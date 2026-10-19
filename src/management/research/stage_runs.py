@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from sqlalchemy import func, select, update
 
+from management.audit.service import record_audit
 from management.research.models import PiConsultation, RunEvent, RunGate, StageRun
 from management.research.run_event_stream import run_events_changed
 
@@ -68,6 +69,7 @@ async def sync_run_status(db, run, *, stage=None) -> None:
         )
     if stage is None:
         return
+    before = run.status
     if stage.status in {"FAILED", "STOPPED", "SUPERSEDED"}:
         await db.execute(
             update(RunGate)
@@ -91,6 +93,18 @@ async def sync_run_status(db, run, *, stage=None) -> None:
             run.failure_message = stage.failure.get("message")
     if run.status in {"failed", "stopped", "completed"}:
         run.finished_at = datetime.now(UTC)
+    if run.status != before and run.status in {"completed", "failed"}:
+        # Stage-engine runs end here, not through the Popper status path. Other changes
+        # (gates opening, pauses, a stop) are already told by the decision that caused them.
+        record_audit(
+            db,
+            actor_user_id=None,
+            action="run.status_changed",
+            resource_type="run",
+            resource_id=run.id,
+            project_id=run.project_id,
+            details={"before": before, "after": run.status},
+        )
 
 
 async def recompute_run_cost(db, run) -> None:

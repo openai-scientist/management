@@ -6,6 +6,7 @@
     "unit-datasets": "tests/unit/datasets",
     "unit-integrations": "tests/unit/integrations",
     "unit-infra": "tests/unit/infra",
+    "unit-projects": "tests/unit/projects",
     "unit-research": "tests/unit/research",
     "integration-audit": "tests/integration/audit",
     "integration-connections": "tests/integration/connections",

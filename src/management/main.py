@@ -53,6 +53,7 @@ from management.monitoring.stream import MonitoringHub
 from management.notifications.notification_stream import NotificationHub
 from management.notifications.router import router as notifications_router
 from management.projects.invite_candidates_stream import InviteCandidatesHub
+from management.projects.router.activity import router as project_activity_router
 from management.projects.router.comments import router as comments_router
 from management.projects.router.invitations import router as invitations_router
 from management.projects.router.ownership import router as project_ownership_router
@@ -87,6 +88,7 @@ v1_router.include_router(users_router)
 v1_router.include_router(audit_router)
 v1_router.include_router(projects_router)
 v1_router.include_router(project_settings_router)
+v1_router.include_router(project_activity_router)
 v1_router.include_router(project_ownership_router)
 v1_router.include_router(invitations_router)
 v1_router.include_router(connections_google_router)

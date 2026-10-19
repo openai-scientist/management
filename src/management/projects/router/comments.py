@@ -156,6 +156,7 @@ async def create_comment(
     project_id: UUID,
     run_id: UUID,
     body: CommentCreate,
+    request: Request,
     principal: Principal = Depends(require_active_csrf),
     db: AsyncSession = Depends(get_db),
     prefix: str = Depends(api_prefix),
@@ -178,6 +179,17 @@ async def create_comment(
         body=body.body,
     )
     db.add(comment)
+    await db.flush()
+    record_audit(
+        db,
+        actor_user_id=principal.user.id,
+        action="comment.created",
+        resource_type="comment",
+        resource_id=comment.id,
+        project_id=project_id,
+        request_id=getattr(request.state, "request_id", None),
+        details={"run_id": str(run.id)},
+    )
     # Only the person who started the run is told, so a busy thread does not flood the project.
     if run.created_by_user_id != principal.user.id:
         await notify_project_members(

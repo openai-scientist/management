@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from management.access.service import ensure_writable_project, lock_project_scope
+from management.audit.service import record_audit
 from management.core.errors import APIError
 from management.core.roles import ProjectRole
 from management.notifications.service import notify_project_members
@@ -485,6 +486,7 @@ async def accept_stage(
         payload={"selection": selection, "note": note} | _consultation_payload(consultation_id),
     )
     db.add(decision)
+    _audit_decision(db, run, stage_run, decision)
     append_run_event(
         db,
         run,
@@ -578,7 +580,25 @@ def _consultation_payload(consultation_id) -> dict:
     return {"consultation_id": str(consultation_id)} if consultation_id else {}
 
 
+def _audit_decision(db, run, stage_run, decision) -> None:
+    """Every decision on a stage, by a person, the AI PI or the system, for the activity feed."""
+    record_audit(
+        db,
+        actor_user_id=decision.decided_by_user_id,
+        action="run.decision_recorded",
+        resource_type="run",
+        resource_id=run.id,
+        project_id=run.project_id,
+        details={
+            "decision": decision.action,
+            "stage_key": stage_run.stage_key,
+            "decided_by": decision.actor,
+        },
+    )
+
+
 def _decision_event(db, run, stage_run, decision, extra=None, *, actor):
+    _audit_decision(db, run, stage_run, decision)
     payload = (
         {"action": decision.action}
         | (extra or {})

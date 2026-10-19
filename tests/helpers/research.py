@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -9,8 +9,8 @@ from sqlalchemy import select
 from management.identity.models import User
 from management.projects.models import Project
 from management.research.contracts import EventEnvelope
-from management.research.models import StageRun
-from management.research.orchestrator import start_research_run
+from management.research.models import RunArtifact, StageRun
+from management.research.orchestrator import apply_engine_event, start_research_run
 from tests.fakes.engines import engine_overrides, install_fake_engines, seed_models
 from tests.helpers.datasets import upload_dataset
 from tests.helpers.harness import CALLBACK_KEY, open_harness
@@ -119,3 +119,28 @@ async def open_pipeline_api(tmp_path, *, scripted=False):
             assert response.status_code == 201, response.text
             run = response.json()["data"]
             yield harness, client, session, project, run, fakes
+
+
+async def publish(db, run, stage, schema="i2h.hypotheses/v1"):
+    artifact = RunArtifact(
+        id=uuid4(),
+        run_id=run.id,
+        stage_run_id=stage.id,
+        schema_id=schema,
+        version=1,
+        is_primary=True,
+        kind="other",
+        filename="result.json",
+        content_type="application/json",
+        storage_key=uuid4().hex,
+        size_bytes=2,
+        sha256="0" * 64,
+    )
+    db.add(artifact)
+    await db.flush()
+    await apply_engine_event(
+        db,
+        stage,
+        lifecycle("run.published", phase="published", payload={"artifact_id": str(artifact.id)}),
+    )
+    return artifact

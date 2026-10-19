@@ -1,43 +1,18 @@
 from decimal import Decimal
-from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 
+from management.audit.models import AuditEvent
 from management.core.errors import APIError
-from management.research.models import RunArtifact
 from management.research.orchestrator import accept_stage, apply_engine_event
-from tests.helpers.research import lifecycle, open_pipeline
+from tests.helpers.research import lifecycle, open_pipeline, publish
 
 
 @pytest.fixture
 async def pipeline(tmp_path):
     async with open_pipeline(tmp_path) as state:
         yield state
-
-
-async def publish(db, run, stage, schema="i2h.hypotheses/v1"):
-    artifact = RunArtifact(
-        id=uuid4(),
-        run_id=run.id,
-        stage_run_id=stage.id,
-        schema_id=schema,
-        version=1,
-        is_primary=True,
-        kind="other",
-        filename="result.json",
-        content_type="application/json",
-        storage_key=uuid4().hex,
-        size_bytes=2,
-        sha256="0" * 64,
-    )
-    db.add(artifact)
-    await db.flush()
-    await apply_engine_event(
-        db,
-        stage,
-        lifecycle("run.published", phase="published", payload={"artifact_id": str(artifact.id)}),
-    )
-    return artifact
 
 
 async def test_start_creates_first_stage_with_request(pipeline):
@@ -130,3 +105,38 @@ async def test_budget_enforced_pauses_when_spent(pipeline):
     run, fakes = await accept_first_stage_with_spend(pipeline, True)
     assert run.status == "budget_exceeded"
     assert sum(len(fake.requests) for fake in fakes.values()) == 1
+
+
+async def test_stage_decisions_and_run_endings_reach_the_audit_log(pipeline):
+    harness, db, run, stage, _ = pipeline
+    await publish(db, run, stage)
+    await accept_stage(
+        db, harness.app.state, stage, selection={}, note=None, actor="user", user_id=None
+    )
+    await db.flush()
+    rows = (
+        await db.scalars(
+            select(AuditEvent)
+            .where(AuditEvent.resource_id == str(run.id))
+            .order_by(AuditEvent.created_at)
+        )
+    ).all()
+    decided = [row for row in rows if row.action == "run.decision_recorded"]
+    assert [row.details["decision"] for row in decided] == ["accept"]
+    assert decided[0].project_id == run.project_id
+    # Waiting for review is not an ending: only the decision is recorded.
+    assert not [row for row in rows if row.action == "run.status_changed"]
+
+
+async def test_a_failed_stage_records_the_run_ending(pipeline):
+    _, db, run, stage, _ = pipeline
+    await apply_engine_event(
+        db, stage, lifecycle("run.failed", phase="failed", payload={"code": "x", "message": "m"})
+    )
+    await db.flush()
+    ending = await db.scalar(
+        select(AuditEvent).where(
+            AuditEvent.resource_id == str(run.id), AuditEvent.action == "run.status_changed"
+        )
+    )
+    assert ending.details["after"] == "failed" and ending.actor_user_id is None
