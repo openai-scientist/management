@@ -225,3 +225,31 @@ class SpendingAlert(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+
+
+class NotificationPreference(Base):
+    """One member's notice choices in one project. No row means the defaults."""
+
+    __tablename__ = "notification_preferences"
+    __table_args__ = (
+        UniqueConstraint("project_id", "user_id", name="uq_notification_preferences_member"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    # {group: {"in_app": bool, "email": bool}}, only the groups the member saved.
+    events: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    digest: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    quiet_hours: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    version: Mapped[int] = mapped_column(nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )

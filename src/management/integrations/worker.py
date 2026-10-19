@@ -26,14 +26,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from management.audit.service import record_audit
 from management.core.config import Settings, get_settings
 from management.core.logging import configure_logging
+from management.core.roles import ProjectRole
 from management.infra.secret_box import SecretBox, SecretBoxError
 from management.integrations.content import build_message
 from management.integrations.formatters import payload_for
 from management.integrations.models import IntegrationDelivery, ProjectIntegration
 from management.integrations.sender import SendResult, WebhookSender
 from management.notifications.notification_stream import NotificationHub
-from management.notifications.service import notify_user
-from management.projects.models import Project, ProjectMembership
+from management.notifications.service import notify_project_members
+from management.projects.models import Project
 
 logger = logging.getLogger(__name__)
 
@@ -134,15 +135,9 @@ async def _prepare(
 
 
 async def _notify_managers(db: AsyncSession, integration: ProjectIntegration) -> None:
-    managers = await db.scalars(
-        select(ProjectMembership.user_id).where(
-            ProjectMembership.project_id == integration.project_id,
-            ProjectMembership.role_code == "project_manager",
-            ProjectMembership.status == "active",
-        )
+    await notify_project_members(
+        db, integration.project_id, "integration_failed", roles=(ProjectRole.MANAGER,)
     )
-    for user_id in managers:
-        notify_user(db, user_id, "integration_failed", project_id=integration.project_id)
     record_audit(
         db,
         actor_user_id=None,

@@ -40,6 +40,7 @@ from management.infra.email_sender import EmailSender, get_email_sender
 from management.notifications.notification_stream import notifications_changed
 from management.notifications.service import (
     drop_invitation_notices,
+    drop_preferences,
     notify_project_members,
     notify_user,
 )
@@ -784,6 +785,7 @@ async def remove_project_member(
     if was_invitation:
         await drop_invitation_notices(db, membership.user_id, project_id)
     else:
+        await drop_preferences(db, project_id, membership.user_id)
         notifications_changed(db, membership.user_id)
     record_audit(
         db,

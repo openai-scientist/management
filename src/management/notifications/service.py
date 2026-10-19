@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from management.core.roles import ProjectRole
 from management.identity.models import User, UserStatus
 from management.notifications.notification_stream import notifications_changed
-from management.projects.models import Notification, ProjectMembership
+from management.notifications.preferences import MANDATORY_KINDS, muted_users
+from management.projects.models import Notification, NotificationPreference, ProjectMembership
 
 
 def notify_user(
@@ -18,6 +19,31 @@ def notify_user(
     project_id: UUID,
     run_id: UUID | None = None,
     actor_user_id: UUID | None = None,
+) -> None:
+    """Send a notice about the user's own access, which preferences cannot turn off.
+
+    Every other kind goes through ``notify_project_members``, which honours them.
+    """
+    if kind not in MANDATORY_KINDS:
+        raise ValueError(f"{kind} notices follow preferences; use notify_project_members")
+    _add(
+        db,
+        recipient_user_id,
+        kind,
+        project_id=project_id,
+        run_id=run_id,
+        actor_user_id=actor_user_id,
+    )
+
+
+def _add(
+    db: AsyncSession,
+    recipient_user_id: UUID,
+    kind: str,
+    *,
+    project_id: UUID,
+    run_id: UUID | None,
+    actor_user_id: UUID | None,
 ) -> None:
     db.add(
         Notification(
@@ -65,7 +91,7 @@ async def notify_project_members(
     """Notify the project's active members, in the caller's transaction.
 
     People removed from the project and suspended users get nothing, also when
-    ``only_user_id`` names them.
+    ``only_user_id`` names them. Members who turned this kind of notice off get nothing.
     """
     query = (
         select(ProjectMembership.user_id)
@@ -82,7 +108,20 @@ async def notify_project_members(
         query = query.where(ProjectMembership.user_id != exclude_user_id)
     if only_user_id is not None:
         query = query.where(ProjectMembership.user_id == only_user_id)
-    for user_id in (await db.scalars(query)).all():
-        notify_user(
-            db, user_id, kind, project_id=project_id, run_id=run_id, actor_user_id=actor_user_id
+    recipients = list((await db.scalars(query)).all())
+    muted = await muted_users(db, project_id, kind, recipients)
+    for user_id in recipients:
+        if user_id not in muted:
+            _add(
+                db, user_id, kind, project_id=project_id, run_id=run_id, actor_user_id=actor_user_id
+            )
+
+
+async def drop_preferences(db: AsyncSession, project_id: UUID, user_id: UUID) -> None:
+    """Forget a member's notice choices when they leave; joining again starts from defaults."""
+    await db.execute(
+        delete(NotificationPreference).where(
+            NotificationPreference.project_id == project_id,
+            NotificationPreference.user_id == user_id,
         )
+    )

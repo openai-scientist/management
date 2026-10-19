@@ -15,6 +15,7 @@ from management.integrations.models import IntegrationDelivery, ProjectIntegrati
 from management.projects.models import (
     Comment,
     Notification,
+    NotificationPreference,
     Project,
     ProjectFile,
     ProjectMembership,
@@ -83,6 +84,7 @@ async def delete_project_rows(db: AsyncSession, project_id: UUID) -> list[str]:
         delete(ProjectIntegration).where(ProjectIntegration.project_id == project_id),
         delete(ProjectFile).where(ProjectFile.project_id == project_id),
         delete(ProjectSetting).where(ProjectSetting.project_id == project_id),
+        delete(NotificationPreference).where(NotificationPreference.project_id == project_id),
         delete(SpendingAlert).where(SpendingAlert.project_id == project_id),
         delete(ProjectMembership).where(ProjectMembership.project_id == project_id),
         delete(Project).where(Project.id == project_id),
