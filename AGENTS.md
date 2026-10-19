@@ -36,9 +36,10 @@ Layers, high to low. A module imports only from lower layers. `lint-imports` enf
 2. `datasets`
 3. `connections`
 4. `projects`
-5. `identity`, `notifications`
-6. `audit`, `access`
-7. `core`, `db`, `infra`
+5. `integrations`
+6. `identity`, `notifications`
+7. `audit`, `access`
+8. `core`, `db`, `infra`
 
 Rules:
 

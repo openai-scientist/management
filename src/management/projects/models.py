@@ -127,7 +127,7 @@ class Notification(Base):
         CheckConstraint(
             "kind IN ('run_awaiting_review', 'run_finished', 'added_to_project', "
             "'run_commented', 'project_invited', 'invite_accepted', 'invite_declined', "
-            "'member_role_changed', 'removed_from_project')",
+            "'member_role_changed', 'removed_from_project', 'integration_failed')",
             name="ck_notifications_kind",
         ),
         Index("ix_notifications_recipient", "recipient_user_id", "read_at", "created_at"),

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.connections.models import DataConnection, GoogleConnectionGrant
 from management.datasets.models import Dataset, DatasetVersion
+from management.integrations.models import IntegrationDelivery, ProjectIntegration
 from management.projects.models import (
     Comment,
     Notification,
@@ -38,6 +39,7 @@ async def delete_project_rows(db: AsyncSession, project_id: UUID) -> list[str]:
     runs = select(ResearchRun.id).where(ResearchRun.project_id == project_id)
     stages = select(StageRun.id).where(StageRun.research_run_id.in_(runs))
     datasets = select(Dataset.id).where(Dataset.project_id == project_id)
+    integrations = select(ProjectIntegration.id).where(ProjectIntegration.project_id == project_id)
 
     keys: list[str] = []
     for column, where in (
@@ -74,6 +76,8 @@ async def delete_project_rows(db: AsyncSession, project_id: UUID) -> list[str]:
         delete(Dataset).where(Dataset.project_id == project_id),
         delete(DataConnection).where(DataConnection.project_id == project_id),
         delete(GoogleConnectionGrant).where(GoogleConnectionGrant.project_id == project_id),
+        delete(IntegrationDelivery).where(IntegrationDelivery.integration_id.in_(integrations)),
+        delete(ProjectIntegration).where(ProjectIntegration.project_id == project_id),
         delete(ProjectFile).where(ProjectFile.project_id == project_id),
         delete(ProjectSetting).where(ProjectSetting.project_id == project_id),
         delete(ProjectMembership).where(ProjectMembership.project_id == project_id),

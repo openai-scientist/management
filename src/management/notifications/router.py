@@ -40,6 +40,8 @@ NotificationKind = Literal[
     "invite_declined",
     "member_role_changed",
     "removed_from_project",
+    # One of the project's chat integrations stopped taking messages; see its last_error.
+    "integration_failed",
 ]
 NOT_FOUND = {404: {"model": ErrorResponse, "description": "The notification is not yours"}}
 KEEP_ALIVE_SECONDS = 15
