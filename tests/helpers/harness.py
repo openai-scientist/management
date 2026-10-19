@@ -16,6 +16,7 @@ from tests.fakes import (
     FakeGoogleDriveOAuth,
     FakeGoogleOAuth,
     FakePopperClient,
+    FakeWebhookSender,
 )
 
 ORIGIN = "http://localhost:3000"
@@ -53,6 +54,8 @@ class Harness:
             app.state.google_drive_oauth = self.google_drive
         self.connectors = FakeConnectorFactory()
         app.state.connector_factory = self.connectors
+        self.webhooks = FakeWebhookSender()
+        app.state.webhook_sender = self.webhooks
         self.transport = ASGITransport(app=app, raise_app_exceptions=False)
 
     def client(self) -> AsyncClient:

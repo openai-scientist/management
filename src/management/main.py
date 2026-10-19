@@ -41,6 +41,8 @@ from management.identity.router.users import router as users_router
 from management.infra.email_sender import build_email_sender
 from management.infra.file_store import build_file_store
 from management.infra.secret_box import SecretBox
+from management.integrations.router import router as integrations_router
+from management.integrations.sender import WebhookSender
 from management.monitoring.alerts import MonitoringAlertEvaluator
 from management.monitoring.events import MonitoringTelemetry
 from management.monitoring.router.admin_log_monitoring import router as admin_log_monitoring_router
@@ -88,6 +90,7 @@ v1_router.include_router(project_ownership_router)
 v1_router.include_router(invitations_router)
 v1_router.include_router(connections_google_router)
 v1_router.include_router(connections_router)
+v1_router.include_router(integrations_router)
 v1_router.include_router(datasets_router)
 v1_router.include_router(project_files_router)
 v1_router.include_router(runs_router)
@@ -195,6 +198,7 @@ def create_app(
     app.state.email_sender = build_email_sender(settings)
     app.state.google_oauth = build_google_oauth(settings)
     app.state.google_drive_oauth = build_google_drive_oauth(settings)
+    app.state.webhook_sender = WebhookSender()
     app.state.notification_hub = notification_hub
     app.state.invite_candidates_hub = invite_candidates_hub
     app.state.run_event_hub = run_event_hub

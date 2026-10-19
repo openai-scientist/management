@@ -22,7 +22,20 @@ from management.connections.connectors.base import (
 )
 from management.connections.google_drive_oauth import GoogleAccessRevoked, GoogleGrant
 from management.identity.google_oauth import GoogleIdentity, GoogleOAuthError
+from management.integrations.sender import SendResult
 from management.research.popper_client import PopperNotFound, PopperRunState
+
+
+@dataclass
+class FakeWebhookSender:
+    """Records each send; answers with `result`, which a test may replace."""
+
+    result: SendResult = field(default_factory=lambda: SendResult("sent", 200))
+    sent: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
+
+    async def send(self, provider: str, url: str, payload: dict[str, Any]) -> SendResult:
+        self.sent.append((provider, url, payload))
+        return self.result
 
 
 class FakeEmailSender:
