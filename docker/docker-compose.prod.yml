@@ -25,7 +25,7 @@ services:
     # this container is stopped and restarted; without one the whole host runs out of memory.
     mem_limit: ${API_MEMORY_LIMIT:-1g}
     stop_grace_period: 40s
-    environment:
+    environment: &api-environment
       APP_ENV: production
       DEBUG: "false"
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the production environment file}
@@ -89,6 +89,26 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+
+  # Posts project events to Slack, Teams and Discord. Start it after the migrations ran;
+  # until then it logs one error and waits.
+  integration-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["python", "-m", "management.integrations.worker"]
+    restart: unless-stopped
+    mem_limit: ${WORKER_MEMORY_LIMIT:-256m}
+    stop_grace_period: 20s
+    environment: *api-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib, time; assert time.time() - float(pathlib.Path('/tmp/integration-worker.heartbeat').read_text()) < 30"]
+      interval: 15s
+      timeout: 3s
+      retries: 4
 
 volumes:
   platform_prod_db_data:

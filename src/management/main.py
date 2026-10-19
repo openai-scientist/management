@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import management.integrations.events  # noqa: F401  Posts run, comment and member changes.
 from management.audit.router import router as audit_router
 from management.connections.connectors import build_connector_executor, build_connector_factory
 from management.connections.connectors.gate import ConnectionGate

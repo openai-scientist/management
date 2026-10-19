@@ -23,7 +23,7 @@ services:
       dockerfile: docker/Dockerfile
     command: ["uvicorn", "management.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload", "--timeout-graceful-shutdown", "30"]
     stop_grace_period: 40s
-    environment:
+    environment: &api-environment
       APP_ENV: ${APP_ENV:-local}
       DEBUG: ${DEBUG:-true}
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://platform:platform-local-only@db:5432/platform}
@@ -93,6 +93,26 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+
+  # Posts project events to Slack, Teams and Discord. Start it after the migrations ran;
+  # until then it logs one error and waits.
+  integration-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["python", "-m", "management.integrations.worker"]
+    volumes:
+      - ../src:/app/src
+    stop_grace_period: 20s
+    environment: *api-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib, time; assert time.time() - float(pathlib.Path('/tmp/integration-worker.heartbeat').read_text()) < 30"]
+      interval: 15s
+      timeout: 3s
+      retries: 4
 
 volumes:
   platform_db_data:
