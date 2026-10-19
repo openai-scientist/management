@@ -30,6 +30,7 @@ from management.research.orchestrator import (
 )
 from management.research.orchestrator import answer_stage_gate as answer_gate_service
 from management.research.pi.service import flush_consultations, mark_overridden, pi_active
+from management.research.project_budget import ensure_within_budget
 from management.research.reviews import normalize_comment, review_history
 from management.research.schemas.reviews import ReviewRoundItem
 from management.research.schemas.runs import RUN_ERRORS, CurrentStage
@@ -317,6 +318,7 @@ async def rerun(
     project, _ = await require_project_access(db, principal, project_id, contribute=True, lock=True)
     ensure_writable_project(project)
     run = await get_run(db, project_id, run_id, lock=True)
+    await ensure_within_budget(db, project_id)
     stage = await _stage(db, run, stage_run_id, lock=True)
     decision = await rerun_stage(
         db, request.app.state, stage, actor="user", user_id=principal.user.id, reason=body.reason

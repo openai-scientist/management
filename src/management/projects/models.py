@@ -10,6 +10,7 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     text,
 )
@@ -127,7 +128,8 @@ class Notification(Base):
         CheckConstraint(
             "kind IN ('run_awaiting_review', 'run_finished', 'added_to_project', "
             "'run_commented', 'project_invited', 'invite_accepted', 'invite_declined', "
-            "'member_role_changed', 'removed_from_project', 'integration_failed')",
+            "'member_role_changed', 'removed_from_project', 'integration_failed', "
+            "'budget_warning', 'budget_exceeded')",
             name="ck_notifications_kind",
         ),
         Index("ix_notifications_recipient", "recipient_user_id", "read_at", "created_at"),
@@ -198,5 +200,28 @@ class ProjectSetting(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class SpendingAlert(Base):
+    """A budget alert already sent: one per project, month and kind."""
+
+    __tablename__ = "spending_alerts"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('budget_warning', 'budget_exceeded')", name="ck_spending_alerts_kind"
+        ),
+        UniqueConstraint("project_id", "period", "kind", name="uq_spending_alerts_period_kind"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    # The month, YYYY-MM, in the project's timezone when the alert was sent.
+    period: Mapped[str] = mapped_column(String(7), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

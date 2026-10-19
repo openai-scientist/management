@@ -12,6 +12,7 @@ from management.core.errors import APIError
 from management.core.roles import ProjectRole
 from management.notifications.service import notify_project_members
 from management.research.contracts import ConsultationRequest, PIModels
+from management.research.cost_ledger import Part
 from management.research.model_profiles import load_critic_model, load_models
 from management.research.models import (
     ACTIVE_RUN_STATUSES,
@@ -369,16 +370,16 @@ async def critic_unavailable(db, app_state, run, stage_run, reason) -> None:
     await request_consultation(db, app_state, run, "stage_outcome", stage_run=stage_run)
 
 
-async def result_cost(db, result, kind) -> tuple[Decimal, bool]:
-    """Cost of a PI result: the lead ran the review model, the critic the stage model.
-
-    The Critic of a `stage_review` ran its own profile, else the review one. (usd, known).
+async def result_cost_parts(db, result, kind) -> list[tuple[Part, Decimal | None]]:
+    """What each model role of a PI result cost: the lead ran the review model, the critic
+    the stage model. The Critic of a `stage_review` ran its own profile, else the review one.
+    The cost is None when that model has no price.
     """
     profiles = {
         row.role: row
         for row in await db.scalars(select(ModelProfile).where(ModelProfile.scope == "global"))
     }
-    total, known = Decimal("0"), True
+    parts = []
     for role, usage in result.usage.items():
         if role == "lead":
             profile = profiles.get("review")
@@ -386,18 +387,26 @@ async def result_cost(db, result, kind) -> tuple[Decimal, bool]:
             profile = profiles.get("critic") or profiles.get("review")
         else:
             profile = profiles.get("stage")
+        part = Part(
+            str(role),
+            profile.provider if profile else None,
+            profile.model if profile else "unknown",
+            usage.input_tokens,
+            usage.output_tokens,
+        )
         if (
             profile is None
             or profile.input_usd_per_mtok is None
             or profile.output_usd_per_mtok is None
         ):
-            known = False
+            parts.append((part, None))
             continue
-        total += (
+        cost = (
             Decimal(profile.input_usd_per_mtok) * usage.input_tokens
             + Decimal(profile.output_usd_per_mtok) * usage.output_tokens
         ) / 1_000_000
-    return total, known
+        parts.append((part, cost))
+    return parts
 
 
 def describe_selection(selection: dict | None) -> str:

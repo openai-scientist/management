@@ -19,8 +19,10 @@ from management.projects.models import (
     ProjectFile,
     ProjectMembership,
     ProjectSetting,
+    SpendingAlert,
 )
 from management.research.models import (
+    CostEntry,
     FrameReview,
     PiConsultation,
     PiNote,
@@ -70,6 +72,7 @@ async def delete_project_rows(db: AsyncSession, project_id: UUID) -> list[str]:
         delete(Notification).where(
             (Notification.project_id == project_id) | Notification.run_id.in_(runs)
         ),
+        delete(CostEntry).where(CostEntry.project_id == project_id),
         delete(ResearchRun).where(ResearchRun.project_id == project_id),
         delete(ResearchContext).where(ResearchContext.project_id == project_id),
         delete(DatasetVersion).where(DatasetVersion.dataset_id.in_(datasets)),
@@ -80,6 +83,7 @@ async def delete_project_rows(db: AsyncSession, project_id: UUID) -> list[str]:
         delete(ProjectIntegration).where(ProjectIntegration.project_id == project_id),
         delete(ProjectFile).where(ProjectFile.project_id == project_id),
         delete(ProjectSetting).where(ProjectSetting.project_id == project_id),
+        delete(SpendingAlert).where(SpendingAlert.project_id == project_id),
         delete(ProjectMembership).where(ProjectMembership.project_id == project_id),
         delete(Project).where(Project.id == project_id),
     ):

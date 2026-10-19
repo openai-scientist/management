@@ -108,6 +108,10 @@ async def test_settings_start_at_the_web_app_defaults_and_save_by_section(
             "data.same_name",
             "data.pii",
             "data.mask",
+            "spending.capped",
+            "spending.limit",
+            "spending.warn_at",
+            "spending.at_limit",
         }
         assert {key for key, c in fresh["capabilities"].items() if c["supported"]} == supported
         assert fresh["capabilities"]["access.join_link"] == {

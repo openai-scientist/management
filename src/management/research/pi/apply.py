@@ -2,6 +2,7 @@
 
 import re
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -15,6 +16,7 @@ from management.research.contracts import (
     Escalation,
     FindingKind,
 )
+from management.research.cost_ledger import record_consultation_cost
 from management.research.models import (
     PiConsultation,
     ResearchRun,
@@ -43,7 +45,7 @@ from management.research.pi.service import (
     fail_consultation,
     mark_overridden,
     request_consultation,
-    result_cost,
+    result_cost_parts,
     run_active,
 )
 from management.research.stage_runs import append_run_event, recompute_run_cost
@@ -340,10 +342,12 @@ async def _store(db, run, consultation, result):
     """The result and its cost, kept even when the answer comes too late to act on."""
     consultation.result = _dump(result)
     consultation.decided_at = datetime.now(UTC)
-    cost, known = await result_cost(db, result, consultation.kind)
+    parts = await result_cost_parts(db, result, consultation.kind)
+    cost = sum((part_cost for _, part_cost in parts if part_cost is not None), Decimal("0"))
     consultation.cost_usd = cost
-    if not known:
+    if any(part_cost is None for _, part_cost in parts):
         run.cost_unknown = True
+    await record_consultation_cost(db, run, consultation.id, parts)
     await recompute_run_cost(db, run)
 
 

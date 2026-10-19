@@ -27,6 +27,7 @@ from management.research.contracts import (
     parse_schema_id,
     paths,
 )
+from management.research.cost_ledger import record_stage_cost
 from management.research.engines.client import (
     EngineContractMismatch,
     EngineRejected,
@@ -51,6 +52,7 @@ from management.research.pi.service import (
     request_consultation,
     stage_config,
 )
+from management.research.project_budget import over_budget
 from management.research.reviews import validate_gate_action
 from management.research.stage_runs import append_run_event, recompute_run_cost, sync_run_status
 
@@ -239,6 +241,21 @@ async def start_stage(
         run.status, row.phase = "budget_exceeded", "paused"
         await db.commit()
         return row
+    if await over_budget(db, run.project_id):
+        # Stop the run rather than hold it, so the project is free for a new run once the
+        # limit is raised. Never raise here: an engine callback that leads to this stage
+        # still commits what it reported.
+        transition(row, "cancel")
+        append_run_event(
+            db,
+            run,
+            row,
+            "stage.status_changed",
+            {"status": "STOPPED", "reason": "project_budget_exceeded"},
+        )
+        await sync_run_status(db, run, stage=row)
+        await db.commit()
+        return row
     callback_base = (settings.engine_callback_base_url or settings.public_base_url).rstrip("/")
     req = RunCreateRequest(
         contract_version=CONTRACT_VERSION,
@@ -349,6 +366,7 @@ async def apply_engine_event(db, stage_run, event, app_state=None):
         stage_run.waiting_input = False
     elif event.type == "run.cost":
         cost = RunCost.model_validate(event.payload)
+        priced: Decimal | None = cost.cost_usd
         if cost.cost_usd is not None:
             stage_run.cost_usd = cost.cost_usd
         else:
@@ -366,8 +384,20 @@ async def apply_engine_event(db, stage_run, event, app_state=None):
                 ) / 1_000_000
             if known:
                 stage_run.cost_usd = total
+                priced = total
             else:
                 run.cost_unknown = True
+        await record_stage_cost(
+            db,
+            run,
+            stage_run,
+            source_seq=event.source_seq,
+            total_usd=priced,
+            usage={
+                str(role): (usage.input_tokens, usage.output_tokens)
+                for role, usage in cost.usage.items()
+            },
+        )
         await recompute_run_cost(db, run)
     elif event.type == "run.published":
         artifact = await db.get(RunArtifact, UUID(event.payload["artifact_id"]))

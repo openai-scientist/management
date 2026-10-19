@@ -22,6 +22,7 @@ from management.research.models import PI_OPEN_STATUSES, PiConsultation, PiNote
 from management.research.pi.apply import endorse, put_charter, retry
 from management.research.pi.authority import KINDS, authority_for
 from management.research.pi.service import add_note, flush_consultations
+from management.research.project_budget import ensure_within_budget
 from management.research.schemas.runs import RUN_ERRORS
 from management.research.service import get_run
 
@@ -263,6 +264,7 @@ async def retry_consultation(
     consultation = await db.get(PiConsultation, consultation_id)
     if consultation is None or consultation.research_run_id != run.id:
         raise APIError(404, "NOT_FOUND", "Consultation was not found")
+    await ensure_within_budget(db, project_id)
     new = await retry(db, request.app.state, consultation_id, project_id=project_id)
     new_id = str(new.id)
     await flush_consultations(db, request.app.state, run.id)

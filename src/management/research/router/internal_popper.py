@@ -1,5 +1,6 @@
 """Endpoints Popper calls to report on a run. Authenticated by a service key, not a session."""
 
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
@@ -17,6 +18,7 @@ from management.core.responses import ApiResponse, ErrorResponse, ok
 from management.core.security import service_key_matches
 from management.db.session import get_db
 from management.infra.file_store import FileStore, get_file_store, iter_file, safe_filename
+from management.research.cost_ledger import record_popper_total
 from management.research.models import (
     FINISHED_RUN_STATUSES,
     ResearchRun,
@@ -55,6 +57,7 @@ def require_popper_service(request: Request) -> None:
         raise APIError(401, "SERVICE_KEY_INVALID", "A valid service key is required")
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/internal/popper",
     tags=["popper callbacks"],
@@ -125,12 +128,19 @@ class BatchEventsAck(BaseModel):
     last_source_seq: int
 
 
-def _apply_cost(run: ResearchRun, payload: dict[str, Any]) -> None:
-    if "cost_usd" in payload:
-        try:
-            run.cost_usd = Decimal(str(payload["cost_usd"]))
-        except Exception:
-            pass
+async def _apply_cost(db: AsyncSession, run: ResearchRun, payload: dict[str, Any]) -> None:
+    if "cost_usd" not in payload:
+        return
+    try:
+        cost = Decimal(str(payload["cost_usd"]))
+    except ArithmeticError:
+        logger.warning("Popper sent an unreadable cost for run %s", run.id)
+        return
+    if not cost.is_finite() or cost < 0:
+        logger.warning("Popper sent an unreadable cost for run %s", run.id)
+        return
+    run.cost_usd = cost
+    await record_popper_total(db, run, cost)
 
 
 async def _locked_run(db: AsyncSession, run_id: UUID) -> ResearchRun:
@@ -185,7 +195,7 @@ async def ingest_run_events(
     for evt in accepted_events:
         if await engine_event_is_repeat(db, run, evt.type, evt.payload):
             run.last_source_seq = evt.source_seq
-            _apply_cost(run, evt.payload)
+            await _apply_cost(db, run, evt.payload)
             continue
         stored += 1
         seq = run.last_seq + 1
@@ -247,7 +257,7 @@ async def ingest_run_events(
             run.status = "completed"
             run.finished_at = now
 
-        _apply_cost(run, evt.payload)
+        await _apply_cost(db, run, evt.payload)
 
     await db.flush()
     if stored:

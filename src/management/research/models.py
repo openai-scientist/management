@@ -487,3 +487,50 @@ class IntegrationSecret(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
+
+
+class CostEntry(Base):
+    """One amount spent on models, as a change since the last entry of the same source.
+
+    Engines and Popper report running totals; each entry is the increase, so a month's spend
+    is the sum of its entries. `source_key` makes a replayed report add nothing.
+    """
+
+    __tablename__ = "cost_entries"
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('stage','consultation','popper')", name="ck_cost_entries_source"
+        ),
+        UniqueConstraint("source_key", name="uq_cost_entries_source_key"),
+        Index("ix_cost_entries_project_occurred", "project_id", "occurred_at"),
+        Index("ix_cost_entries_source_id", "source_id"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("projects.id", ondelete="RESTRICT"), nullable=False
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="RESTRICT"), nullable=False
+    )
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    # The stage run, consultation or (for Popper) research run the totals belong to.
+    source_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    source_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    role: Mapped[str | None] = mapped_column(String(20))
+    provider: Mapped[str | None] = mapped_column(String(32))
+    model: Mapped[str | None] = mapped_column(String(200))
+    input_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    output_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    # Null when no price was known: the spend happened but its amount is not.
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+
+class CostLedgerStart(Base):
+    """When the ledger began. Spend before this moment was never recorded by month."""
+
+    __tablename__ = "cost_ledger_start"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

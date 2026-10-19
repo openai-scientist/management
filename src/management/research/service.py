@@ -17,6 +17,7 @@ from management.infra.file_store import FileStore, put_json
 from management.notifications.service import notify_project_members
 from management.projects.models import Project
 from management.projects.project_status import refresh_project_status
+from management.research.cost_ledger import record_popper_total
 from management.research.models import (
     FINISHED_RUN_STATUSES,
     FrameReview,
@@ -83,6 +84,7 @@ async def apply_run_status(
     """
     if cost_usd is not None and cost_usd > run.cost_usd:
         run.cost_usd = cost_usd
+        await record_popper_total(db, run, cost_usd)
     if status == run.status:
         return False
     if run.status in FINISHED_RUN_STATUSES or status == "queued":

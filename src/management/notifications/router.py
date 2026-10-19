@@ -42,6 +42,9 @@ NotificationKind = Literal[
     "removed_from_project",
     # One of the project's chat integrations stopped taking messages; see its last_error.
     "integration_failed",
+    # This month's model spend reached the warning share or the limit (Project Managers).
+    "budget_warning",
+    "budget_exceeded",
 ]
 NOT_FOUND = {404: {"model": ErrorResponse, "description": "The notification is not yours"}}
 KEEP_ALIVE_SECONDS = 15

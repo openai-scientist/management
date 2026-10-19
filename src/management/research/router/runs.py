@@ -46,6 +46,7 @@ from management.research.popper_client import (
     PopperUncertain,
     get_popper_client,
 )
+from management.research.project_budget import ensure_within_budget
 from management.research.run_event_stream import RunEventHub, event_item, run_events_changed
 from management.research.schemas.runs import (
     RUN_ERRORS,
@@ -153,6 +154,7 @@ async def create_run(
     ensure_writable_project(project)
     if project.status == "completed":
         raise APIError(409, "PROJECT_COMPLETED", "Reopen the project before starting a run")
+    await ensure_within_budget(db, project_id)
 
     budget = body.budget_usd if body.budget_usd is not None else settings.run_default_budget_usd
     if not 0 < budget <= settings.run_max_budget_usd:
@@ -699,6 +701,7 @@ async def resume_run(
 
     if run.status != "paused":
         return ok(await _item(db, run), "Run not paused")
+    await ensure_within_budget(db, project_id)
 
     open_gate = await db.scalar(
         select(RunGate).where(RunGate.run_id == run.id, RunGate.answer.is_(None))

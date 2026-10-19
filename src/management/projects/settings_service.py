@@ -32,6 +32,10 @@ SUPPORTED_FIELDS = frozenset(
         "data.same_name",
         "data.pii",
         "data.mask",
+        "spending.capped",
+        "spending.limit",
+        "spending.warn_at",
+        "spending.at_limit",
     }
 )
 
@@ -109,6 +113,12 @@ async def patch_section(
             422,
             "SETTING_UNSUPPORTED",
             "Organization-wide visibility is not available yet. Keep the project to members.",
+        )
+    if section == "spending" and values.get("at_limit") == "pause":
+        raise APIError(
+            422,
+            "SETTING_UNSUPPORTED",
+            "Pausing runs at the limit is not available yet. Choose stop or notify.",
         )
     if section == "data" and isinstance(values.get("types"), list):
         unreadable = sorted({str(t) for t in values["types"]} - READABLE_FILE_TYPES)
