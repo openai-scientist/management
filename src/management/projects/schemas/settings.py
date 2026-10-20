@@ -172,9 +172,18 @@ class SpendingSettings(_Section):
 
 
 class NotificationSettings(_Section):
-    # Project Manager's switch for notice emails, off until turned on. Off: no member gets
-    # them; in-app is unchanged. Only notices raised while it is on are emailed.
-    email_enabled: bool = False
+    """Project Manager's email switch per notice group, for every member of the project.
+
+    Keys match the notice groups of members' preferences. All off until turned on; only
+    notices raised while a group is on are emailed. In-app notices are unaffected.
+    """
+
+    review: bool = False
+    finished: bool = False
+    comments: bool = False
+    members: bool = False
+    budget: bool = False
+    integrations: bool = False
 
 
 SECTIONS: dict[str, type[_Section]] = {

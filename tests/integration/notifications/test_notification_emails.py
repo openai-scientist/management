@@ -25,12 +25,12 @@ async def queued(harness: Harness, kind: str) -> list[UUID]:
 
 
 async def email_on(harness: Harness, project_id) -> None:
-    """Turn the project's email switch on, as a Project Manager's save would."""
+    """Turn email on for every group, as a Project Manager's save would."""
     async with harness.factory() as db:
         db.add(
             ProjectSetting(
                 project_id=UUID(str(project_id)),
-                sections={"notifications": {"email_enabled": True}},
+                sections={"notifications": dict.fromkeys(KIND_GROUP.values(), True)},
             )
         )
         await db.commit()
@@ -90,14 +90,17 @@ async def test_every_recipient_gets_an_email_while_the_project_switch_is_on(
         await notify(harness, project_id, "budget_warning", roles=(ProjectRole.MANAGER,))
         assert await queued(harness, "budget_warning") == [manager_id]
 
+        # Turning one group off stops only that group's emails.
         off = await manager_client.patch(
             f"{PROJECTS}/{project['id']}/settings/notifications",
-            json={"version": 0, "values": {"email_enabled": False}},
+            json={"version": 0, "values": {"review": False}},
             headers=mutation_headers(manager["csrf_token"]),
         )
         assert off.status_code == 200, off.text
         await notify(harness, project_id, "run_awaiting_review")
         assert await queued(harness, "run_awaiting_review") == []
+        await notify(harness, project_id, "run_finished")
+        assert len(await queued(harness, "run_finished")) == 6
 
 
 @pytest.mark.asyncio
@@ -175,12 +178,12 @@ async def test_emails_no_longer_due_are_skipped_and_old_rows_purged(harness: Har
         project_id = UUID(project["id"])
         sender = FakeEmailSender()
 
-        # Queued while on, switched off before sending.
+        # Queued while its group was on, switched off before sending.
         await email_on(harness, project_id)
         await notify(harness, project_id, "run_awaiting_review")
         off = await manager_client.patch(
             f"{PROJECTS}/{project['id']}/settings/notifications",
-            json={"version": 0, "values": {"email_enabled": False}},
+            json={"version": 0, "values": {"review": False}},
             headers=mutation_headers(manager["csrf_token"]),
         )
         assert off.status_code == 200, off.text
@@ -199,12 +202,6 @@ async def test_emails_no_longer_due_are_skipped_and_old_rows_purged(harness: Har
                 )
             )
             await db.commit()
-        on = await manager_client.patch(
-            f"{PROJECTS}/{project['id']}/settings/notifications",
-            json={"version": 1, "values": {"email_enabled": True}},
-            headers=mutation_headers(manager["csrf_token"]),
-        )
-        assert on.status_code == 200, on.text
         await send_pending(harness.factory, sender, app_url=None, limit=100)
         assert await statuses(harness, "run_finished") == ["skipped"]
 

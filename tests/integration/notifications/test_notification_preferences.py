@@ -47,19 +47,16 @@ async def test_members_read_and_change_only_their_own_choices(harness: Harness) 
         data = first.json()["data"]
         assert data["version"] == 0 and data["updated_at"] is None
         assert [(e["key"], e["in_app"], e["email"]) for e in data["events"]] == [
-            ("review", True, True),
+            ("review", True, False),
             ("finished", True, False),
-            ("comments", True, True),
+            ("comments", True, False),
             ("members", True, False),
-            ("budget", True, True),
-            ("integrations", True, True),
+            ("budget", True, False),
+            ("integrations", True, False),
         ]
         assert data["events"][0]["supported"] == {"in_app": True, "email": False}
         assert data["events"][0]["reason_codes"]["email"] == "EMAIL_SET_BY_PROJECT"
-        assert data["capabilities"]["project_email"] == {
-            "supported": False,
-            "reason_code": "PROJECT_EMAIL_OFF",
-        }
+        assert "project_email" not in data["capabilities"]
         assert data["digest"]["timezone"] == "Asia/Ho_Chi_Minh"
         assert data["capabilities"]["digest"]["supported"] is False
         async with harness.factory() as db:
@@ -76,7 +73,7 @@ async def test_members_read_and_change_only_their_own_choices(harness: Harness) 
         assert saved.json()["data"]["version"] == 1
         reloaded = (await manager_client.get(url)).json()["data"]
         comments = next(e for e in reloaded["events"] if e["key"] == "comments")
-        assert (comments["in_app"], comments["email"]) == (False, True)
+        assert (comments["in_app"], comments["email"]) == (False, False)
         assert (await researcher_client.get(url)).json()["data"]["version"] == 0
 
         stale = {"version": 0, "events": {"review": {"in_app": False}}}
@@ -171,7 +168,7 @@ async def test_turning_a_group_off_stops_new_notices_and_keeps_old_ones(harness:
 
 
 @pytest.mark.asyncio
-async def test_members_see_the_project_email_switch_only_managers_change(harness: Harness) -> None:
+async def test_members_see_the_email_switches_only_managers_change(harness: Harness) -> None:
     async with harness.client() as manager_client, harness.client() as researcher_client:
         manager = await login(harness, manager_client, uid="manager", email="manager@example.com")
         researcher = await login(
@@ -186,31 +183,39 @@ async def test_members_see_the_project_email_switch_only_managers_change(harness
 
         denied = await researcher_client.patch(
             settings_url,
-            json={"version": 0, "values": {"email_enabled": False}},
+            json={"version": 0, "values": {"review": True}},
             headers=mutation_headers(researcher["csrf_token"]),
         )
         assert code(denied) == (403, "ROLE_REQUIRED")
 
+        def emails(data):
+            return {e["key"]: e["email"] for e in data["events"]}
+
         on = await manager_client.patch(
             settings_url,
-            json={"version": 0, "values": {"email_enabled": True}},
+            json={"version": 0, "values": {"review": True, "comments": True}},
             headers=mutation_headers(manager["csrf_token"]),
         )
         assert on.status_code == 200, on.text
         seen = (await researcher_client.get(preferences_url)).json()["data"]
-        assert seen["capabilities"]["project_email"] == {"supported": True, "reason_code": None}
+        assert emails(seen) == {
+            "review": True,
+            "finished": False,
+            "comments": True,
+            "members": False,
+            "budget": False,
+            "integrations": False,
+        }
+        assert seen["events"][0]["supported"]["email"] is False
 
         off = await manager_client.patch(
             settings_url,
-            json={"version": 1, "values": {"email_enabled": False}},
+            json={"version": 1, "values": {"review": False}},
             headers=mutation_headers(manager["csrf_token"]),
         )
         assert off.status_code == 200, off.text
         seen = (await researcher_client.get(preferences_url)).json()["data"]
-        assert seen["capabilities"]["project_email"] == {
-            "supported": False,
-            "reason_code": "PROJECT_EMAIL_OFF",
-        }
+        assert emails(seen)["review"] is False and emails(seen)["comments"] is True
 
         # A member's own choice cannot turn email on.
         own = await researcher_client.patch(

@@ -9,8 +9,9 @@ from management.identity.models import User, UserStatus
 from management.notifications.notification_stream import notifications_changed
 from management.notifications.preferences import (
     MANDATORY_KINDS,
+    emails_kind,
     muted_users,
-    project_email_enabled,
+    project_email_groups,
 )
 from management.projects.models import (
     Notification,
@@ -101,8 +102,8 @@ async def notify_project_members(
 
     People removed from the project and suspended users get nothing, also when
     ``only_user_id`` names them. Members who turned this kind of notice off get no in-app
-    notice. While the project's email switch is on, every recipient also gets it by email,
-    queued here and sent after commit.
+    notice. While a Project Manager has email on for the kind's group, every recipient also
+    gets it by email, queued here and sent after commit.
     """
     query = (
         select(ProjectMembership.user_id)
@@ -123,7 +124,7 @@ async def notify_project_members(
     if not recipients:
         return
     muted = await muted_users(db, project_id, kind, recipients)
-    email = await project_email_enabled(db, project_id)
+    email = emails_kind(await project_email_groups(db, project_id), kind)
     for user_id in recipients:
         if user_id not in muted:
             _add(

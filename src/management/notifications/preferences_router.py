@@ -26,9 +26,9 @@ NOT_MEMBER = {404: {"model": ErrorResponse, "description": "You are not a member
     summary="Your notice choices in this project",
     description=(
         "Defaults until you save, at version 0; reading never saves. Members choose in-app "
-        "notices only. Email is one switch for the whole project, set by a Project Manager in "
-        "project settings; `capabilities.project_email` says whether it is on. Notices about "
-        "your own invitations and removal always arrive."
+        "notices only. Email is switched per group for the whole project by a Project Manager "
+        "in project settings (`notifications` section); each event's `email` shows it, "
+        "read-only. Notices about your own invitations and removal always arrive."
     ),
     responses=NOT_MEMBER,
 )

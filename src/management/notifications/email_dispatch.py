@@ -1,7 +1,7 @@
 """Sends the notice emails queued by ``notify_project_members``, after their commit.
 
 A loop in the app's lifespan picks up pending rows in small batches. Each row is checked
-again at send time, so a member removed, a project switched off or a notice that waited
+again at send time, so a member removed, a group switched off or a notice that waited
 too long gets no email. A row is claimed under SKIP LOCKED and committed before it is
 sent, so neither several API processes nor a failure mid-batch send the same email twice.
 """
@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from management.identity.models import User, UserStatus
 from management.infra.email_sender import EmailSender
 from management.infra.email_templates import notice_kinds, project_notice
-from management.notifications.preferences import project_email_enabled
+from management.notifications.preferences import emails_kind, project_email_groups
 from management.projects.models import NotificationEmail, Project, ProjectMembership
 from management.research.models import ResearchRun
 
@@ -65,10 +65,10 @@ async def send_pending(
             .limit(limit)
         )
         ids = list(await db.scalars(query))
-    email_on: dict[UUID, bool] = {}
+    email_groups: dict[UUID, frozenset[str]] = {}
     for row_id in ids:
         try:
-            await _send_one(session_factory, sender, row_id, app_url, now, email_on)
+            await _send_one(session_factory, sender, row_id, app_url, now, email_groups)
         except Exception:  # noqa: BLE001
             # Never logs the row: it names a recipient.
             logger.exception("notice email could not be prepared")
@@ -86,7 +86,7 @@ async def _send_one(
     row_id: UUID,
     app_url: str | None,
     now: datetime,
-    email_on: dict[UUID, bool],
+    email_groups: dict[UUID, frozenset[str]],
 ) -> None:
     async with session_factory() as db:
         query = select(NotificationEmail).where(
@@ -98,7 +98,7 @@ async def _send_one(
         row = await db.scalar(query)
         if row is None:
             return
-        message = await _message(db, row, app_url, now, email_on)
+        message = await _message(db, row, app_url, now, email_groups)
         row.status = "skipped" if message is None else "sending"
         row.attempts += message is not None
         attempts = row.attempts
@@ -123,14 +123,14 @@ async def _message(
     row: NotificationEmail,
     app_url: str | None,
     now: datetime,
-    email_on: dict[UUID, bool],
+    email_groups: dict[UUID, frozenset[str]],
 ) -> tuple[str, str, str, str] | None:
     """The email for this row, or None when it should no longer be sent."""
     if now - _aware(row.created_at) > STALE_AFTER or row.kind not in notice_kinds():
         return None
-    if row.project_id not in email_on:
-        email_on[row.project_id] = await project_email_enabled(db, row.project_id)
-    if not email_on[row.project_id]:
+    if row.project_id not in email_groups:
+        email_groups[row.project_id] = await project_email_groups(db, row.project_id)
+    if not emails_kind(email_groups[row.project_id], row.kind):
         return None
     user = await db.get(User, row.recipient_user_id)
     project = await db.get(Project, row.project_id)
