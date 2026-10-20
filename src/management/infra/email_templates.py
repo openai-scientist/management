@@ -163,3 +163,95 @@ def project_invite(
         )
     )
     return f'Invitation to the project "{_one_line(project_name)}" on the {PRODUCT}', text, html
+
+
+# Project notice emails: (subject start, what happened, what to do next) per notice kind.
+# "{actor}" is the person who caused the notice and "{project}" the project's name.
+_NOTICES = {
+    "run_awaiting_review": (
+        "Review needed",
+        "A research run in {project} is waiting for a review decision.",
+        "Open the run and approve it or send it back.",
+    ),
+    "run_finished": (
+        "Run ended",
+        "A research run in {project} has ended. It finished, failed or was stopped.",
+        "Open the run to see how it ended and its results.",
+    ),
+    "run_commented": (
+        "New comment",
+        "{actor} commented on your research run in {project}.",
+        "Open the run to read the comment and reply.",
+    ),
+    "added_to_project": (
+        "Added to project",
+        "{actor} added you to the project {project}.",
+        "Open the project to start working in it.",
+    ),
+    "invite_accepted": (
+        "Invitation accepted",
+        "{actor} accepted your invitation and joined {project}.",
+        "Open the project's members to check their role.",
+    ),
+    "invite_declined": (
+        "Invitation declined",
+        "{actor} declined your invitation to {project}.",
+        "Open the project's members if you want to invite someone else.",
+    ),
+    "member_role_changed": (
+        "Role changed",
+        "{actor} changed your role in {project}.",
+        "Open the project to see your new role.",
+    ),
+    "budget_warning": (
+        "Budget warning",
+        "{project} has used most of its model budget for this month.",
+        "Open Settings, Spending to check the usage or raise the limit.",
+    ),
+    "budget_exceeded": (
+        "Budget reached",
+        "{project} has reached its model budget for this month.",
+        "Open Settings, Spending to raise the limit if runs must continue.",
+    ),
+    "integration_failed": (
+        "Integration failed",
+        "A connected chat channel of {project} can no longer receive updates.",
+        "Open the project's integrations and reconnect the channel.",
+    ),
+}
+
+
+def notice_kinds() -> frozenset[str]:
+    """The notice kinds that have an email."""
+    return frozenset(_NOTICES)
+
+
+def project_notice(
+    kind: str,
+    *,
+    recipient_name: str,
+    project_name: str,
+    actor_name: str | None,
+    run_topic: str | None,
+    project_url: str | None,
+) -> tuple[str, str, str]:
+    title, intro, step = _NOTICES[kind]
+    intro = intro.format(actor=actor_name or "A project member", project=project_name)
+    details = [("Project", project_name)]
+    if run_topic:
+        details.append(("Run", run_topic))
+    if project_url:
+        details.append(("Link", project_url))
+    text, html = _render(
+        _Message(
+            greeting_name=recipient_name,
+            intro=intro,
+            details=details,
+            steps=[_sign_in_step(project_url), step],
+            reason=(
+                f"You received this email because email notices are on for {project_name}. "
+                "A Project Manager can turn them off in the project's settings."
+            ),
+        )
+    )
+    return f"{title}: {_one_line(project_name)}", text, html

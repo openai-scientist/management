@@ -50,6 +50,7 @@ from management.monitoring.router.admin_log_monitoring import router as admin_lo
 from management.monitoring.router.admin_overview import router as admin_overview_router
 from management.monitoring.router.admin_usage import router as admin_usage_router
 from management.monitoring.stream import MonitoringHub
+from management.notifications.email_dispatch import dispatch_forever
 from management.notifications.notification_stream import NotificationHub
 from management.notifications.preferences_router import router as notification_preferences_router
 from management.notifications.router import router as notifications_router
@@ -160,9 +161,11 @@ def create_app(
         await ensure_default_admin(app_session_factory, settings)
         await monitoring_telemetry.start()
         pi_sweeper = asyncio.create_task(sweep_forever(app.state)) if settings.pi_service else None
+        notice_emails = asyncio.create_task(dispatch_forever(app.state))
         try:
             yield
         finally:
+            notice_emails.cancel()
             if pi_sweeper is not None:
                 pi_sweeper.cancel()
             try:
