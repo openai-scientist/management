@@ -1,0 +1,34 @@
+{
+  "lanes": {
+    "architecture": "tests/unit/test_architecture.py",
+    "tooling": "tests/unit/test_affected_tests.py",
+    "unit-connections": "tests/unit/connections",
+    "unit-datasets": "tests/unit/datasets",
+    "unit-integrations": "tests/unit/integrations",
+    "unit-infra": "tests/unit/infra",
+    "unit-notifications": "tests/unit/notifications",
+    "unit-projects": "tests/unit/projects",
+    "unit-research": "tests/unit/research",
+    "integration-audit": "tests/integration/audit",
+    "integration-connections": "tests/integration/connections",
+    "integration-datasets": "tests/integration/datasets",
+    "integration-db": "tests/integration/db",
+    "integration-identity": "tests/integration/identity",
+    "integration-integrations": "tests/integration/integrations",
+    "integration-monitoring": "tests/integration/monitoring",
+    "integration-notifications": "tests/integration/notifications",
+    "integration-projects": "tests/integration/projects",
+    "integration-research": "tests/integration/research",
+    "e2e": "tests/e2e"
+  },
+  "shared_prefixes": [
+    "src/", "alembic/", "docker/", ".github/", "scripts/",
+    "tests/helpers/", "tests/fakes/", "docs/contract/"
+  ],
+  "shared_files": [
+    "uv.lock", "pyproject.toml", "alembic.ini", ".python-version",
+    "tests/conftest.py", "tests/__init__.py", "tests/unit/__init__.py",
+    "tests/integration/__init__.py"
+  ],
+  "ignored_files": ["README.md", "AGENTS.md", "docs/testing.md"]
+}

@@ -1,0 +1,27 @@
+{
+  "model": "openai_compatible/critic-example",
+  "model_shared_with": null,
+  "obligations": [
+    {
+      "locator": null,
+      "note": "No baseline in the plan",
+      "obligation_id": "R1",
+      "status": "unresolved"
+    }
+  ],
+  "points": [
+    {
+      "fix_class": "fix",
+      "lens": "risk",
+      "locator": "plan:baselines",
+      "point": "The plan does not control the known risk R1",
+      "point_id": "C1",
+      "ref": "risk:R1",
+      "severity": "serious",
+      "suggestion": "Name the baseline in the plan"
+    }
+  ],
+  "resolutions": [],
+  "summary": "One accepted risk is not controlled.",
+  "verdict": "serious"
+}

@@ -1,0 +1,17 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "a1",
+      "download_url": "http://platform.test/internal/artifacts/a1",
+      "primary": true,
+      "schema": "i2h.hypotheses/v1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "version": 1
+    }
+  ],
+  "decisions": null,
+  "feedback": [],
+  "history": [],
+  "params": {},
+  "prior_engine_run_id": null
+}

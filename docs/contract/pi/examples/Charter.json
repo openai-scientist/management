@@ -1,0 +1,19 @@
+{
+  "constraints": [],
+  "kill_criteria": [],
+  "motivation": "",
+  "objectives": [
+    "Compare A and B"
+  ],
+  "profile": {
+    "domain": null,
+    "research_type": null
+  },
+  "question": "Does retrieval method A beat method B on long documents?",
+  "risk_posture": "exploratory",
+  "scope_in": [],
+  "scope_out": [],
+  "success_criteria": [
+    "A beats B by 3 points"
+  ]
+}

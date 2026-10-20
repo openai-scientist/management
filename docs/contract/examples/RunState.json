@@ -1,0 +1,22 @@
+{
+  "cost_usd": "0",
+  "engine_run_id": "e1",
+  "failure": null,
+  "last_source_seq": 0,
+  "open_gate": {
+    "artifact_ids": [
+      "a1"
+    ],
+    "default_option_id": null,
+    "gate_id": "g1",
+    "kind": "artifact_review",
+    "opened_at": "2026-10-14T00:00:00Z",
+    "options": [],
+    "prompt": "Review result",
+    "step_key": "work"
+  },
+  "phase": "awaiting_researcher",
+  "stage_run_id": "s1",
+  "step_key": "work",
+  "waiting_input": true
+}

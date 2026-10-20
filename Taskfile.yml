@@ -13,7 +13,7 @@ tasks:
       - task --list
 
   up:
-    desc: Start or rebuild the local API and PostgreSQL
+    desc: Start or rebuild the local API, integration worker and PostgreSQL
     preconditions:
       - sh: test -f {{.DEV_ENV_FILE}}
         msg: Copy the sample settings file to the local settings file before starting.

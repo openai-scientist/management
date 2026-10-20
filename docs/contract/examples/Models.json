@@ -1,0 +1,16 @@
+{
+  "review": {
+    "api_key": "**********",
+    "base_url": null,
+    "extra": {},
+    "model": "review-example",
+    "provider": "openai_compatible"
+  },
+  "stage": {
+    "api_key": "**********",
+    "base_url": null,
+    "extra": {},
+    "model": "draft-example",
+    "provider": "openai_compatible"
+  }
+}

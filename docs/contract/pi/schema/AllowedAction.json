@@ -1,0 +1,58 @@
+{
+  "$defs": {
+    "PIAction": {
+      "enum": [
+        "charter",
+        "answer",
+        "approve",
+        "comment",
+        "accept",
+        "send_back",
+        "stop",
+        "rerun",
+        "report"
+      ],
+      "title": "PIAction",
+      "type": "string"
+    }
+  },
+  "$id": "urn:research-contract:1.4.0:AllowedAction",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One action the PI may take. Constraints apply only to the action they name.",
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/PIAction"
+    },
+    "option_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Option Ids",
+      "type": "array"
+    },
+    "selection_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selection Key"
+    },
+    "targets": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Targets",
+      "type": "array"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "title": "AllowedAction",
+  "type": "object"
+}

@@ -1,0 +1,12 @@
+{
+  "checked_by": "c2",
+  "finding_id": "F4-1",
+  "item_id": "H1",
+  "locator": "plan:baselines",
+  "note": null,
+  "obligation_id": "R1",
+  "source_stage_key": "hypothesis",
+  "status": "controlled",
+  "target_stage_key": "experiment_design",
+  "text": "The baseline is not named"
+}

@@ -5,7 +5,8 @@ Thumbs.db
 # Local logs
 *.log
 /plans/
-/docs/
+/docs/*
+!/docs/test-audit.md
 .[e]nv
 .[e]nv.*
 !.[e]nv.example

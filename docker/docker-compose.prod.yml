@@ -17,22 +17,26 @@ services:
       retries: 20
 
   api:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: ${DOCKER_USERNAME:?Set DOCKER_USERNAME in the production environment file}/capstone-be:${IMAGE_TAG:-latest}
+    pull_policy: always
+    networks:
+      - default
+      - capstone-net
     restart: unless-stopped
     # A read from an external database can return a value of up to 1 GB. With a limit, only
     # this container is stopped and restarted; without one the whole host runs out of memory.
     mem_limit: ${API_MEMORY_LIMIT:-1g}
     stop_grace_period: 40s
-    environment:
-      APP_ENV: production
+    environment: &api-environment
+      # staging + COOKIE_SECURE=false lets the stack run over plain http (e.g. a Tailscale address)
+      # before a domain with HTTPS is attached. Leave both unset in a real production deployment.
+      APP_ENV: ${APP_ENV:-production}
       DEBUG: "false"
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the production environment file}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Set CORS_ALLOWED_ORIGINS in the production environment file}
       SESSION_SIGNING_SECRET: ${SESSION_SIGNING_SECRET:?Set SESSION_SIGNING_SECRET in the production environment file}
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-__Host-platform_session}
-      COOKIE_SECURE: "true"
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
       AUTH_SESSION_RATE_LIMIT: ${AUTH_SESSION_RATE_LIMIT:-10}
       AUTH_CODE_RATE_LIMIT: ${AUTH_CODE_RATE_LIMIT:-20}
@@ -56,12 +60,20 @@ services:
       GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
       GOOGLE_OAUTH_CONNECTIONS_REDIRECT_URI: ${GOOGLE_OAUTH_CONNECTIONS_REDIRECT_URI:-}
+      GOOGLE_PICKER_API_KEY: ${GOOGLE_PICKER_API_KEY:-}
+      GOOGLE_PICKER_APP_ID: ${GOOGLE_PICKER_APP_ID:-}
       PROJECT_INVITE_TTL_HOURS: ${PROJECT_INVITE_TTL_HOURS:-24}
       INVITE_RESEND_COOLDOWN_SECONDS: ${INVITE_RESEND_COOLDOWN_SECONDS:-60}
       POPPER_BASE_URL: ${POPPER_BASE_URL:-}
       POPPER_SERVICE_KEY: ${POPPER_SERVICE_KEY:-}
       POPPER_CALLBACK_KEY: ${POPPER_CALLBACK_KEY:-}
       POPPER_TIMEOUT_SECONDS: ${POPPER_TIMEOUT_SECONDS:-30}
+      # Research engines and the AI PI (JSON). They run in the logos stack on capstone-net.
+      ENGINES: ${ENGINES:?Set ENGINES in the production environment file}
+      PIPELINES: ${PIPELINES:?Set PIPELINES in the production environment file}
+      PI_SERVICE: ${PI_SERVICE:?Set PI_SERVICE in the production environment file}
+      # Engines call back over capstone-net, not through the public address.
+      ENGINE_CALLBACK_BASE_URL: ${ENGINE_CALLBACK_BASE_URL:-http://api:8080}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL in the production environment file}
       RUN_DEFAULT_BUDGET_USD: ${RUN_DEFAULT_BUDGET_USD:-5}
       RUN_MAX_BUDGET_USD: ${RUN_MAX_BUDGET_USD:-20}
@@ -79,7 +91,8 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${API_PORT:-8080}:8080"
+      # Set API_BIND to the Tailscale address to reach the API from the tailnet.
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8080}:8080"
     volumes:
       - platform_prod_storage:/app/var/storage
     healthcheck:
@@ -87,6 +100,34 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+
+  # Posts project events to Slack, Teams and Discord. Start it after the migrations ran;
+  # until then it logs one error and waits.
+  integration-worker:
+    image: ${DOCKER_USERNAME:?Set DOCKER_USERNAME in the production environment file}/capstone-be:${IMAGE_TAG:-latest}
+    pull_policy: always
+    networks:
+      - default
+      - capstone-net
+    command: ["python", "-m", "management.integrations.worker"]
+    restart: unless-stopped
+    mem_limit: ${WORKER_MEMORY_LIMIT:-256m}
+    stop_grace_period: 20s
+    environment: *api-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib, time; assert time.time() - float(pathlib.Path('/tmp/integration-worker.heartbeat').read_text()) < 30"]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+
+networks:
+  # Shared with the engine stack (logos deploy/docker-compose.prod.yml).
+  # Create it once on the server: docker network create capstone-net
+  capstone-net:
+    external: true
 
 volumes:
   platform_prod_db_data:

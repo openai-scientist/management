@@ -1,0 +1,7 @@
+{
+  "api_key": "**********",
+  "base_url": null,
+  "extra": {},
+  "model": "draft-example",
+  "provider": "openai_compatible"
+}

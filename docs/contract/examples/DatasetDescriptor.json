@@ -1,0 +1,9 @@
+{
+  "dataset_version_id": "d1",
+  "download_url": "http://platform.test/data/d1",
+  "original_filename": "data.csv",
+  "row_count": null,
+  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "source_type": "upload",
+  "version_number": 1
+}
