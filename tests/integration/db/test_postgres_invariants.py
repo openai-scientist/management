@@ -798,7 +798,8 @@ async def test_an_import_holds_no_database_connection_and_names_stay_unique(
         created = await create_connection(client, session, project["id"])
         connection_id = created.json()["data"]["id"]
 
-        # Two imports under one name both pass the first name check, then read side by side.
+        # Two imports under one name read side by side. Under the default `data.same_name`
+        # ("version") the second to commit becomes version 2 of the first: one dataset, no copy.
         started = harness.connectors.tests_started
         harness.connectors.hold = asyncio.Event()
         racing = [
@@ -815,12 +816,15 @@ async def test_an_import_holds_no_database_connection_and_names_stay_unique(
 
         # While the external database was being read, nothing was borrowed from the pool.
         assert borrowed == 0
-        assert sorted(response.status_code for response in responses) == [201, 409]
-        refused = next(response for response in responses if response.status_code == 409)
-        assert refused.json()["error"]["code"] == "DATASET_NAME_EXISTS"
-        # The import that lost took its file back out of the store.
-        assert len(stored_files(tmp_path)) == 1
-        dataset = next(r for r in responses if r.status_code == 201).json()["data"]
+        assert [response.status_code for response in responses] == [201, 201]
+        uploads = [response.json()["meta"]["upload"] for response in responses]
+        assert sorted(upload["outcome"] for upload in uploads) == [
+            "created_dataset",
+            "created_version",
+        ]
+        assert len({upload["dataset_id"] for upload in uploads}) == 1
+        assert len(stored_files(tmp_path)) == 2
+        dataset = responses[0].json()["data"]
 
         added = await asyncio.gather(
             *(
@@ -829,8 +833,8 @@ async def test_an_import_holds_no_database_connection_and_names_stay_unique(
             )
         )
         assert [response.status_code for response in added] == [201, 201]
-        assert sorted(response.json()["data"]["version_number"] for response in added) == [2, 3]
-        assert len(stored_files(tmp_path)) == 3
+        assert sorted(response.json()["data"]["version_number"] for response in added) == [3, 4]
+        assert len(stored_files(tmp_path)) == 4
 
     # Both imports were recorded as started before either query ran.
     async with harness.factory() as db:
