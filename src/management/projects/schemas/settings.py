@@ -5,6 +5,7 @@ own strings, so the web app can send its form state unchanged. Options and defau
 from `ai-research-platform-fe/src/app/(main)/projects/[projectId]/_components/`:
 `settings-section.tsx` (general), `settings-extra.tsx` (access, models, literature, review,
 data) and `settings-system.tsx` (runs, spending). Keep the lists here in step with them.
+`notifications` is a Platform section with no web app form yet.
 """
 
 import re
@@ -170,6 +171,12 @@ class SpendingSettings(_Section):
     billing_email: Annotated[str, Field(max_length=320), AfterValidator(_billing_email)] = ""
 
 
+class NotificationSettings(_Section):
+    # Project Manager's switch for notice emails, off until turned on. Off: no member gets
+    # them; in-app is unchanged. Only notices raised while it is on are emailed.
+    email_enabled: bool = False
+
+
 SECTIONS: dict[str, type[_Section]] = {
     "general": GeneralSettings,
     "access": AccessSettings,
@@ -179,10 +186,19 @@ SECTIONS: dict[str, type[_Section]] = {
     "review": ReviewSettings,
     "data": DataSettings,
     "spending": SpendingSettings,
+    "notifications": NotificationSettings,
 }
 
 SettingsSection = Literal[
-    "general", "access", "runs", "models", "literature", "review", "data", "spending"
+    "general",
+    "access",
+    "runs",
+    "models",
+    "literature",
+    "review",
+    "data",
+    "spending",
+    "notifications",
 ]
 
 

@@ -25,9 +25,10 @@ NOT_MEMBER = {404: {"model": ErrorResponse, "description": "You are not a member
     response_model=ApiResponse[NotificationPreferences],
     summary="Your notice choices in this project",
     description=(
-        "Defaults until you save, at version 0; reading never saves. Only in-app notices are "
-        "delivered: `supported` and `capabilities` say which channels and features work. "
-        "Notices about your own invitations and removal always arrive."
+        "Defaults until you save, at version 0; reading never saves. Members choose in-app "
+        "notices only. Email is one switch for the whole project, set by a Project Manager in "
+        "project settings; `capabilities.project_email` says whether it is on. Notices about "
+        "your own invitations and removal always arrive."
     ),
     responses=NOT_MEMBER,
 )
@@ -46,8 +47,8 @@ async def read_my_preferences(
     summary="Change your notice choices in this project",
     description=(
         "Send `version` and only the fields to change. Turning off in-app stops new notices "
-        "of that group; earlier ones stay. Turning on email, a digest or quiet hours answers "
-        "422 NOTIFICATION_PREFERENCE_UNSUPPORTED until they are delivered."
+        "of that group; earlier ones stay. Turning on email (set per project), a digest or "
+        "quiet hours answers 422 NOTIFICATION_PREFERENCE_UNSUPPORTED."
     ),
     responses={
         **NOT_MEMBER,

@@ -1,7 +1,8 @@
 """A member's notice choices in one project, and which notices they turn off.
 
-Only the in-app channel is delivered today. Email, digests and quiet hours are stored
-with their defaults and reported as not supported; turning them on is refused.
+Members choose in-app notices only. Email is one switch for the whole project, set by a
+Project Manager in project settings. Digests and quiet hours are stored with their defaults
+and reported as not supported; turning them on is refused, as is a member's own email.
 """
 
 import re
@@ -48,7 +49,8 @@ MANDATORY_KINDS = frozenset({"project_invited", "removed_from_project"})
 # The project's timezone when its settings never named one (GeneralSettings default).
 DEFAULT_TIMEZONE = "Asia/Ho_Chi_Minh"
 TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-EMAIL_OFF = "EMAIL_DELIVERY_NOT_AVAILABLE"
+# Members have no email choice: the Project Manager turns email on or off for the project.
+EMAIL_BY_PROJECT = "EMAIL_SET_BY_PROJECT"
 
 
 class ChannelFlags(BaseModel):
@@ -65,7 +67,7 @@ class EventPreference(BaseModel):
     key: EventKey
     label: str
     in_app: bool
-    email: bool = Field(description="Saved choice; email is not delivered yet")
+    email: bool = Field(description="Kept for compatibility; email is set per project")
     supported: ChannelFlags
     reason_codes: ChannelReasons
 
@@ -166,11 +168,28 @@ def _defaults(timezone: str) -> tuple[dict, dict, dict]:
     return events, digest, quiet
 
 
-async def _project_timezone(db: AsyncSession, project_id: UUID) -> str:
+async def _sections(db: AsyncSession, project_id: UUID) -> dict:
     sections = await db.scalar(
         select(ProjectSetting.sections).where(ProjectSetting.project_id == project_id)
     )
-    return ((sections or {}).get("general") or {}).get("timezone") or DEFAULT_TIMEZONE
+    return sections or {}
+
+
+def _timezone(sections: dict) -> str:
+    return (sections.get("general") or {}).get("timezone") or DEFAULT_TIMEZONE
+
+
+def _email_enabled(sections: dict) -> bool:
+    """The project's email switch; off until a Project Manager turns it on.
+
+    Reads the stored JSON directly (projects' service sits above this layer); keep in step
+    with ``NotificationSettings.email_enabled`` and its default.
+    """
+    return (sections.get("notifications") or {}).get("email_enabled") is True
+
+
+async def project_email_enabled(db: AsyncSession, project_id: UUID) -> bool:
+    return _email_enabled(await _sections(db, project_id))
 
 
 async def require_member(db: AsyncSession, project_id: UUID, user_id: UUID) -> None:
@@ -199,7 +218,7 @@ async def _row(
 
 
 def _view(
-    project_id: UUID, row: NotificationPreference | None, timezone: str
+    project_id: UUID, row: NotificationPreference | None, timezone: str, email_enabled: bool
 ) -> NotificationPreferences:
     events, digest, quiet = _defaults(timezone)
     if row is not None:
@@ -215,7 +234,7 @@ def _view(
                 label=GROUPS[key][0],
                 **events[key],
                 supported=ChannelFlags(in_app=True, email=False),
-                reason_codes=ChannelReasons(in_app=None, email=EMAIL_OFF),
+                reason_codes=ChannelReasons(in_app=None, email=EMAIL_BY_PROJECT),
             )
             for key in GROUPS
         ],
@@ -224,6 +243,10 @@ def _view(
         capabilities={
             "digest": Capability(supported=False, reason_code="DIGEST_NOT_AVAILABLE"),
             "quiet_hours": Capability(supported=False, reason_code="QUIET_HOURS_NOT_AVAILABLE"),
+            "project_email": Capability(
+                supported=email_enabled,
+                reason_code=None if email_enabled else "PROJECT_EMAIL_OFF",
+            ),
         },
     )
 
@@ -232,13 +255,14 @@ async def read_preferences(
     db: AsyncSession, project_id: UUID, user_id: UUID
 ) -> NotificationPreferences:
     row = await _row(db, project_id, user_id)
-    return _view(project_id, row, await _project_timezone(db, project_id))
+    sections = await _sections(db, project_id)
+    return _view(project_id, row, _timezone(sections), _email_enabled(sections))
 
 
 def _unsupported(body: PreferencesPatch) -> str | None:
     sent = body.model_dump(exclude_unset=True)
     if any(channel.get("email") is True for channel in (sent.get("events") or {}).values()):
-        return "Email notices are not available yet. Keep email off."
+        return "Email notices are set for the whole project by its Project Manager. Keep email off."
     if (sent.get("digest") or {}).get("frequency") not in (None, "off"):
         return "Digests are not available yet. Keep the digest off."
     if (sent.get("quiet_hours") or {}).get("enabled") is True:
@@ -265,7 +289,8 @@ async def patch_preferences(
             "NOTIFICATION_PREFERENCES_VERSION_CONFLICT",
             "These preferences were changed in another tab. Reload to see them.",
         )
-    current = _view(project_id, row, await _project_timezone(db, project_id))
+    sections = await _sections(db, project_id)
+    current = _view(project_id, row, _timezone(sections), _email_enabled(sections))
     events = {e.key: {"in_app": e.in_app, "email": e.email} for e in current.events}
     for key, channel in (sent.get("events") or {}).items():
         events[key] = {**events[key], **channel}
@@ -301,7 +326,7 @@ async def patch_preferences(
             "NOTIFICATION_PREFERENCES_VERSION_CONFLICT",
             "These preferences were changed in another tab. Reload to see them.",
         ) from exc
-    return _view(project_id, row, digest.timezone)
+    return _view(project_id, row, digest.timezone, _email_enabled(sections))
 
 
 async def muted_users(

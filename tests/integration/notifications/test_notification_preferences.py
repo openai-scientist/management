@@ -55,7 +55,11 @@ async def test_members_read_and_change_only_their_own_choices(harness: Harness) 
             ("integrations", True, True),
         ]
         assert data["events"][0]["supported"] == {"in_app": True, "email": False}
-        assert data["events"][0]["reason_codes"]["email"] == "EMAIL_DELIVERY_NOT_AVAILABLE"
+        assert data["events"][0]["reason_codes"]["email"] == "EMAIL_SET_BY_PROJECT"
+        assert data["capabilities"]["project_email"] == {
+            "supported": False,
+            "reason_code": "PROJECT_EMAIL_OFF",
+        }
         assert data["digest"]["timezone"] == "Asia/Ho_Chi_Minh"
         assert data["capabilities"]["digest"]["supported"] is False
         async with harness.factory() as db:
@@ -164,3 +168,54 @@ async def test_turning_a_group_off_stops_new_notices_and_keeps_old_ones(harness:
         assert await notices(harness, user_id, "removed_from_project") == 1
         async with harness.factory() as db:
             assert await db.scalar(select(func.count(NotificationPreference.id))) == 0
+
+
+@pytest.mark.asyncio
+async def test_members_see_the_project_email_switch_only_managers_change(harness: Harness) -> None:
+    async with harness.client() as manager_client, harness.client() as researcher_client:
+        manager = await login(harness, manager_client, uid="manager", email="manager@example.com")
+        researcher = await login(
+            harness, researcher_client, uid="researcher", email="researcher@example.com"
+        )
+        project = await create_project(manager_client, manager)
+        await add_member(
+            manager_client, manager, project["id"], "researcher@example.com", "researcher"
+        )
+        settings_url = f"{PROJECTS}/{project['id']}/settings/notifications"
+        preferences_url = f"{PROJECTS}/{project['id']}/notification-preferences/me"
+
+        denied = await researcher_client.patch(
+            settings_url,
+            json={"version": 0, "values": {"email_enabled": False}},
+            headers=mutation_headers(researcher["csrf_token"]),
+        )
+        assert code(denied) == (403, "ROLE_REQUIRED")
+
+        on = await manager_client.patch(
+            settings_url,
+            json={"version": 0, "values": {"email_enabled": True}},
+            headers=mutation_headers(manager["csrf_token"]),
+        )
+        assert on.status_code == 200, on.text
+        seen = (await researcher_client.get(preferences_url)).json()["data"]
+        assert seen["capabilities"]["project_email"] == {"supported": True, "reason_code": None}
+
+        off = await manager_client.patch(
+            settings_url,
+            json={"version": 1, "values": {"email_enabled": False}},
+            headers=mutation_headers(manager["csrf_token"]),
+        )
+        assert off.status_code == 200, off.text
+        seen = (await researcher_client.get(preferences_url)).json()["data"]
+        assert seen["capabilities"]["project_email"] == {
+            "supported": False,
+            "reason_code": "PROJECT_EMAIL_OFF",
+        }
+
+        # A member's own choice cannot turn email on.
+        own = await researcher_client.patch(
+            preferences_url,
+            json={"version": 0, "events": {"review": {"email": True}}},
+            headers=mutation_headers(researcher["csrf_token"]),
+        )
+        assert code(own) == (422, "NOTIFICATION_PREFERENCE_UNSUPPORTED")

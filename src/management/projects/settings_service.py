@@ -36,6 +36,7 @@ SUPPORTED_FIELDS = frozenset(
         "spending.limit",
         "spending.warn_at",
         "spending.at_limit",
+        "notifications.email_enabled",
     }
 )
 

@@ -77,6 +77,7 @@ FRONTEND_DEFAULTS = {
         "at_limit": "stop",
         "billing_email": "",
     },
+    "notifications": {"email_enabled": False},
 }
 
 
@@ -112,6 +113,7 @@ async def test_settings_start_at_the_web_app_defaults_and_save_by_section(
             "spending.limit",
             "spending.warn_at",
             "spending.at_limit",
+            "notifications.email_enabled",
         }
         assert {key for key, c in fresh["capabilities"].items() if c["supported"]} == supported
         assert fresh["capabilities"]["access.join_link"] == {
