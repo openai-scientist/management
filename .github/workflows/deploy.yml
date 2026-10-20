@@ -54,12 +54,22 @@ jobs:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
           DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+          # Deploy the immutable SHA tag: a registry mirror can serve a stale `latest`.
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           for name in DOKPLOY_URL DOKPLOY_API_KEY DOKPLOY_COMPOSE_ID; do
             test -n "${!name}" || { echo "$name secret is required"; exit 1; }
           done
-          curl --fail-with-body --silent --show-error --max-time 60 \
-            -X POST "$DOKPLOY_URL/api/compose.deploy" \
-            -H "x-api-key: $DOKPLOY_API_KEY" \
+          api() { curl --fail-with-body --silent --show-error --max-time 60 -H "x-api-key: $DOKPLOY_API_KEY" "$@"; }
+          # Pin IMAGE_TAG in the app's saved env without printing it.
+          env_file=$(mktemp)
+          api "$DOKPLOY_URL/api/compose.one?composeId=$DOKPLOY_COMPOSE_ID" | jq -r '.env // ""' > "$env_file.src"
+          grep -v '^IMAGE_TAG=' "$env_file.src" > "$env_file" || true
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$env_file"
+          jq -n --arg id "$DOKPLOY_COMPOSE_ID" --rawfile env "$env_file" '{composeId: $id, env: $env}' \
+            | api -X POST "$DOKPLOY_URL/api/compose.update" -H "Content-Type: application/json" -d @- > /dev/null
+          rm -f "$env_file" "$env_file.src"
+          echo "Pinned IMAGE_TAG=$IMAGE_TAG"
+          api -X POST "$DOKPLOY_URL/api/compose.deploy" \
             -H "Content-Type: application/json" \
             -d "{\"composeId\":\"$DOKPLOY_COMPOSE_ID\"}"
