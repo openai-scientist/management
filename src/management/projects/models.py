@@ -120,18 +120,21 @@ class Comment(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+# Every notice kind, as the SQL list both notice tables check against.
+NOTICE_KINDS = (
+    "'run_awaiting_review', 'run_finished', 'added_to_project', "
+    "'run_commented', 'project_invited', 'invite_accepted', 'invite_declined', "
+    "'member_role_changed', 'removed_from_project', 'integration_failed', "
+    "'budget_warning', 'budget_exceeded'"
+)
+
+
 class Notification(Base):
     """An in-app notice for one user. It carries no text; the client words it from `kind`."""
 
     __tablename__ = "notifications"
     __table_args__ = (
-        CheckConstraint(
-            "kind IN ('run_awaiting_review', 'run_finished', 'added_to_project', "
-            "'run_commented', 'project_invited', 'invite_accepted', 'invite_declined', "
-            "'member_role_changed', 'removed_from_project', 'integration_failed', "
-            "'budget_warning', 'budget_exceeded')",
-            name="ck_notifications_kind",
-        ),
+        CheckConstraint(f"kind IN ({NOTICE_KINDS})", name="ck_notifications_kind"),
         Index("ix_notifications_recipient", "recipient_user_id", "read_at", "created_at"),
     )
 
@@ -153,6 +156,45 @@ class Notification(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class NotificationEmail(Base):
+    """A notice queued for email. Written with the notice; sent after commit by the dispatcher.
+
+    Separate from ``Notification`` because email follows the project's switch, not the
+    member's in-app choice: a member who turned in-app off still gets the email.
+    """
+
+    __tablename__ = "notification_emails"
+    __table_args__ = (
+        CheckConstraint(f"kind IN ({NOTICE_KINDS})", name="ck_notification_emails_kind"),
+        CheckConstraint(
+            "status IN ('pending', 'sending', 'sent', 'failed', 'skipped')",
+            name="ck_notification_emails_status",
+        ),
+        Index("ix_notification_emails_status", "status", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    recipient_user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    project_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    run_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="CASCADE")
+    )
+    actor_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ProjectFile(Base):

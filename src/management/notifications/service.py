@@ -7,8 +7,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from management.core.roles import ProjectRole
 from management.identity.models import User, UserStatus
 from management.notifications.notification_stream import notifications_changed
-from management.notifications.preferences import MANDATORY_KINDS, muted_users
-from management.projects.models import Notification, NotificationPreference, ProjectMembership
+from management.notifications.preferences import (
+    MANDATORY_KINDS,
+    muted_users,
+    project_email_enabled,
+)
+from management.projects.models import (
+    Notification,
+    NotificationEmail,
+    NotificationPreference,
+    ProjectMembership,
+)
 
 
 def notify_user(
@@ -91,7 +100,9 @@ async def notify_project_members(
     """Notify the project's active members, in the caller's transaction.
 
     People removed from the project and suspended users get nothing, also when
-    ``only_user_id`` names them. Members who turned this kind of notice off get nothing.
+    ``only_user_id`` names them. Members who turned this kind of notice off get no in-app
+    notice. While the project's email switch is on, every recipient also gets it by email,
+    queued here and sent after commit.
     """
     query = (
         select(ProjectMembership.user_id)
@@ -109,11 +120,24 @@ async def notify_project_members(
     if only_user_id is not None:
         query = query.where(ProjectMembership.user_id == only_user_id)
     recipients = list((await db.scalars(query)).all())
+    if not recipients:
+        return
     muted = await muted_users(db, project_id, kind, recipients)
+    email = await project_email_enabled(db, project_id)
     for user_id in recipients:
         if user_id not in muted:
             _add(
                 db, user_id, kind, project_id=project_id, run_id=run_id, actor_user_id=actor_user_id
+            )
+        if email:
+            db.add(
+                NotificationEmail(
+                    recipient_user_id=user_id,
+                    kind=kind,
+                    project_id=project_id,
+                    run_id=run_id,
+                    actor_user_id=actor_user_id,
+                )
             )
 
 
