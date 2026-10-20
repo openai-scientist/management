@@ -90,6 +90,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       # Set API_BIND to the Tailscale address to reach the API from the tailnet.
       - "${API_BIND:-127.0.0.1}:${API_PORT:-8080}:8080"
@@ -101,8 +103,18 @@ services:
       timeout: 3s
       retries: 10
 
-  # Posts project events to Slack, Teams and Discord. Start it after the migrations ran;
-  # until then it logs one error and waits.
+  # Brings the schema to the latest migration, then exits. The API and the worker start after it.
+  migrate:
+    image: ${DOCKER_USERNAME:?Set DOCKER_USERNAME in the production environment file}/capstone-be:${IMAGE_TAG:-latest}
+    pull_policy: always
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    restart: "no"
+    environment: *api-environment
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Posts project events to Slack, Teams and Discord.
   integration-worker:
     image: ${DOCKER_USERNAME:?Set DOCKER_USERNAME in the production environment file}/capstone-be:${IMAGE_TAG:-latest}
     pull_policy: always
@@ -117,6 +129,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import pathlib, time; assert time.time() - float(pathlib.Path('/tmp/integration-worker.heartbeat').read_text()) < 30"]
       interval: 15s

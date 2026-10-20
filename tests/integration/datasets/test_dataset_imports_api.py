@@ -506,7 +506,8 @@ async def test_a_request_cancelled_while_recording_leaves_no_file(
         with pytest.raises(asyncio.CancelledError):
             await pending
 
-    assert len(stored_files(tmp_path)) == 1
+    # The shielded removal may finish after the cancelled request has returned.
+    await wait_until(lambda: len(stored_files(tmp_path)) == 1)
     assert await _records(harness) == (1, 1)
 
 
