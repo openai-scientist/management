@@ -5,54 +5,26 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from management.core.roles import PlatformRole, ProjectRole
 from management.identity.models import UserStatus
 
-Password = Field(min_length=8, max_length=128, description="8 to 128 characters.")
-
-
 Code = Field(pattern=r"^\d{6}$", description="The 6 digits from the email.")
-
-
-class RegisterRequest(BaseModel):
-    email: EmailStr = Field(description="The sign-in name. One account per email.")
-    password: str = Password
-    display_name: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=200,
-        description="Defaults to the part of the email before the @.",
-    )
-
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=1, max_length=128)
 
 
 class EmailRequest(BaseModel):
     email: EmailStr
 
 
-class VerifyEmailRequest(BaseModel):
+class EmailCodeSignIn(BaseModel):
     email: EmailStr
     code: str = Code
-    password: str = Field(
-        min_length=1, max_length=128, description="The password of the account being verified."
+
+
+class SignInLink(BaseModel):
+    token: str = Field(
+        min_length=64, max_length=64, description="The token after `#token=` in the emailed link."
     )
 
 
-class VerifyResetPasswordRequest(BaseModel):
-    email: EmailStr
-    code: str = Code
-
-
-class ResetPasswordRequest(BaseModel):
-    email: EmailStr
-    reset_token: str = Field(min_length=64, max_length=64)
-    new_password: str = Password
-
-
-class PasswordResetGrant(BaseModel):
-    reset_token: str = Field(description="One-use token for reset-password, bound to this email.")
-    expires_in_seconds: int
+class SignInLinkInfo(BaseModel):
+    email: str = Field(description="The address the link signs in as, partly hidden.")
 
 
 class VerificationPending(BaseModel):
@@ -63,11 +35,6 @@ class VerificationPending(BaseModel):
             "The wait between two codes. A fixed setting, not the time left for this address."
         )
     )
-
-
-class PasswordChange(BaseModel):
-    current_password: str = Field(min_length=1, max_length=128)
-    new_password: str = Password
 
 
 class ProfileUpdate(BaseModel):
@@ -99,11 +66,9 @@ class UserProfile(BaseModel):
     email_verified: bool = Field(
         description="Always true for a signed-in user: an unverified account cannot sign in."
     )
-    must_change_password: bool = Field(
+    onboarded: bool = Field(
         description=(
-            "True while the user still has the temporary password an admin's creation set. "
-            "Every endpoint except `me`, `csrf-token`, `change-password` and the two "
-            "sign-out endpoints answers `403 PASSWORD_CHANGE_REQUIRED` until it is changed."
+            "False until the user has chosen a name. The app asks for one before anything else."
         )
     )
     created_at: datetime

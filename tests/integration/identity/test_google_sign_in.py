@@ -25,20 +25,13 @@ from tests.helpers.identity import (
     CLIENT_SECRET,
     DAT,
     GOOGLE_EMAIL,
-    NEW_PASSWORD,
-    PASSWORD,
     USERS,
     cookies_set,
-    emailed_code,
-    forgot,
     id_token,
-    invalid,
     login,
     mutation_headers,
-    post,
-    register,
-    reset,
     sign_in,
+    start,
     upload,
     user_row,
 )
@@ -225,10 +218,9 @@ async def test_a_new_gmail_address_gets_a_verified_account_and_a_session(
         assert me.status_code == 200, me.text
         profile = me.json()["data"]["user"]
         assert (profile["email"], profile["display_name"]) == (GOOGLE_EMAIL, "Dat Ngo")
-        assert (profile["email_verified"], profile["must_change_password"]) == (True, False)
+        assert (profile["email_verified"], profile["onboarded"]) == (True, True)
         assert (await client.get(f"{AUTH}/csrf-token")).status_code == 200
-        user = await user_row(harness, GOOGLE_EMAIL)
-        assert (user.google_subject, user.password_hash) == (DAT.subject, None)
+        assert (await user_row(harness, GOOGLE_EMAIL)).google_subject == DAT.subject
         assert harness.emails.sent == []
 
         # Google knows the account by its ID: a changed address is still the same user,
@@ -286,7 +278,7 @@ async def test_only_a_verified_address_that_google_manages_is_accepted(
 
 
 @pytest.mark.asyncio
-async def test_a_verified_account_is_linked_and_keeps_its_password(
+async def test_a_verified_account_is_linked_and_keeps_email_sign_in(
     google_harness: Harness,
 ) -> None:
     harness = google_harness
@@ -297,69 +289,35 @@ async def test_a_verified_account_is_linked_and_keeps_its_password(
         assert signed_in(await google_sign_in(harness, client, DAT))
         after = await user_row(harness, GOOGLE_EMAIL)
         assert after.id == before.id and after.google_subject == DAT.subject
-        assert after.password_hash == before.password_hash
         assert (await client.get(f"{AUTH}/me")).json()["data"]["user"]["id"] == str(before.id)
-        # Both ways in work, and nobody was signed out.
+        # Nobody was signed out.
         assert (await laptop.get(f"{AUTH}/me")).status_code == 200
-        assert (
-            await post(client, "login", email=GOOGLE_EMAIL, password=PASSWORD)
-        ).status_code == 200
 
         (notice,) = harness.emails.sent
         assert notice["to"] == GOOGLE_EMAIL and notice["subject"] == LINKED
         assert (
             f"\nAccount: {GOOGLE_EMAIL}\n" in notice["text"] and "\nLinked at: " in notice["text"]
         )
-        assert "Forgot password" not in notice["text"]
+        assert "password" not in notice["text"].lower()
         del harness.emails.sent[:]
 
         # The link is made once: later sign-ins tell nobody anything.
         assert signed_in(await google_sign_in(harness, client, DAT))
         assert harness.emails.sent == []
+        # Both ways in work.
+        assert (await sign_in(harness, client, GOOGLE_EMAIL)).status_code == 200
         assert await user_count(harness) == 1
     async with harness.factory() as db:
         events = (await db.scalars(select(AuditEvent).order_by(AuditEvent.created_at))).all()
-    linked = [event for event in events if event.action == "user.google_linked"]
-    assert len(linked) == 1 and linked[0].details == {"password_cleared": False}
+    assert [event.action for event in events].count("user.google_linked") == 1
 
 
 @pytest.mark.asyncio
-async def test_linking_an_unverified_account_ends_the_password_someone_else_may_have_set(
+async def test_linking_an_account_that_never_signed_in_verifies_it(
     google_harness: Harness,
 ) -> None:
     harness = google_harness
-    async with harness.client() as stranger, harness.client() as client:
-        # Anyone can register an address they do not own; only the inbox owner verifies it.
-        await register(stranger, GOOGLE_EMAIL, "the stranger's password")
-        code = emailed_code(harness, GOOGLE_EMAIL)
-
-        assert signed_in(await google_sign_in(harness, client, DAT))
-        user = await user_row(harness, GOOGLE_EMAIL)
-        assert user.google_subject == DAT.subject and user.password_hash is None
-        assert user.email_verified_at is not None
-        denied = await post(
-            stranger, "login", email=GOOGLE_EMAIL, password="the stranger's password"
-        )
-        assert denied.status_code == 401
-        assert invalid(
-            await post(
-                stranger,
-                "verify-email",
-                email=GOOGLE_EMAIL,
-                code=code,
-                password="the stranger's password",
-            )
-        )
-        (notice,) = harness.emails.sent
-        assert notice["subject"] == LINKED and "Forgot password" in notice["text"]
-
-
-@pytest.mark.asyncio
-async def test_linking_ends_a_temporary_password_and_the_sessions_it_opened(
-    google_harness: Harness,
-) -> None:
-    harness = google_harness
-    async with harness.client() as admin, harness.client() as old, harness.client() as client:
+    async with harness.client() as admin, harness.client() as stranger, harness.client() as client:
         session = await login(harness, admin, uid="pa", email="pa@example.com")
         await bootstrap_admin(
             "pa@example.com", settings=harness.settings, session_factory=harness.factory
@@ -370,25 +328,17 @@ async def test_linking_ends_a_temporary_password_and_the_sessions_it_opened(
             headers=mutation_headers(session["csrf_token"]),
         )
         assert created.status_code == 201, created.text
-        # Someone who guessed the temporary password is signed in with it.
-        assert (await sign_in(harness, old, GOOGLE_EMAIL, "dat")).status_code == 200
-        assert (await old.get(f"{AUTH}/me")).json()["data"]["user"]["must_change_password"]
+        # Starting a sign-in for an address proves nothing: the code goes to its inbox.
+        await start(stranger, GOOGLE_EMAIL)
         del harness.emails.sent[:]
 
         assert signed_in(await google_sign_in(harness, client, DAT))
-        assert (await old.get(f"{AUTH}/me")).status_code == 401
-        assert (await post(old, "login", email=GOOGLE_EMAIL, password="dat")).status_code == 401
-        profile = (await client.get(f"{AUTH}/me")).json()["data"]["user"]
-        assert (profile["email_verified"], profile["must_change_password"]) == (True, False)
-        # Nothing is locked behind a password change any more.
+        user = await user_row(harness, GOOGLE_EMAIL)
+        assert user.google_subject == DAT.subject and user.email_verified_at is not None
+        assert (await stranger.get(f"{AUTH}/me")).status_code == 401
         assert (await client.get("/api/v1/projects")).status_code == 200
         (notice,) = harness.emails.sent
-        assert notice["subject"] == LINKED and "Forgot password" in notice["text"]
-    async with harness.factory() as db:
-        details = await db.scalar(
-            select(AuditEvent.details).where(AuditEvent.action == "user.google_linked")
-        )
-    assert details == {"password_cleared": True}
+        assert notice["subject"] == LINKED
 
 
 @pytest.mark.asyncio
@@ -408,52 +358,18 @@ async def test_an_account_takes_one_google_account_only(google_harness: Harness)
 
 
 @pytest.mark.asyncio
-async def test_changing_or_resetting_the_password_keeps_the_link(google_harness: Harness) -> None:
-    harness = google_harness
-    async with harness.client() as client, harness.client() as browser:
-        session = await login(harness, client, uid="dat", email=GOOGLE_EMAIL)
-        assert signed_in(await google_sign_in(harness, browser, DAT))
-
-        changed = await client.post(
-            f"{AUTH}/change-password",
-            json={"current_password": PASSWORD, "new_password": "an interim password"},
-            headers=mutation_headers(session["csrf_token"]),
-        )
-        assert changed.status_code == 200, changed.text
-        assert (await user_row(harness, GOOGLE_EMAIL)).google_subject == DAT.subject
-        assert signed_in(await google_sign_in(harness, browser, DAT))
-
-        assert (
-            await reset(client, await forgot(harness, client, GOOGLE_EMAIL), email=GOOGLE_EMAIL)
-        ).status_code == 200
-        assert (await user_row(harness, GOOGLE_EMAIL)).google_subject == DAT.subject
-        assert signed_in(await google_sign_in(harness, browser, DAT))
-        assert (
-            await post(client, "login", email=GOOGLE_EMAIL, password=NEW_PASSWORD)
-        ).status_code == 200
-        assert await user_count(harness) == 1
-
-
-@pytest.mark.asyncio
-async def test_a_google_only_user_gets_a_password_through_forgot_password(
+async def test_a_google_user_can_also_sign_in_with_an_emailed_code(
     google_harness: Harness,
 ) -> None:
     harness = google_harness
     async with harness.client() as client, harness.client() as other:
         assert signed_in(await google_sign_in(harness, client, DAT))
-        for guess in ("", "dat", PASSWORD):
-            denied = await post(other, "login", email=GOOGLE_EMAIL, password=guess or " ")
-            assert denied.status_code == 401
-            assert denied.json()["error"]["code"] == "INVALID_CREDENTIALS"
-
-        assert (
-            await reset(other, await forgot(harness, other, GOOGLE_EMAIL), email=GOOGLE_EMAIL)
-        ).status_code == 200
-        assert (
-            await post(other, "login", email=GOOGLE_EMAIL, password=NEW_PASSWORD)
-        ).status_code == 200
+        by_email = await sign_in(harness, other, GOOGLE_EMAIL)
+        assert by_email.status_code == 200, by_email.text
+        assert by_email.json()["data"]["user"]["onboarded"] is True
         assert signed_in(await google_sign_in(harness, client, DAT))
         assert (await user_row(harness, GOOGLE_EMAIL)).google_subject == DAT.subject
+        assert await user_count(harness) == 1
 
 
 @pytest.mark.asyncio
@@ -476,7 +392,7 @@ async def test_a_suspended_user_is_refused_and_nothing_changes(
             assert (await browser.get(f"{AUTH}/me")).status_code == 401
         after = await user_row(harness, GOOGLE_EMAIL)
         assert after.google_subject == before.google_subject
-        assert (after.password_hash, after.updated_at) == (before.password_hash, before.updated_at)
+        assert after.updated_at == before.updated_at
         assert after.last_login_at == before.last_login_at
         assert harness.emails.sent == []
 

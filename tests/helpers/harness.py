@@ -76,10 +76,13 @@ async def open_harness(tmp_path, **overrides: Any) -> AsyncIterator[Harness]:
         database_url="sqlite+aiosqlite:///:memory:",
         cors_allowed_origins=ORIGIN,
         session_signing_secret="test-session-signing-secret-is-long-enough",
-        password_scrypt_log2_n=4,
         # Every test signs several users in from one address; the throttle tests lower these.
         auth_session_rate_limit=1000,
         auth_code_rate_limit=1000,
+        # Signing in means an emailed code, and tests sign the same user in again at once;
+        # the tests of these limits set them back.
+        otp_resend_cooldown_seconds=0,
+        otp_max_sends_per_hour=20,
         **overrides,
     )
     engine = create_async_engine(

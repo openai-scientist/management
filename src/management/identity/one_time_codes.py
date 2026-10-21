@@ -8,6 +8,7 @@ failed check it must commit before raising, or the counters are rolled back with
 import hmac
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,8 +22,7 @@ SEND_WINDOW = timedelta(hours=1)
 
 
 class OtpPurpose(StrEnum):
-    VERIFY_EMAIL = "verify_email"
-    RESET_PASSWORD = "reset_password"
+    SIGN_IN = "sign_in"
 
 
 async def _locked_row(db: AsyncSession, user: User, purpose: OtpPurpose) -> EmailOtp | None:
@@ -78,8 +78,7 @@ async def issue_code(
             return None
     code = new_otp_code()
     row.code_digest = _digest(settings, user, purpose, code)
-    row.reset_token_digest = None
-    row.reset_token_expires_at = None
+    row.link_token_digest = None
     row.expires_at = now + timedelta(minutes=settings.otp_ttl_minutes)
     row.attempts = 0
     row.sent_at = now
@@ -112,10 +111,13 @@ async def check_code(
     matches = hmac.compare_digest(row.code_digest, _digest(settings, user, purpose, code))
     if matches:
         row.code_digest = None
+        row.link_token_digest = None
         row.failed_attempts = 0
     else:
         row.failed_attempts += 1
         if row.failed_attempts >= settings.otp_lock_after_failures:
+            # Only the code goes: the link cannot be guessed, so whoever guesses codes cannot
+            # lock the inbox's owner out with it.
             row.locked_until = now + timedelta(minutes=settings.otp_lock_minutes)
             row.code_digest = None
             row.failed_attempts = 0
@@ -128,37 +130,65 @@ async def clear_code(db: AsyncSession, user: User, purpose: OtpPurpose) -> None:
     await db.execute(
         update(EmailOtp)
         .where(EmailOtp.user_id == user.id, EmailOtp.purpose == purpose)
-        .values(code_digest=None, reset_token_digest=None, reset_token_expires_at=None)
+        .values(
+            code_digest=None,
+            link_token_digest=None,
+        )
         .execution_options(synchronize_session=False)
     )
 
 
-async def verify_reset_code(
-    db: AsyncSession, settings: Settings, user: User, code: str
-) -> str | None:
-    """Consume the OTP and grant a short-lived, one-use password reset token."""
-    if not await check_code(db, settings, user, OtpPurpose.RESET_PASSWORD, code):
+async def issue_sign_in(
+    db: AsyncSession, settings: Settings, user: User, *, now: datetime | None = None
+) -> tuple[str, str] | None:
+    """Store a new sign-in code and link token together and return both, or None.
+
+    They count as one send and expire together. None, under the same rules as `issue_code`,
+    leaves the earlier code and link working.
+    """
+    code = await issue_code(db, settings, user, OtpPurpose.SIGN_IN, now=now)
+    if code is None:
         return None
-    row = await _locked_row(db, user, OtpPurpose.RESET_PASSWORD)
+    row = await _locked_row(db, user, OtpPurpose.SIGN_IN)
     token = new_session_secret()
-    row.reset_token_digest = token_digest(token)
-    row.reset_token_expires_at = datetime.now(UTC) + timedelta(minutes=settings.otp_ttl_minutes)
+    row.link_token_digest = token_digest(token)
     await db.flush()
-    return token
+    return code, token
 
 
-async def consume_reset_token(db: AsyncSession, user: User, token: str) -> bool:
-    """Consume a verified reset grant while the caller holds the user lock."""
-    row = await _locked_row(db, user, OtpPurpose.RESET_PASSWORD)
+async def sign_in_link_owner(
+    db: AsyncSession, token: str, *, now: datetime | None = None
+) -> UUID | None:
+    """The user a sign-in link belongs to while it still works. Reads without locking."""
+    now = now or datetime.now(UTC)
+    row = await db.scalar(
+        select(EmailOtp).where(
+            EmailOtp.link_token_digest == token_digest(token),
+            EmailOtp.purpose == OtpPurpose.SIGN_IN,
+        )
+    )
+    if row is None or as_utc(row.expires_at) <= now:
+        return None
+    return row.user_id
+
+
+async def consume_sign_in_link(
+    db: AsyncSession, user: User, token: str, *, now: datetime | None = None
+) -> bool:
+    """True once for a live link of this user; the code sent with it stops working too.
+
+    The caller holds the user lock, so a new code issued meanwhile is seen here.
+    """
+    now = now or datetime.now(UTC)
+    row = await _locked_row(db, user, OtpPurpose.SIGN_IN)
     if (
         row is None
-        or row.reset_token_digest is None
-        or row.reset_token_expires_at is None
-        or as_utc(row.reset_token_expires_at) <= datetime.now(UTC)
-        or not hmac.compare_digest(row.reset_token_digest, token_digest(token))
+        or row.link_token_digest is None
+        or as_utc(row.expires_at) <= now
+        or not hmac.compare_digest(row.link_token_digest, token_digest(token))
     ):
         return False
-    row.reset_token_digest = None
-    row.reset_token_expires_at = None
+    row.link_token_digest = None
+    row.code_digest = None
     await db.flush()
     return True

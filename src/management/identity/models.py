@@ -3,7 +3,6 @@ from enum import StrEnum
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -11,7 +10,6 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     Uuid,
-    false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,19 +29,15 @@ class User(Base):
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     email_normalized: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
-    # Empty for accounts created before the Platform kept passwords; they cannot sign in.
-    password_hash: Mapped[str | None] = mapped_column(String(255))
     display_name: Mapped[str | None] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=UserStatus.ACTIVE)
-    # Set for an account an admin created: the user must replace the temporary password
-    # before using anything else.
-    must_change_password: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default=false()
-    )
+    # When the user first chose a name, or the name came from Google or an admin. Empty: the
+    # app asks for a name before anything else.
+    onboarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # When the user proved the email with a one-time code. Empty: the account cannot sign in.
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Google's ID of the account that may sign in as this user, set at the first Google
-    # sign-in. Changing or resetting the password never touches it.
+    # sign-in. Signing in by email never touches it.
     google_subject: Mapped[str | None] = mapped_column(String(255), unique=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # The admin who created the account; empty for a self-registered one.
@@ -91,9 +85,11 @@ class EmailOtp(Base):
     __tablename__ = "email_otps"
     __table_args__ = (
         CheckConstraint(
-            "purpose IN ('verify_email', 'reset_password')", name="ck_email_otps_purpose"
+            "purpose IN ('sign_in')",
+            name="ck_email_otps_purpose",
         ),
         UniqueConstraint("user_id", "purpose", name="uq_email_otps_user_purpose"),
+        UniqueConstraint("link_token_digest", name="uq_email_otps_link_token_digest"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -103,9 +99,8 @@ class EmailOtp(Base):
     purpose: Mapped[str] = mapped_column(String(32), nullable=False)
     # A keyed digest, never the code. Empty once the code is used or withdrawn.
     code_digest: Mapped[str | None] = mapped_column(String(64))
-    # Granted only after a reset OTP succeeds; consumed when the password is set.
-    reset_token_digest: Mapped[str | None] = mapped_column(String(64))
-    reset_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The sign-in link sent with the code; it expires with the code. Empty once used.
+    link_token_digest: Mapped[str | None] = mapped_column(String(64))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # Checks made against the current code.
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

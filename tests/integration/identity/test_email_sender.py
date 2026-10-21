@@ -108,7 +108,8 @@ def test_deployed_settings_need_the_key_and_a_safe_link() -> None:
     for env in ("staging", "production"):
         with pytest.raises(ValidationError, match="resend_api_key is required"):
             settings(app_env=env, **deployed)
-        assert settings(app_env=env, resend_api_key=API_KEY, **deployed).app_url is None
+        with pytest.raises(ValidationError, match="app_url is required"):
+            settings(app_env=env, resend_api_key=API_KEY, **deployed)
 
     with pytest.raises(ValidationError, match="app_url must use HTTPS"):
         settings(

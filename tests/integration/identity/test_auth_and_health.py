@@ -9,7 +9,7 @@ from management.core.sessions import normalize_email
 from management.identity.bootstrap_admin import bootstrap_admin
 from management.identity.models import AuthSession, User, UserPlatformRole
 from tests.helpers.harness import ORIGIN, Harness
-from tests.helpers.identity import PASSWORD, login, mutation_headers, sign_in, verify
+from tests.helpers.identity import emailed_code, login, mutation_headers, post, sign_in, start
 
 
 @pytest.mark.asyncio
@@ -38,15 +38,15 @@ async def test_health_probes_answer_and_openapi_keeps_its_guards(harness: Harnes
 
 
 @pytest.mark.asyncio
-async def test_sign_up_and_sign_in_require_an_allowed_origin(harness: Harness) -> None:
-    credentials = {"email": "origin@example.com", "password": PASSWORD}
+async def test_sign_in_requires_an_allowed_origin(harness: Harness) -> None:
     async with harness.client() as client:
-        for path in ("/api/v1/auth/register", "/api/v1/auth/login"):
-            response = await client.post(
-                path, json=credentials, headers={"Origin": "https://untrusted.example"}
-            )
-            assert response.status_code == 403
-            assert response.json()["error"]["code"] == "ORIGIN_NOT_ALLOWED"
+        response = await client.post(
+            "/api/v1/auth/email/start",
+            json={"email": "origin@example.com"},
+            headers={"Origin": "https://untrusted.example"},
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "ORIGIN_NOT_ALLOWED"
 
     async with harness.factory() as db:
         assert await db.scalar(select(User.id)) is None
@@ -56,30 +56,23 @@ async def test_sign_up_and_sign_in_require_an_allowed_origin(harness: Harness) -
 async def test_sign_in_rate_limit_and_request_body_limit(harness: Harness) -> None:
     harness.settings.auth_session_rate_limit = 2
     async with harness.client() as client:
-        headers = {"Origin": ORIGIN}
-        credentials = {"email": "rate-limit@example.com", "password": PASSWORD}
-        registered = await client.post("/api/v1/auth/register", json=credentials, headers=headers)
-        assert registered.status_code == 201, registered.text
+        email = "rate-limit@example.com"
+        await start(client, email)
         # Entering the code is counted elsewhere, so it does not use up a sign-in.
-        await verify(harness, client, credentials["email"])
-        signed_in = await client.post("/api/v1/auth/login", json=credentials, headers=headers)
+        code = emailed_code(harness, email)
+        signed_in = await post(client, "email/verify", email=email, code=code)
         assert signed_in.status_code == 200, signed_in.text
+        await start(client, email)
 
-        # Signing up and signing in share one allowance.
-        for path in ("/api/v1/auth/login", "/api/v1/auth/register"):
-            limited = await client.post(path, json=credentials, headers=headers)
-            assert limited.status_code == 429
-            assert limited.json()["error"]["code"] == "RATE_LIMITED"
-            assert int(limited.headers["retry-after"]) >= 1
-            assert limited.headers.get("x-request-id")
+        limited = await post(client, "email/start", email=email)
+        assert limited.status_code == 429
+        assert limited.json()["error"]["code"] == "RATE_LIMITED"
+        assert int(limited.headers["retry-after"]) >= 1
+        assert limited.headers.get("x-request-id")
 
         harness.settings.auth_session_rate_limit = 100
         harness.settings.request_max_body_bytes = 1024
-        oversized = await client.post(
-            "/api/v1/auth/login",
-            json={"email": "rate-limit@example.com", "password": "x" * 1100},
-            headers=headers,
-        )
+        oversized = await post(client, "email/verify", email=email, code="1" * 1100)
         assert oversized.status_code == 413
         assert oversized.json()["error"]["code"] == "REQUEST_BODY_TOO_LARGE"
         assert oversized.headers.get("x-request-id")
@@ -186,156 +179,28 @@ async def test_logout_requires_csrf_and_revokes_cookie_session(harness: Harness)
 
 
 @pytest.mark.asyncio
-async def test_register_creates_an_account_and_login_checks_the_password(
-    harness: Harness,
-) -> None:
-    headers = {"Origin": ORIGIN}
+async def test_a_suspended_account_cannot_use_a_code_it_was_sent(harness: Harness) -> None:
+    email = "suspended@example.com"
     async with harness.client() as client:
-        registered = await client.post(
-            "/api/v1/auth/register",
-            json={"email": "New@Example.com", "password": PASSWORD, "display_name": " New User "},
-            headers=headers,
-        )
-        # Registering signs nobody in.
-        assert "set-cookie" not in registered.headers
-        assert (await client.get("/api/v1/auth/me")).status_code == 401
-        user = (await verify(harness, client, "new@example.com"))["user"]
-        again = await client.post(
-            "/api/v1/auth/register",
-            json={"email": "new@example.com", "password": "another password"},
-            headers=headers,
-        )
-        too_short = await client.post(
-            "/api/v1/auth/register",
-            json={"email": "short@example.com", "password": "1234567"},
-            headers=headers,
-        )
-    async with harness.client() as client:
-        wrong_password = await client.post(
-            "/api/v1/auth/login",
-            json={"email": "new@example.com", "password": "not the password"},
-            headers=headers,
-        )
-        unknown_email = await client.post(
-            "/api/v1/auth/login",
-            json={"email": "nobody@example.com", "password": PASSWORD},
-            headers=headers,
-        )
-        assert client.cookies.get(harness.settings.session_cookie_name) is None
-        signed_in = await client.post(
-            "/api/v1/auth/login",
-            json={"email": "NEW@example.com", "password": PASSWORD},
-            headers=headers,
-        )
-        assert client.cookies.get(harness.settings.session_cookie_name)
-        assert (await client.get("/api/v1/auth/me")).status_code == 200
-
-    assert registered.status_code == 201, registered.text
-    assert registered.json()["message"] == "Verification code sent"
-    assert registered.json()["data"] == {
-        "email": "New@example.com",
-        "expires_in_seconds": 600,
-        "resend_after_seconds": 60,
-    }
-    assert user["email"] == "New@example.com"
-    assert user["display_name"] == "New User"
-    assert user["status"] == "active"
-    assert user["platform_role"] == "user"
-    assert user["email_verified"] is True
-    assert user["must_change_password"] is False
-    assert again.status_code == 409
-    assert again.json()["error"]["code"] == "EMAIL_ALREADY_REGISTERED"
-    assert too_short.status_code == 422
-    for refused in (wrong_password, unknown_email):
-        assert refused.status_code == 401
-        assert refused.json()["error"]["code"] == "INVALID_CREDENTIALS"
-    assert signed_in.status_code == 200, signed_in.text
-    assert signed_in.json()["message"] == "Signed in"
-    assert signed_in.json()["data"]["user"]["id"] == user["id"]
-
-    async with harness.factory() as db:
-        stored = await db.scalar(select(User))
-    assert stored.password_hash.startswith("scrypt$")
-    assert PASSWORD not in stored.password_hash
-
-
-@pytest.mark.asyncio
-async def test_suspended_or_passwordless_accounts_cannot_sign_in(harness: Harness) -> None:
-    headers = {"Origin": ORIGIN}
-    async with harness.client() as client:
-        await login(harness, client, uid="suspended", email="suspended@example.com")
-        await login(harness, client, uid="legacy", email="legacy@example.com")
+        await login(harness, client, uid="suspended", email=email)
+        await start(client, email)
+        code = emailed_code(harness, email)
         async with harness.factory() as db, db.begin():
-            for user in (await db.scalars(select(User))).all():
-                if user.email == "suspended@example.com":
-                    user.status = "suspended"
-                else:
-                    user.password_hash = None
-        suspended = await client.post(
-            "/api/v1/auth/login",
-            json={"email": "suspended@example.com", "password": PASSWORD},
-            headers=headers,
-        )
-        legacy = await client.post(
-            "/api/v1/auth/login",
-            json={"email": "legacy@example.com", "password": PASSWORD},
-            headers=headers,
-        )
+            (await db.scalar(select(User))).status = "suspended"
+        refused = await post(client, "email/verify", email=email, code=code)
 
-    assert suspended.status_code == 403
-    assert suspended.json()["error"]["code"] == "USER_SUSPENDED"
-    assert legacy.status_code == 401
-    assert legacy.json()["error"]["code"] == "INVALID_CREDENTIALS"
-
-
-@pytest.mark.asyncio
-async def test_changing_the_password_signs_out_the_other_sessions(harness: Harness) -> None:
-    email = "change@example.com"
-    new_password = "a brand new password"
-    async with harness.client() as laptop, harness.client() as phone:
-        session = await login(harness, laptop, uid="change", email=email)
-        await login(harness, phone, uid="change", email=email)
-        headers = {"Origin": ORIGIN, "X-CSRF-Token": session["csrf_token"]}
-
-        wrong = await laptop.post(
-            "/api/v1/auth/change-password",
-            json={"current_password": "not the password", "new_password": new_password},
-            headers=headers,
-        )
-        assert wrong.status_code == 403
-        assert wrong.json()["error"]["code"] == "CURRENT_PASSWORD_INCORRECT"
-        assert (await phone.get("/api/v1/auth/me")).status_code == 200
-
-        changed = await laptop.post(
-            "/api/v1/auth/change-password",
-            json={"current_password": PASSWORD, "new_password": new_password},
-            headers=headers,
-        )
-        assert changed.status_code == 200, changed.text
-        assert (await laptop.get("/api/v1/auth/me")).status_code == 200
-        assert (await phone.get("/api/v1/auth/me")).status_code == 401
-
-        old = await phone.post(
-            "/api/v1/auth/login",
-            json={"email": email, "password": PASSWORD},
-            headers={"Origin": ORIGIN},
-        )
-        new = await phone.post(
-            "/api/v1/auth/login",
-            json={"email": email, "password": new_password},
-            headers={"Origin": ORIGIN},
-        )
-    assert old.status_code == 401
-    assert new.status_code == 200
+    # The same answer as a wrong code: the response does not tell who is suspended.
+    assert refused.status_code == 400
+    assert refused.json()["error"]["code"] == "OTP_INVALID"
 
 
 @pytest.mark.asyncio
 async def test_errors_share_one_envelope(harness: Harness) -> None:
     async with harness.client() as client:
         unknown = await client.get("/api/v1/does-not-exist")
-        wrong_method = await client.put("/api/v1/auth/login")
+        wrong_method = await client.put("/api/v1/auth/email/start")
         invalid = await client.post(
-            "/api/v1/auth/login", json={"email": "not-an-email"}, headers={"Origin": ORIGIN}
+            "/api/v1/auth/email/start", json={"email": "not-an-email"}, headers={"Origin": ORIGIN}
         )
         harness.app.state.settings = None
         crashed = await client.get("/api/v1/auth/me", headers={"Origin": ORIGIN})
@@ -411,8 +276,7 @@ async def test_platform_admin_creates_a_user_who_can_then_sign_in(harness: Harne
         )
         listed = await admin.get("/api/v1/users", params={"q": "hired@example.com"})
         async with harness.client() as client:
-            # The first sign-in asks for the code emailed to the new user.
-            signed_in = await sign_in(harness, client, "hired@example.com", "hired")
+            signed_in = await sign_in(harness, client, "hired@example.com")
         again = await admin.post(
             "/api/v1/users", json={"email": "hired@example.com"}, headers=headers
         )
@@ -428,9 +292,7 @@ async def test_platform_admin_creates_a_user_who_can_then_sign_in(harness: Harne
     assert user["display_name"] == "New Hire"
     assert user["status"] == "active"
     assert user["platform_role"] == "user"
-    assert user["temporary_password"] == "hired"
     assert user["email_verified"] is False
-    assert user["must_change_password"] is True
     assert user["created_by_user_id"] == admin_session["user"]["id"]
     assert again.status_code == 409
     assert again.json()["error"]["code"] == "EMAIL_ALREADY_REGISTERED"

@@ -29,21 +29,6 @@ def email_local_part(email: str) -> str:
     return normalize_email(email).rsplit("@", 1)[0]
 
 
-def _may_skip_password_change(request: Request, settings: Settings) -> bool:
-    """Whether a user who still has a temporary password may call this endpoint.
-
-    They can see who they are, change the password and sign out; nothing else.
-    """
-    auth = f"{settings.api_prefix}/auth"
-    return (request.method, request.url.path.rstrip("/")) in {
-        ("GET", f"{auth}/me"),
-        ("GET", f"{auth}/csrf-token"),
-        ("POST", f"{auth}/change-password"),
-        ("POST", f"{auth}/logout"),
-        ("POST", f"{auth}/logout-all"),
-    }
-
-
 def as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
@@ -119,10 +104,6 @@ async def _get_principal(
     if user is None or user.status == UserStatus.SUSPENDED:
         raise APIError(
             401, "USER_SUSPENDED", "This account is suspended", clear_session_cookie=True
-        )
-    if user.must_change_password and not _may_skip_password_change(request, settings):
-        raise APIError(
-            403, "PASSWORD_CHANGE_REQUIRED", "Change the temporary password before continuing"
         )
     if touch_session:
         session.last_seen_at = now

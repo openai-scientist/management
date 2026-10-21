@@ -32,13 +32,11 @@ class Settings(BaseSettings):
     cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     session_idle_minutes: int = Field(default=7 * 24 * 60, ge=5, le=30 * 24 * 60)
     session_absolute_days: int = Field(default=30, ge=1, le=30)
-    # Cost of hashing a password: scrypt works on 2**n blocks. Tests lower it to stay fast.
-    password_scrypt_log2_n: int = Field(default=15, ge=4, le=17)
     auth_session_rate_limit: int = Field(default=10, ge=1, le=1000)
     auth_session_rate_window_seconds: int = Field(default=60, ge=1, le=3600)
     # The endpoints that take or send a one-time code share their own limit, same window.
     auth_code_rate_limit: int = Field(default=20, ge=1, le=1000)
-    # One-time codes emailed for sign-up and password reset.
+    # One-time sign-in codes and links emailed to sign in.
     otp_ttl_minutes: int = Field(default=10, ge=1, le=60)
     otp_max_attempts: int = Field(default=5, ge=1, le=10)
     otp_resend_cooldown_seconds: int = Field(default=60, ge=0, le=3600)
@@ -104,10 +102,9 @@ class Settings(BaseSettings):
     # The longest a project invitation can be accepted after it was last sent. Each project
     # picks its own length in its access settings (7 days by default); this caps it.
     project_invite_ttl_hours: int = Field(default=720, ge=1, le=720)
-    # A Platform Admin created at startup when both are set. For development only: the
-    # password is a known value, so production refuses these settings.
+    # A verified Platform Admin created at startup. For development only: whoever reads the
+    # local email log signs in as it, so staging and production refuse it.
     default_admin_email: str | None = None
-    default_admin_password: SecretStr | None = None
     # Data connections to external databases. Without a key the feature is off: nothing can be
     # stored or tested, but existing rows can still be listed.
     connection_secret_key: SecretStr | None = None
@@ -169,7 +166,6 @@ class Settings(BaseSettings):
         "google_picker_api_key",
         "google_picker_app_id",
         "default_admin_email",
-        "default_admin_password",
         "connection_secret_key",
         "monitoring_error_rate_alert_threshold_percent",
         "monitoring_error_rate_alert_recovery_percent",
@@ -224,8 +220,8 @@ class Settings(BaseSettings):
             )
         if self.app_env in ("staging", "production") and self.resend_api_key is None:
             raise ValueError("resend_api_key is required in staging and production")
-        if (self.default_admin_email is None) != (self.default_admin_password is None):
-            raise ValueError("default_admin_email and default_admin_password go together")
+        if self.app_env in ("staging", "production") and not self.app_url:
+            raise ValueError("app_url is required in staging and production: sign-in links use it")
         if self.default_admin_email and self.app_env in ("staging", "production"):
             raise ValueError("A default admin account is for local development only")
         if self.connection_secret_key:
@@ -244,8 +240,6 @@ class Settings(BaseSettings):
                 raise ValueError("Production requires secure session cookies")
             if self.session_signing_secret.get_secret_value().startswith("local-only-"):
                 raise ValueError("Production requires a non-development session signing secret")
-            if self.password_scrypt_log2_n < 15:
-                raise ValueError("Production requires password_scrypt_log2_n of at least 15")
             if any(not origin.startswith("https://") for origin in self.allowed_origins):
                 raise ValueError("Production CORS origins must use HTTPS")
             if self.app_url and not self.app_url.startswith("https://"):

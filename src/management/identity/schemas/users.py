@@ -21,9 +21,6 @@ class UserAdminItem(BaseModel):
             "cannot sign in, join a project or become a Platform Admin."
         )
     )
-    must_change_password: bool = Field(
-        description="True until the user replaces the temporary password set at creation."
-    )
     last_login_at: datetime | None
     invite_sent_at: datetime | None = Field(
         description=(
@@ -38,12 +35,6 @@ class UserAdminItem(BaseModel):
 
 
 class UserCreated(UserAdminItem):
-    temporary_password: str = Field(
-        description=(
-            "The password the user signs in with the first time: the part of the email "
-            "before the @, in lower case. Shown here so the admin can pass it on."
-        )
-    )
     invite_email_sent: bool = Field(
         description=(
             "True when the sign-in details were emailed to the user. False when no email "

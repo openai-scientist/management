@@ -22,7 +22,7 @@ class RequestProtectionMiddleware:
         # Code traffic has its own limit so it cannot keep people from signing in.
         self._throttles: list[tuple[frozenset[str], OrderedDict[str, deque[float]], str]] = [
             (
-                frozenset({f"{auth}/login", f"{auth}/register"}),
+                frozenset({f"{auth}/email/start"}),
                 OrderedDict(),
                 "auth_session_rate_limit",
             ),
@@ -30,11 +30,9 @@ class RequestProtectionMiddleware:
                 frozenset(
                     f"{auth}/{name}"
                     for name in (
-                        "verify-email",
-                        "resend-verification",
-                        "forgot-password",
-                        "verify-reset-password",
-                        "reset-password",
+                        "email/verify",
+                        "email/link-info",
+                        "email/verify-link",
                     )
                 ),
                 OrderedDict(),

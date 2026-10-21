@@ -7,7 +7,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from management.access.service import (
     ensure_user_suspension_keeps_project_managers,
@@ -20,11 +19,9 @@ from management.core.errors import APIError
 from management.core.responses import ApiResponse, ErrorResponse, ok, paginated
 from management.core.roles import PlatformRole
 from management.core.search import SearchTerm, matches
-from management.core.security import hash_password
 from management.core.sessions import (
     Principal,
     as_utc,
-    email_local_part,
     normalize_email,
     require_active_csrf,
     require_active_principal,
@@ -112,13 +109,10 @@ async def list_users(
     summary="Create an account for someone else",
     description=(
         "A Platform Admin creates an active account from an email alone, always with the "
-        "`user` role. The Platform "
-        "sets the temporary password to the part of the email before the @ and returns "
-        "it. Nobody is signed in, and the email is not verified: at the first sign-in "
-        "the user confirms it with an emailed code, then must change the password before "
-        "doing anything else. With `send_email` the sign-in details are also emailed; "
-        "`invite_email_sent` says whether that worked. An address that registered but "
-        "never verified is taken over: it gets the temporary password and stays unverified."
+        "`user` role. Nobody is signed in, and the email is not verified until the user "
+        "signs in with an emailed code. With `send_email` the user is also told by email "
+        "how to sign in; `invite_email_sent` says whether that worked. An address that "
+        "started signing in but never verified is taken over and stays unverified."
     ),
     responses={
         409: {"model": ErrorResponse, "description": "A verified account has this email"},
@@ -136,11 +130,6 @@ async def create_user(
     settings: Settings = request.app.state.settings
     normalized = normalize_email(body.email)
     taken = APIError(409, "EMAIL_ALREADY_REGISTERED", "An account with this email already exists")
-    # Set by the Platform, so the minimum length asked of a chosen password does not apply.
-    temporary_password = email_local_part(body.email)
-    password_hash = await run_in_threadpool(
-        hash_password, temporary_password, settings.password_scrypt_log2_n
-    )
     display_name = display_name_or_local_part(body.display_name, body.email)
     invite_sent_at = datetime.now(UTC) if body.send_email else None
     existing_id = await db.scalar(select(User.id).where(User.email_normalized == normalized))
@@ -150,9 +139,9 @@ async def create_user(
         user = await lock_user(db, existing_id)
         if user.email_verified_at is not None or user.status == UserStatus.SUSPENDED:
             raise taken
-        user.password_hash = password_hash
         user.display_name = display_name
-        user.must_change_password = True
+        if body.display_name:
+            user.onboarded_at = user.onboarded_at or datetime.now(UTC)
         user.created_by_user_id = principal.user.id
         user.invite_sent_at = invite_sent_at
         for purpose in OtpPurpose:
@@ -162,9 +151,8 @@ async def create_user(
             email=body.email,
             email_normalized=normalized,
             display_name=display_name,
-            password_hash=password_hash,
             status=UserStatus.ACTIVE,
-            must_change_password=True,
+            onboarded_at=datetime.now(UTC) if body.display_name else None,
             created_by_user_id=principal.user.id,
             invite_sent_at=invite_sent_at,
         )
@@ -200,14 +188,13 @@ async def create_user(
     response_model=ApiResponse[UserCreated],
     summary="Email a user's sign-in details again",
     description=(
-        "Sends the email and the temporary password again, unchanged. Works only while "
-        "the user still has the temporary password (`must_change_password`): a password "
-        "the user chose cannot be read back, and this endpoint does not reset it."
+        "Emails the user again how to sign in. Works only while the user has never "
+        "signed in (`email_verified` is false)."
     ),
     responses={
         409: {
             "model": ErrorResponse,
-            "description": "The user already chose a password, or is suspended",
+            "description": "The user has already signed in, or is suspended",
         },
         429: {
             "model": ErrorResponse,
@@ -234,8 +221,8 @@ async def resend_account_invite(
     target = await lock_user(db, user_id)
     if target.status == UserStatus.SUSPENDED:
         raise APIError(409, "USER_SUSPENDED", "This account is suspended")
-    if not target.must_change_password:
-        raise APIError(409, "INVITE_NOT_PENDING", "The user has already chosen their own password")
+    if target.email_verified_at is not None:
+        raise APIError(409, "INVITE_NOT_PENDING", "The user has already signed in")
     now = datetime.now(UTC)
     if target.invite_sent_at is not None:
         waited = (now - as_utc(target.invite_sent_at)).total_seconds()
@@ -425,13 +412,6 @@ async def update_platform_role(
     elif body.role == PlatformRole.PLATFORM_ADMIN and existing is None:
         if target.email_verified_at is None:
             raise APIError(409, "EMAIL_NOT_VERIFIED", "This user must verify their email first")
-        if target.must_change_password:
-            # Its password is still the guessable temporary one.
-            raise APIError(
-                409,
-                "PASSWORD_CHANGE_PENDING",
-                "This user must sign in and change the temporary password first",
-            )
         db.add(UserPlatformRole(user_id=target.id, role_code=body.role))
         action = "platform_admin.role_granted"
     else:

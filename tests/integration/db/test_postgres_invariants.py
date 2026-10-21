@@ -15,7 +15,7 @@ from management.connections.connectors.base import Column
 from management.core.config import Settings
 from management.db.base import Base
 from management.identity.bootstrap_admin import bootstrap_admin
-from management.identity.models import AuthSession, EmailOtp, User, UserStatus
+from management.identity.models import EmailOtp, User, UserStatus
 from management.main import create_app
 from management.notifications.service import notify_user
 from management.projects.models import Notification, ProjectMembership
@@ -23,13 +23,12 @@ from tests.fakes import FakeTable
 from tests.helpers.connections import create_connection, wait_until
 from tests.helpers.harness import CALLBACK_KEY, CONNECTION_KEY, Harness
 from tests.helpers.identity import (
-    PASSWORD,
     emailed_code,
+    emailed_link_token,
     login,
     mutation_headers,
     post,
-    register,
-    verify,
+    start,
 )
 from tests.helpers.notifications import open_stream
 from tests.helpers.projects import INVITATIONS, PROJECTS, add_member, create_project, invite_member
@@ -66,9 +65,11 @@ async def postgres_harness(tmp_path) -> AsyncIterator[Harness]:
             database_url=database_url,
             cors_allowed_origins="http://localhost:3000",
             session_signing_secret="postgres-test-session-signing-secret",
-            password_scrypt_log2_n=4,
             auth_session_rate_limit=1000,
             auth_code_rate_limit=1000,
+            # As in the SQLite harness: tests sign the same user in again right away.
+            otp_resend_cooldown_seconds=0,
+            otp_max_sends_per_hour=20,
         )
         factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
         app = create_app(settings, engine=engine, session_factory=factory)
@@ -485,16 +486,13 @@ async def test_concurrent_code_checks_and_sends_respect_the_limits(
     harness = postgres_harness
     email = "new@example.com"
     async with harness.client() as first, harness.client() as second:
-        await register(first, email)
+        await start(first, email)
         code = emailed_code(harness, email)
         wrong = f"{(int(code) + 1) % 10**6:06d}"
 
         # Two wrong codes at once are two checks, not one.
         responses = await asyncio.gather(
-            *(
-                post(client, "verify-email", email=email, code=wrong, password=PASSWORD)
-                for client in (first, second)
-            )
+            *(post(client, "email/verify", email=email, code=wrong) for client in (first, second))
         )
         assert [response.status_code for response in responses] == [400, 400]
         async with harness.factory() as db:
@@ -502,9 +500,10 @@ async def test_concurrent_code_checks_and_sends_respect_the_limits(
         assert (row.attempts, row.failed_attempts) == (2, 2)
 
         # Two requests for a new code at once send one.
+        harness.settings.otp_resend_cooldown_seconds = 60
         await _let_another_code_go(harness)
         await asyncio.gather(
-            *(post(client, "resend-verification", email=email) for client in (first, second))
+            *(post(client, "email/start", email=email) for client in (first, second))
         )
         assert len(harness.emails.sent) == 1
         async with harness.factory() as db:
@@ -513,93 +512,38 @@ async def test_concurrent_code_checks_and_sends_respect_the_limits(
 
 @pytest.mark.live
 @pytest.mark.asyncio
-async def test_registering_again_racing_a_verification_never_swaps_the_password(
-    postgres_harness: Harness,
-) -> None:
+async def test_two_starts_for_a_new_address_make_one_account(postgres_harness: Harness) -> None:
     harness = postgres_harness
-    async with harness.client() as owner, harness.client() as stranger:
-        for attempt in range(6):
+    async with harness.client() as first, harness.client() as second:
+        for attempt in range(4):
             email = f"race-{attempt}@example.com"
-            await register(owner, email, "the owner's password")
-            code = emailed_code(harness, email)
-            await _let_another_code_go(harness)
-            verified, _ = await asyncio.gather(
-                post(
-                    owner, "verify-email", email=email, code=code, password="the owner's password"
-                ),
-                post(stranger, "register", email=email, password="the stranger's password"),
+            answers = await asyncio.gather(
+                *(post(client, "email/start", email=email) for client in (first, second))
             )
+            assert [answer.status_code for answer in answers] == [200, 200]
             async with harness.factory() as db:
-                user = await db.scalar(select(User).where(User.email_normalized == email))
-            # Whoever verified is the one whose password the account has.
-            assert (user.email_verified_at is not None) == (verified.status_code == 200)
-            as_owner = await post(owner, "login", email=email, password="the owner's password")
-            as_stranger = await post(
-                stranger, "login", email=email, password="the stranger's password"
-            )
-            if verified.status_code == 200:
-                assert (as_owner.status_code, as_stranger.status_code) == (200, 401)
-            else:
-                assert (as_owner.status_code, as_stranger.status_code) == (401, 403)
-            harness.emails.sent.clear()
+                users = await db.scalar(
+                    select(func.count()).select_from(User).where(User.email_normalized == email)
+                )
+            assert users == 1
 
 
 @pytest.mark.live
 @pytest.mark.asyncio
-async def test_a_reset_outlasts_a_sign_in_or_a_change_racing_it(
-    postgres_harness: Harness,
-) -> None:
+async def test_the_code_and_the_link_together_sign_in_once(postgres_harness: Harness) -> None:
     harness = postgres_harness
-    old, new = "the leaked password", "the owner's new password"
-
-    async def forgot(client, email: str) -> str:
-        await post(client, "forgot-password", email=email)
-        return emailed_code(harness, email)
-
-    async def reset(client, email: str, code: str):
-        verified = await post(client, "verify-reset-password", email=email, code=code)
-        assert verified.status_code == 200, verified.text
-        return await post(
-            client,
-            "reset-password",
-            email=email,
-            reset_token=verified.json()["data"]["reset_token"],
-            new_password=new,
-        )
-
-    async with harness.client() as owner, harness.client() as other, harness.client() as thief:
-        for attempt in range(6):
-            email = f"reset-race-{attempt}@example.com"
-            await register(owner, email, old)
-            session = await verify(harness, owner, email, old)
-            assert (await post(other, "login", email=email, password=old)).status_code == 200
-
-            if attempt % 2:
-                racer = owner.post(
-                    "/api/v1/auth/change-password",
-                    json={"current_password": old, "new_password": "the thief's choice"},
-                    headers=mutation_headers(session["csrf_token"]),
-                )
-            else:
-                racer = post(thief, "login", email=email, password=old)
-            code = await forgot(owner, email)
-            done, raced = await asyncio.gather(reset(owner, email, code), racer)
-
-            assert done.status_code == 200, done.text
-            assert raced.status_code in (200, 401), raced.text
-            async with harness.factory() as db:
-                user = await db.scalar(select(User).where(User.email_normalized == email))
-                live = await db.scalar(
-                    select(func.count())
-                    .select_from(AuthSession)
-                    .where(AuthSession.user_id == user.id, AuthSession.revoked_at.is_(None))
-                )
-            # Nothing made with the old password is left, and the reset's password stands.
-            assert live == 0
-            assert (await post(thief, "login", email=email, password=new)).status_code == 200
-            harness.emails.sent.clear()
-            for client in (owner, other, thief):
-                client.cookies.clear()
+    harness.settings.app_url = "http://localhost:3000"
+    async with harness.client() as by_code, harness.client() as by_link:
+        for attempt in range(4):
+            email = f"both-{attempt}@example.com"
+            await start(by_code, email)
+            token = emailed_link_token(harness, email, keep=True)
+            code = emailed_code(harness, email)
+            answers = await asyncio.gather(
+                post(by_code, "email/verify", email=email, code=code),
+                post(by_link, "email/verify-link", token=token),
+            )
+            assert sorted(answer.status_code for answer in answers) == [200, 400]
 
 
 @pytest.mark.live

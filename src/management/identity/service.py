@@ -1,5 +1,5 @@
+import logging
 from datetime import UTC, datetime, timedelta
-from functools import lru_cache
 
 from fastapi import BackgroundTasks, Request, Response
 from sqlalchemy import func, select
@@ -10,7 +10,6 @@ from management.core.config import Settings
 from management.core.errors import APIError
 from management.core.roles import platform_role_from_code
 from management.core.security import (
-    hash_password,
     new_session_secret,
     token_digest,
 )
@@ -37,11 +36,13 @@ from management.identity.schemas.users import UserAdminItem, UserCreated
 from management.infra.email_sender import EmailSender
 from management.infra.email_templates import account_invite
 
+logger = logging.getLogger("management.identity")
 
-@lru_cache
-def _unused_password_hash(log2_n: int) -> str:
-    """A hash no password matches, so signing in costs the same whether the email exists."""
-    return hash_password(new_session_secret(), log2_n)
+
+def masked_email(email: str) -> str:
+    """`a***@example.com`: enough to recognise an address, not to learn it."""
+    local, _, domain = email.partition("@")
+    return f"{local[:1]}***@{domain}"
 
 
 async def _user_profile(db: AsyncSession, user: User, prefix: str) -> UserProfile:
@@ -54,7 +55,7 @@ async def _user_profile(db: AsyncSession, user: User, prefix: str) -> UserProfil
         status=UserStatus(user.status),
         platform_role=platform_role_from_code(role.role_code if role else None),
         email_verified=user.email_verified_at is not None,
-        must_change_password=user.must_change_password,
+        onboarded=user.onboarded_at is not None,
         created_at=user.created_at,
     )
 
@@ -125,7 +126,12 @@ async def _commit_then_send(
     """
     await db.commit()
     subject, text, html = message
-    background.add_task(sender.send, to=to, subject=subject, text=text, html=html)
+    background.add_task(_send_or_warn, sender, to=to, subject=subject, text=text, html=html)
+
+
+async def _send_or_warn(sender: EmailSender, *, to: str, subject: str, text: str, html: str):
+    if not await sender.send(to=to, subject=subject, text=text, html=html):
+        logger.warning("Email %r to %s was not accepted by the provider", subject, to)
 
 
 async def _fail_after_commit(db: AsyncSession, error: APIError) -> None:
@@ -150,14 +156,16 @@ async def _send_code(
     user: User,
     purpose: OtpPurpose,
     code: str,
+    link_token: str | None = None,
 ) -> None:
     expires_at = datetime.now(UTC) + timedelta(minutes=settings.otp_ttl_minutes)
-    build = (
-        auth_emails.verification_code
-        if purpose == OtpPurpose.VERIFY_EMAIL
-        else auth_emails.password_reset_code
+    link = (
+        f"{settings.app_url.rstrip('/')}/auth/verify#token={link_token}"
+        if settings.app_url and link_token
+        else None
     )
-    message = build(user.email, code, expires_at, settings.otp_ttl_minutes)
+    message = auth_emails.sign_in_code(user.email, code, link, expires_at, settings.otp_ttl_minutes)
+
     await _commit_then_send(db, background, sender, user.email, message)
 
 
@@ -203,7 +211,6 @@ async def _send_account_invite(settings: Settings, sender: EmailSender, user: Us
     subject, text, html = account_invite(
         user.email,
         user.display_name or user.email,
-        email_local_part(user.email),
         settings.app_url,
     )
     return await sender.send(to=user.email, subject=subject, text=text, html=html)
@@ -212,7 +219,6 @@ async def _send_account_invite(settings: Settings, sender: EmailSender, user: Us
 def _created_item(item: UserAdminItem, user: User, *, invite_email_sent: bool) -> UserCreated:
     return UserCreated(
         **item.model_dump(),
-        temporary_password=email_local_part(user.email),
         invite_email_sent=invite_email_sent,
     )
 
@@ -231,7 +237,6 @@ def _admin_item(user: User, role_code: str | None, prefix: str) -> UserAdminItem
         status=user.status,
         platform_role=platform_role_from_code(role_code),
         email_verified=user.email_verified_at is not None,
-        must_change_password=user.must_change_password,
         last_login_at=user.last_login_at,
         invite_sent_at=user.invite_sent_at,
         created_by_user_id=str(user.created_by_user_id) if user.created_by_user_id else None,
