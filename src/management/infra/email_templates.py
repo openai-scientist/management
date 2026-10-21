@@ -90,10 +90,8 @@ def _sign_in_step(app_url: str | None, how: str = "") -> str:
     return f"Open {app_url or f'the {PRODUCT}'} and sign in{how}."
 
 
-def account_invite(
-    email: str, display_name: str, temporary_password: str, app_url: str | None
-) -> tuple[str, str, str]:
-    details = [("Email", email), ("Password", temporary_password)]
+def account_invite(email: str, display_name: str, app_url: str | None) -> tuple[str, str, str]:
+    details = [("Email", email)]
     if app_url:
         details.append(("Sign-in page", app_url))
     text, html = _render(
@@ -102,10 +100,9 @@ def account_invite(
             intro=f"An administrator created an account for you on the {PRODUCT}.",
             details=details,
             steps=[
-                _sign_in_step(app_url, " with the details above"),
-                "Choose your own password when asked. You cannot use the account before that.",
+                _sign_in_step(app_url, " with this email"),
+                "Enter the 6-digit code we email you, or open the sign-in link in that email.",
             ],
-            notes=["This password stops working once you have chosen your own."],
             reason=(
                 f"You received this email because an account was created for {email}. "
                 "If you did not expect it, you can ignore it."
