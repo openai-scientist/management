@@ -39,6 +39,7 @@ def test_connection_settings_are_checked_at_startup(monkeypatch) -> None:
         "session_signing_secret": "a-real-session-signing-secret-of-40-chars",
         "cors_allowed_origins": "https://app.example.com",
         "resend_api_key": "re_key",
+        "app_url": "https://app.example.com",
     }
     assert Settings(_env_file=None, app_env="test", connection_allow_private_hosts=True)
     for env in ("staging", "production"):

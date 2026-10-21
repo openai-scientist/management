@@ -4,17 +4,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Request, Response
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from management.access.service import lock_user
 from management.audit.service import record_audit
 from management.core.config import Settings
-from management.core.errors import APIError
 from management.core.responses import ApiResponse, ErrorResponse, ok
-from management.core.security import (
-    hash_password,
-    verify_password,
-)
 from management.core.sessions import (
     Principal,
     clear_session_cookie,
@@ -27,7 +21,6 @@ from management.core.sessions import (
 )
 from management.core.urls import api_prefix
 from management.db.session import get_db
-from management.identity import auth_emails
 from management.identity.avatars import (
     AVATAR_UPLOAD_ERRORS,
     remove_avatar,
@@ -37,39 +30,32 @@ from management.identity.models import AuthSession, User, UserStatus
 from management.identity.one_time_codes import (
     OtpPurpose,
     check_code,
-    clear_code,
-    consume_reset_token,
-    issue_code,
-    verify_reset_code,
+    consume_sign_in_link,
+    issue_sign_in,
+    sign_in_link_owner,
 )
 from management.identity.schemas.auth import (
     CsrfToken,
     CurrentUser,
+    EmailCodeSignIn,
     EmailRequest,
-    LoginRequest,
     MembershipSummary,
-    PasswordChange,
-    PasswordResetGrant,
     ProfileUpdate,
-    RegisterRequest,
-    ResetPasswordRequest,
     SessionResult,
+    SignInLink,
+    SignInLinkInfo,
     UserProfile,
     VerificationPending,
-    VerifyEmailRequest,
-    VerifyResetPasswordRequest,
 )
 from management.identity.service import (
-    _commit_then_send,
     _fail_after_commit,
     _find_user,
     _invalid_code,
     _pending,
     _send_code,
     _session_details,
-    _unused_password_hash,
     _user_profile,
-    display_name_or_local_part,
+    masked_email,
     record_profile_update,
     start_session,
 )
@@ -125,8 +111,8 @@ CODE_ERRORS = {
     400: {
         "model": ErrorResponse,
         "description": (
-            "`OTP_INVALID`: the code is wrong, expired, used, spent after too many checks "
-            "or locked, or the email or password does not match. One answer for all of them."
+            "`OTP_INVALID`: the code or link is wrong, expired, used, spent after too many "
+            "checks or locked, or the account is suspended. One answer for all of them."
         ),
     },
     403: {"model": ErrorResponse, "description": "Origin is not allowed"},
@@ -135,25 +121,38 @@ CODE_ERRORS = {
 }
 
 
+async def _signed_in_by_email(
+    db: AsyncSession, request: Request, response: Response, settings: Settings, user: User
+) -> SessionResult:
+    """Start a session for a user who just proved the inbox with a code or a link."""
+    if user.email_verified_at is None:
+        user.email_verified_at = datetime.now(UTC)
+        record_audit(
+            db,
+            actor_user_id=user.id,
+            action="user.email_verified",
+            resource_type="user",
+            resource_id=user.id,
+            request_id=getattr(request.state, "request_id", None),
+        )
+    return await start_session(db, response, settings, user)
+
+
 @router.post(
-    "/register",
-    status_code=201,
+    "/email/start",
     response_model=ApiResponse[VerificationPending],
-    summary="Create an account and email a verification code",
+    summary="Email a sign-in code and link",
     description=(
-        "Registers a user with an email and a password and emails a 6-digit code. Nobody "
-        "is signed in: the account works only after `verify-email`. Registering again "
-        "for an address that is not verified yet replaces its password and sends a new "
-        "code, unless a code went out less than `resend_after_seconds` ago; then nothing "
-        "changes and the earlier password stays."
+        "Sends a 6-digit code and a sign-in link to the address. An address without an "
+        "account gets one, signed in as soon as the code or link is used. Always answers "
+        "the same, whatever the address: nothing is sent to a suspended account, or while "
+        "the last code is younger than `resend_after_seconds`, and then the earlier code "
+        "and link keep working."
     ),
-    responses={
-        **SIGN_IN_ERRORS,
-        409: {"model": ErrorResponse, "description": "A verified account has this email"},
-    },
+    responses={key: CODE_ERRORS[key] for key in (403, 413, 429)},
 )
-async def register(
-    body: RegisterRequest,
+async def start_email_sign_in(
+    body: EmailRequest,
     request: Request,
     background: BackgroundTasks,
     _: None = Depends(require_origin),
@@ -161,20 +160,13 @@ async def register(
     sender: EmailSender = Depends(get_email_sender),
 ) -> ApiResponse[VerificationPending]:
     settings: Settings = request.app.state.settings
-    normalized = normalize_email(body.email)
-    display_name = display_name_or_local_part(body.display_name, body.email)
-    password_hash = await run_in_threadpool(
-        hash_password, body.password, settings.password_scrypt_log2_n
-    )
-    answer = ok(_pending(settings, body.email), "Verification code sent")
+    answer = ok(_pending(settings, body.email), "If the address can sign in, a code is on its way")
     user = await _find_user(db, body.email)
-    created = user is None
-    if created:
+    if user is None:
         user = User(
             email=body.email,
-            email_normalized=normalized,
-            display_name=display_name,
-            password_hash=password_hash,
+            email_normalized=normalize_email(body.email),
+            display_name=email_local_part(body.email),
             status=UserStatus.ACTIVE,
         )
         try:
@@ -182,53 +174,43 @@ async def register(
                 db.add(user)
                 await db.flush()
         except IntegrityError:
-            # Someone registered the same email between the check and the insert.
-            created = False
+            # Someone started with the same email between the check and the insert.
             user = await _find_user(db, body.email)
-    if created:
-        record_audit(
-            db,
-            actor_user_id=user.id,
-            action="user.registered",
-            resource_type="user",
-            resource_id=user.id,
-            request_id=getattr(request.state, "request_id", None),
-            details={"status": UserStatus.ACTIVE},
-        )
-    else:
-        user = await lock_user(db, user.id)
-        if user.email_verified_at is not None:
-            raise APIError(
-                409, "EMAIL_ALREADY_REGISTERED", "An account with this email already exists"
+            if user is None:
+                return answer
+        else:
+            record_audit(
+                db,
+                actor_user_id=user.id,
+                action="user.registered",
+                resource_type="user",
+                resource_id=user.id,
+                request_id=getattr(request.state, "request_id", None),
+                details={"status": UserStatus.ACTIVE, "method": "email"},
             )
-        if user.status == UserStatus.SUSPENDED:
-            return answer
-    code = await issue_code(db, settings, user, OtpPurpose.VERIFY_EMAIL)
-    if code is None:
+    user = await lock_user(db, user.id)
+    if user.status == UserStatus.SUSPENDED:
         return answer
-    if not created:
-        # The password changes only together with a new code, so whoever holds the
-        # earlier code cannot verify an account that now has someone else's password.
-        user.password_hash = password_hash
-        user.display_name = display_name
-        user.must_change_password = False
-    await _send_code(db, background, sender, settings, user, OtpPurpose.VERIFY_EMAIL, code)
+    issued = await issue_sign_in(db, settings, user)
+    if issued is None:
+        return answer
+    code, link_token = issued
+    await _send_code(db, background, sender, settings, user, OtpPurpose.SIGN_IN, code, link_token)
     return answer
 
 
 @router.post(
-    "/verify-email",
+    "/email/verify",
     response_model=ApiResponse[SessionResult],
-    summary="Confirm the email with the code and sign in",
+    summary="Sign in with the emailed code",
     description=(
-        "Takes the email, the 6-digit code and the account's password. Marks the email as "
-        "verified and starts a session, exactly as `login` does. The password is checked "
-        "first, so a mistyped password does not spend the code."
+        "Starts a session and verifies the email the first time. The link sent with the "
+        "code stops working. `user.onboarded` false means the app should ask for a name."
     ),
     responses=CODE_ERRORS,
 )
-async def verify_email(
-    body: VerifyEmailRequest,
+async def verify_email_code(
+    body: EmailCodeSignIn,
     request: Request,
     response: Response,
     _: None = Depends(require_origin),
@@ -236,327 +218,63 @@ async def verify_email(
 ) -> ApiResponse[SessionResult]:
     settings: Settings = request.app.state.settings
     user = await _find_user(db, body.email)
-    stored = (
-        user.password_hash
-        if user is not None and user.password_hash
-        else _unused_password_hash(settings.password_scrypt_log2_n)
-    )
-    if not await run_in_threadpool(verify_password, body.password, stored) or user is None:
+    if user is None:
         raise _invalid_code()
     user = await lock_user(db, user.id)
-    if user.email_verified_at is not None or user.status == UserStatus.SUSPENDED:
+    if user.status == UserStatus.SUSPENDED:
         raise _invalid_code()
-    if not await check_code(db, settings, user, OtpPurpose.VERIFY_EMAIL, body.code):
+    if not await check_code(db, settings, user, OtpPurpose.SIGN_IN, body.code):
         await _fail_after_commit(db, _invalid_code())
-    user.email_verified_at = datetime.now(UTC)
-    record_audit(
-        db,
-        actor_user_id=user.id,
-        action="user.email_verified",
-        resource_type="user",
-        resource_id=user.id,
-        request_id=getattr(request.state, "request_id", None),
-    )
-    return ok(await start_session(db, response, settings, user), "Email verified")
+    return ok(await _signed_in_by_email(db, request, response, settings, user), "Signed in")
 
 
 @router.post(
-    "/resend-verification",
-    response_model=ApiResponse[VerificationPending],
-    summary="Email a new verification code",
+    "/email/link-info",
+    response_model=ApiResponse[SignInLinkInfo],
+    summary="Show whom a sign-in link signs in",
     description=(
-        "Always answers the same, whether or not the address has an account. A code is "
-        "sent only to an account that is waiting for verification, at most one per "
-        "`resend_after_seconds` and a few per hour. A new code replaces the earlier one."
-    ),
-    responses={key: CODE_ERRORS[key] for key in (403, 413, 429)},
-)
-async def resend_verification(
-    body: EmailRequest,
-    request: Request,
-    background: BackgroundTasks,
-    _: None = Depends(require_origin),
-    db: AsyncSession = Depends(get_db),
-    sender: EmailSender = Depends(get_email_sender),
-) -> ApiResponse[VerificationPending]:
-    settings: Settings = request.app.state.settings
-    user = await _find_user(db, body.email)
-    if user is not None:
-        user = await lock_user(db, user.id)
-        if user.email_verified_at is None and user.status == UserStatus.ACTIVE:
-            code = await issue_code(db, settings, user, OtpPurpose.VERIFY_EMAIL)
-            if code is not None:
-                await _send_code(
-                    db, background, sender, settings, user, OtpPurpose.VERIFY_EMAIL, code
-                )
-    return ok(_pending(settings, body.email), "If the address is waiting, a code is on its way")
-
-
-@router.post(
-    "/forgot-password",
-    response_model=ApiResponse[VerificationPending],
-    summary="Email a code to set a new password",
-    description=(
-        "Always answers the same, whether or not the address has an account. An active "
-        "account gets a 6-digit code for `verify-reset-password`, with the same limits as a "
-        "verification code."
-    ),
-    responses={key: CODE_ERRORS[key] for key in (403, 413, 429)},
-)
-async def forgot_password(
-    body: EmailRequest,
-    request: Request,
-    background: BackgroundTasks,
-    _: None = Depends(require_origin),
-    db: AsyncSession = Depends(get_db),
-    sender: EmailSender = Depends(get_email_sender),
-) -> ApiResponse[VerificationPending]:
-    settings: Settings = request.app.state.settings
-    user = await _find_user(db, body.email)
-    if user is not None:
-        user = await lock_user(db, user.id)
-        if user.status == UserStatus.ACTIVE:
-            code = await issue_code(db, settings, user, OtpPurpose.RESET_PASSWORD)
-            if code is not None:
-                await _send_code(
-                    db, background, sender, settings, user, OtpPurpose.RESET_PASSWORD, code
-                )
-    return ok(_pending(settings, body.email), "If the address has an account, a code is on its way")
-
-
-@router.post(
-    "/verify-reset-password",
-    response_model=ApiResponse[PasswordResetGrant],
-    summary="Verify the reset OTP and obtain a one-use reset token",
-    description=(
-        "Consumes the emailed code and returns a reset_token for reset-password. "
-        "The token expires after OTP_TTL_MINUTES and cannot sign in or change the "
-        "password by itself. Passwords, email verification and sessions stay as they are."
+        "Changes nothing. The app shows the partly hidden address and asks the user to "
+        "confirm before calling `email/verify-link`."
     ),
     responses=CODE_ERRORS,
 )
-async def verify_reset_password(
-    body: VerifyResetPasswordRequest,
-    request: Request,
+async def sign_in_link_info(
+    body: SignInLink,
     _: None = Depends(require_origin),
     db: AsyncSession = Depends(get_db),
-) -> ApiResponse[PasswordResetGrant]:
-    settings: Settings = request.app.state.settings
-    user = await _find_user(db, body.email)
-    if user is None:
+) -> ApiResponse[SignInLinkInfo]:
+    owner_id = await sign_in_link_owner(db, body.token)
+    user = await db.get(User, owner_id) if owner_id else None
+    if user is None or user.status == UserStatus.SUSPENDED:
         raise _invalid_code()
-    user = await lock_user(db, user.id)
-    if user.status == UserStatus.SUSPENDED:
-        raise _invalid_code()
-    token = await verify_reset_code(db, settings, user, body.code)
-    if token is None:
-        await _fail_after_commit(db, _invalid_code())
-    await db.commit()
-    return ok(
-        PasswordResetGrant(reset_token=token, expires_in_seconds=settings.otp_ttl_minutes * 60),
-        "Code verified; set a new password with the reset token",
-    )
+    return ok(SignInLinkInfo(email=masked_email(user.email)), "Link works")
 
 
 @router.post(
-    "/reset-password",
-    response_model=ApiResponse[None],
-    summary="Set a new password after reset OTP verification",
-    description=(
-        "Sets the password, signs the user out everywhere and does not sign in: the user "
-        "then signs in with `login`. Requires the one-use reset_token returned by "
-        "`verify-reset-password`. A newly issued reset code invalidates earlier tokens. "
-        "The verified OTP proves the inbox, so it also verifies an "
-        "email that was not verified yet and ends a temporary password."
-    ),
-    responses={
-        **CODE_ERRORS,
-        400: {
-            "model": ErrorResponse,
-            "description": (
-                "`RESET_TOKEN_INVALID` for a wrong, expired, used token or unavailable account; "
-                "or `PASSWORD_UNCHANGED` when the new "
-                "password is the part of the email before the @"
-            ),
-        },
-    },
-)
-async def reset_password(
-    body: ResetPasswordRequest,
-    request: Request,
-    background: BackgroundTasks,
-    _: None = Depends(require_origin),
-    db: AsyncSession = Depends(get_db),
-    sender: EmailSender = Depends(get_email_sender),
-) -> ApiResponse[None]:
-    settings: Settings = request.app.state.settings
-    if body.new_password == email_local_part(body.email):
-        # The temporary password of an admin-created account; anyone can guess it.
-        raise APIError(400, "PASSWORD_UNCHANGED", "Choose a password that is not your email name")
-    password_hash = await run_in_threadpool(
-        hash_password, body.new_password, settings.password_scrypt_log2_n
-    )
-    user = await _find_user(db, body.email)
-    invalid_token = APIError(
-        400, "RESET_TOKEN_INVALID", "The reset token is invalid or has expired"
-    )
-    if user is None:
-        raise invalid_token
-    user = await lock_user(db, user.id)
-    if user.status == UserStatus.SUSPENDED:
-        raise invalid_token
-    if not await consume_reset_token(db, user, body.reset_token):
-        raise invalid_token
-    now = datetime.now(UTC)
-    user.password_hash = password_hash
-    user.must_change_password = False
-    if user.email_verified_at is None:
-        user.email_verified_at = now
-    await clear_code(db, user, OtpPurpose.VERIFY_EMAIL)
-    await db.execute(
-        update(AuthSession)
-        .where(AuthSession.user_id == user.id, AuthSession.revoked_at.is_(None))
-        .values(revoked_at=now)
-    )
-    record_audit(
-        db,
-        actor_user_id=user.id,
-        action="user.password_reset",
-        resource_type="user",
-        resource_id=user.id,
-        request_id=getattr(request.state, "request_id", None),
-    )
-    await _commit_then_send(
-        db, background, sender, user.email, auth_emails.password_changed(user.email, now)
-    )
-    return ok(None, "Password set; sign in with it")
-
-
-@router.post(
-    "/login",
+    "/email/verify-link",
     response_model=ApiResponse[SessionResult],
-    summary="Sign in with email and password",
+    summary="Sign in with the emailed link",
     description=(
-        "Starts a session: sets the HttpOnly session cookie and returns the user and the "
-        "CSRF token to send on mutating requests. An account whose email is not verified "
-        "gets `403 EMAIL_NOT_VERIFIED` and no email: call `resend-verification`, then "
-        "`verify-email`."
+        "Same as `email/verify`, with the token from the link instead of the code. The "
+        "code sent with it stops working."
     ),
-    responses={
-        **SIGN_IN_ERRORS,
-        401: {"model": ErrorResponse, "description": "The email or the password is wrong"},
-    },
+    responses=CODE_ERRORS,
 )
-async def login(
-    body: LoginRequest,
+async def verify_sign_in_link(
+    body: SignInLink,
     request: Request,
     response: Response,
     _: None = Depends(require_origin),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[SessionResult]:
     settings: Settings = request.app.state.settings
-    user = await _find_user(db, body.email)
-    stored = (
-        user.password_hash
-        if user is not None and user.password_hash
-        else _unused_password_hash(settings.password_scrypt_log2_n)
-    )
-    if not await run_in_threadpool(verify_password, body.password, stored) or user is None:
-        raise APIError(401, "INVALID_CREDENTIALS", "The email or the password is wrong")
-    # A reset or a suspension may have finished while the password was being checked; the
-    # session must not outlive it.
-    user = await lock_user(db, user.id)
-    if user.password_hash != stored:
-        raise APIError(401, "INVALID_CREDENTIALS", "The email or the password is wrong")
-    if user.status == UserStatus.SUSPENDED:
-        raise APIError(403, "USER_SUSPENDED", "This account is suspended")
-    if user.email_verified_at is None:
-        raise APIError(403, "EMAIL_NOT_VERIFIED", "Verify this email with a code first")
-    return ok(await start_session(db, response, settings, user), "Signed in")
-
-
-@router.post(
-    "/change-password",
-    response_model=ApiResponse[None],
-    summary="Change your password",
-    description=(
-        "Needs the current password. Every other session of the user is signed out; the "
-        "one making the change stays signed in. A user with a temporary password must "
-        "choose a different one. The user gets an email saying the password was changed."
-    ),
-    responses={
-        **CSRF_ERRORS,
-        400: {
-            "model": ErrorResponse,
-            "description": "The new password is the temporary password again",
-        },
-        403: {
-            "model": ErrorResponse,
-            "description": "The current password is wrong, or the CSRF token is invalid",
-        },
-    },
-)
-async def change_password(
-    body: PasswordChange,
-    request: Request,
-    background: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    principal: Principal = Depends(require_csrf),
-    sender: EmailSender = Depends(get_email_sender),
-) -> ApiResponse[None]:
-    settings: Settings = request.app.state.settings
-    user = principal.user
-    checked = user.password_hash
-    if not await run_in_threadpool(verify_password, body.current_password, checked):
-        raise APIError(403, "CURRENT_PASSWORD_INCORRECT", "The current password is wrong")
-    if body.new_password == email_local_part(user.email) or (
-        user.must_change_password and body.new_password == body.current_password
-    ):
-        # Otherwise the temporary password, which others can guess, would outlive the change
-        # or come back later.
-        raise APIError(
-            400, "PASSWORD_UNCHANGED", "Choose a password different from the temporary one"
-        )
-    new_hash = await run_in_threadpool(
-        hash_password, body.new_password, settings.password_scrypt_log2_n
-    )
-    # Same lock order as a reset: the user row, then the sessions. A reset that finished
-    # while the passwords were being hashed has also revoked this session.
-    user = await lock_user(db, user.id)
-    if user.password_hash != checked:
-        raise APIError(
-            401,
-            "SESSION_EXPIRED",
-            "Platform session is expired or revoked",
-            clear_session_cookie=True,
-        )
-    user.must_change_password = False
-    user.password_hash = new_hash
-    await db.execute(
-        update(AuthSession)
-        .where(
-            AuthSession.user_id == user.id,
-            AuthSession.id != principal.session.id,
-            AuthSession.revoked_at.is_(None),
-        )
-        .values(revoked_at=datetime.now(UTC))
-    )
-    record_audit(
-        db,
-        actor_user_id=user.id,
-        action="user.password_changed",
-        resource_type="user",
-        resource_id=user.id,
-        request_id=getattr(request.state, "request_id", None),
-    )
-    await _commit_then_send(
-        db,
-        background,
-        sender,
-        user.email,
-        auth_emails.password_changed(user.email, datetime.now(UTC)),
-    )
-    return ok(None, "Password changed")
+    owner_id = await sign_in_link_owner(db, body.token)
+    if owner_id is None:
+        raise _invalid_code()
+    user = await lock_user(db, owner_id)
+    if user.status == UserStatus.SUSPENDED or not await consume_sign_in_link(db, user, body.token):
+        raise _invalid_code()
+    return ok(await _signed_in_by_email(db, request, response, settings, user), "Signed in")
 
 
 @router.get(
@@ -615,6 +333,8 @@ async def update_my_profile(
     record_profile_update(
         db, request, actor_user_id=user.id, user=user, display_name=body.display_name
     )
+    if user.onboarded_at is None:
+        user.onboarded_at = datetime.now(UTC)
     return ok(await _user_profile(db, user, prefix), "Profile updated")
 
 
@@ -708,7 +428,7 @@ async def logout(
     summary="Sign out of every session of the current user",
     description=(
         "Revokes all Platform sessions of the signed-in user, including other browsers "
-        "and devices. Use after a password change or a lost device. Requires the "
+        "and devices. Use after a lost device. Requires the "
         "X-CSRF-Token header."
     ),
     responses=CSRF_ERRORS,

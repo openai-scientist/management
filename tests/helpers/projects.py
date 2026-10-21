@@ -1,7 +1,9 @@
+from types import SimpleNamespace
+
 from httpx import AsyncClient
 
 from tests.helpers.harness import ORIGIN
-from tests.helpers.identity import PASSWORD, mutation_headers
+from tests.helpers.identity import mutation_headers, sign_in
 
 PROJECTS = "/api/v1/projects"
 INVITATIONS = "/api/v1/invitations"
@@ -42,11 +44,9 @@ async def add_member(
     """Invite a registered user and accept as that user, in a browser of their own."""
     invited = await invite_member(client, session, project_id, email, role)
     async with AsyncClient(transport=client._transport, base_url=ORIGIN) as invitee:
-        signed_in = await invitee.post(
-            "/api/v1/auth/login",
-            json={"email": email, "password": PASSWORD},
-            headers={"Origin": ORIGIN},
-        )
+        # The emailed code is read from the fake sender behind this client's app.
+        emails = SimpleNamespace(emails=client._transport.app.state.email_sender)
+        signed_in = await sign_in(emails, invitee, email)
         assert signed_in.status_code == 200, signed_in.text
         accepted = await accept_invitation(invitee, signed_in.json()["data"], invited["id"])
         assert accepted.status_code == 200, accepted.text

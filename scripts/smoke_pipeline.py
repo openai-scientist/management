@@ -107,21 +107,20 @@ async def smoke(client, project, csrf_token, *, timeout=600, poll_interval=1, to
 
 
 async def main(args):
-    email, password = os.environ.get("SMOKE_EMAIL"), os.environ.get("SMOKE_PASSWORD")
-    if not email or not password:
-        raise SmokeError("Set SMOKE_EMAIL and SMOKE_PASSWORD in the process environment")
-    async with httpx.AsyncClient(base_url=args.base_url.rstrip("/"), timeout=30) as client:
-        session = data(
-            await client.post(
-                "/api/v1/auth/login",
-                json={"email": email, "password": password},
-                headers={"Origin": str(client.base_url).rstrip("/")},
-            )
+    # Sign-in is by emailed code, so the smoke run borrows a session signed in elsewhere.
+    cookie = os.environ.get("SMOKE_SESSION_COOKIE")
+    if not cookie:
+        raise SmokeError(
+            "Set SMOKE_SESSION_COOKIE to the platform_session cookie of a signed-in user"
         )
+    async with httpx.AsyncClient(
+        base_url=args.base_url.rstrip("/"), timeout=30, cookies={"platform_session": cookie}
+    ) as client:
+        csrf = data(await client.get("/api/v1/auth/csrf-token"))["csrf_token"]
         result = await smoke(
             client,
             args.project,
-            session["csrf_token"],
+            csrf,
             timeout=args.timeout,
             poll_interval=args.poll_interval,
             topic=args.topic,

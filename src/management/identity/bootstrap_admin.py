@@ -41,13 +41,13 @@ async def bootstrap_admin(
                 .with_for_update()
             )
             if user is None:
-                raise APIError(404, "REGISTERED_USER_NOT_FOUND", "Register this email first")
+                raise APIError(404, "REGISTERED_USER_NOT_FOUND", "Sign in with this email first")
             if user.status == UserStatus.SUSPENDED:
                 raise APIError(
                     409, "USER_SUSPENDED", "A suspended user cannot become Platform Admin"
                 )
             if user.email_verified_at is None:
-                raise APIError(409, "EMAIL_NOT_VERIFIED", "Verify this email first")
+                raise APIError(409, "EMAIL_NOT_VERIFIED", "Sign in with an emailed code first")
             db.add(UserPlatformRole(user_id=user.id, role_code=PlatformRole.PLATFORM_ADMIN))
             record_audit(
                 db,

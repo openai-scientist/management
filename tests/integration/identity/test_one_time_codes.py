@@ -8,7 +8,14 @@ from management.identity.one_time_codes import OtpPurpose, check_code, clear_cod
 from tests.helpers.harness import Harness
 
 START = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
-VERIFY, RESET = OtpPurpose.VERIFY_EMAIL, OtpPurpose.RESET_PASSWORD
+VERIFY = OtpPurpose.SIGN_IN
+
+
+@pytest.fixture(autouse=True)
+def production_limits(harness: Harness) -> None:
+    # The harness lifts these so tests can sign in repeatedly; here they are the subject.
+    harness.settings.otp_resend_cooldown_seconds = 60
+    harness.settings.otp_max_sends_per_hour = 5
 
 
 async def new_user(harness: Harness, email: str = "owner@example.com") -> User:
@@ -123,8 +130,6 @@ async def test_ten_wrong_checks_lock_the_purpose_for_an_hour(harness: Harness) -
     assert await check(harness, user, code, minutes(3)) is False
     assert await issue(harness, user, minutes(30)) is None
     assert await issue(harness, user, minutes(61.9)) is None
-    # The other purpose has its own counters.
-    assert await issue(harness, user, minutes(3), RESET) is not None
 
     code = await issue(harness, user, minutes(62))
     assert code is not None
@@ -132,15 +137,13 @@ async def test_ten_wrong_checks_lock_the_purpose_for_an_hour(harness: Harness) -
 
 
 @pytest.mark.asyncio
-async def test_a_code_belongs_to_one_user_and_one_purpose(harness: Harness) -> None:
+async def test_a_code_belongs_to_one_user(harness: Harness) -> None:
     owner = await new_user(harness)
     other = await new_user(harness, "other@example.com")
     code = await issue(harness, owner, START)
     assert await issue(harness, other, START) is not None
-    assert await issue(harness, owner, START, RESET) is not None
     other_code_digest = (await stored(harness, other)).code_digest
 
-    assert await check(harness, owner, code, START, RESET) is False
     # Even if another row held this user's digest, it would not match there.
     assert (await stored(harness, owner)).code_digest != other_code_digest
     assert await check(harness, owner, "12345", START) is False

@@ -10,7 +10,7 @@ from management.identity.google_oauth import GoogleIdentity
 from management.identity.models import User
 from tests.helpers.harness import GOOGLE_CLIENT_ID, ORIGIN, Harness
 
-PASSWORD = "correct horse battery"
+AUTH = "/api/v1/auth"
 
 
 def emailed_code(harness: Harness, email: str, *, keep: bool = False) -> str:
@@ -19,76 +19,58 @@ def emailed_code(harness: Harness, email: str, *, keep: bool = False) -> str:
     The email is taken out of the captured list unless `keep` is set, so tests that count
     messages see only the ones they are about.
     """
+    return _emailed(harness, email, r"code: (\d{6})$", keep=keep)
+
+
+def emailed_link_token(harness: Harness, email: str, *, keep: bool = False) -> str:
+    """The token of the sign-in link in the latest code email to this address."""
+    return _emailed(harness, email, r"#token=([\w-]{64})$", keep=keep)
+
+
+def _emailed(harness: Harness, email: str, pattern: str, *, keep: bool) -> str:
     for message in reversed(harness.emails.sent):
-        found = re.search(r"code: (\d{6})$", message["text"], re.MULTILINE)
+        found = re.search(pattern, message["text"], re.MULTILINE)
         if message["to"].casefold() == email.casefold() and found:
             if not keep:
                 harness.emails.sent.remove(message)
             return found.group(1)
-    raise AssertionError(f"no code was emailed to {email}")
+    raise AssertionError(f"nothing matching {pattern!r} was emailed to {email}")
 
 
-async def verify(
-    harness: Harness, client: AsyncClient, email: str, password: str = PASSWORD
-) -> dict[str, object]:
-    """Enter the emailed code for this account, which signs it in."""
-    response = await client.post(
-        "/api/v1/auth/verify-email",
-        json={"email": email, "code": emailed_code(harness, email), "password": password},
-        headers={"Origin": ORIGIN},
+async def sign_in(harness: Harness, client: AsyncClient, email: str):
+    """Ask for a code for this address and enter it. Returns the verify response."""
+    headers = {"Origin": ORIGIN}
+    started = await client.post(f"{AUTH}/email/start", json={"email": email}, headers=headers)
+    assert started.status_code == 200, started.text
+    return await client.post(
+        f"{AUTH}/email/verify",
+        json={"email": email, "code": emailed_code(harness, email)},
+        headers=headers,
     )
-    assert response.status_code == 200, response.text
-    return response.json()["data"]
 
 
 async def login(
     harness: Harness, client: AsyncClient, *, uid: str, email: str
 ) -> dict[str, object]:
-    """Sign in as the user with this email, registering and verifying it the first time."""
-    headers = {"Origin": ORIGIN}
-    response = await client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": email,
-            "password": PASSWORD,
-            "display_name": uid.replace("-", " ").title(),
-        },
-        headers=headers,
-    )
-    if response.status_code == 201:
-        return await verify(harness, client, email)
-    assert response.status_code == 409, response.text
-    response = await client.post(
-        "/api/v1/auth/login", json={"email": email, "password": PASSWORD}, headers=headers
-    )
+    """Sign in as the user with this email, creating it and naming it after `uid` at first."""
+    response = await sign_in(harness, client, email)
     assert response.status_code == 200, response.text
-    return response.json()["data"]
-
-
-async def sign_in(harness: Harness, client: AsyncClient, email: str, password: str):
-    """Sign in and return the response, entering an emailed code if the account needs one.
-
-    An account an admin created is unverified until its user does this the first time.
-    """
-    headers = {"Origin": ORIGIN}
-    response = await client.post(
-        "/api/v1/auth/login", json={"email": email, "password": password}, headers=headers
-    )
-    if response.status_code != 403 or response.json()["error"]["code"] != "EMAIL_NOT_VERIFIED":
-        return response
-    await client.post("/api/v1/auth/resend-verification", json={"email": email}, headers=headers)
-    return await client.post(
-        "/api/v1/auth/verify-email",
-        json={"email": email, "code": emailed_code(harness, email), "password": password},
-        headers=headers,
-    )
+    session = response.json()["data"]
+    if not session["user"]["onboarded"]:
+        named = await client.patch(
+            f"{AUTH}/me",
+            json={"display_name": uid.replace("-", " ").title()},
+            headers=mutation_headers(session["csrf_token"]),
+        )
+        assert named.status_code == 200, named.text
+        session = {**session, "user": named.json()["data"]}
+    return session
 
 
 def mutation_headers(csrf: str) -> dict[str, str]:
     return {"Origin": ORIGIN, "X-CSRF-Token": csrf}
 
 
-AUTH = "/api/v1/auth"
 USERS = "/api/v1/users"
 EMAIL = "new@example.com"
 
@@ -97,9 +79,9 @@ async def post(client: AsyncClient, name: str, **body: object):
     return await client.post(f"{AUTH}/{name}", json=body, headers={"Origin": ORIGIN})
 
 
-async def register(client: AsyncClient, email: str = EMAIL, password: str = PASSWORD):
-    response = await post(client, "register", email=email, password=password)
-    assert response.status_code == 201, response.text
+async def start(client: AsyncClient, email: str = EMAIL):
+    response = await post(client, "email/start", email=email)
+    assert response.status_code == 200, response.text
     return response
 
 
@@ -156,23 +138,3 @@ def cookies_set(response) -> dict[str, str]:
 
 
 OWNER_EMAIL = "owner@example.com"
-NEW_PASSWORD = "a brand new password"
-
-
-async def reset(client, code: str, *, email: str = OWNER_EMAIL, new_password: str = NEW_PASSWORD):
-    verified = await post(client, "verify-reset-password", email=email, code=code)
-    if verified.status_code != 200:
-        return verified
-    return await post(
-        client,
-        "reset-password",
-        email=email,
-        reset_token=verified.json()["data"]["reset_token"],
-        new_password=new_password,
-    )
-
-
-async def forgot(harness: Harness, client, email: str = OWNER_EMAIL) -> str:
-    response = await post(client, "forgot-password", email=email)
-    assert response.status_code == 200, response.text
-    return emailed_code(harness, email)

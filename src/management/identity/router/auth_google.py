@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +18,7 @@ from management.db.session import get_db
 from management.identity import auth_emails
 from management.identity.avatars import adopt_avatar
 from management.identity.google_oauth import GoogleOAuth, GoogleOAuthError
-from management.identity.models import AuthSession, User, UserStatus
+from management.identity.models import User, UserStatus
 from management.identity.service import display_name_or_local_part, start_session
 from management.infra.email_sender import EmailSender, get_email_sender
 from management.infra.file_store import FileStore, get_file_store
@@ -150,7 +150,6 @@ async def google_callback(
     linked = not created and user.google_subject is None
     now = datetime.now(UTC)
     request_id = getattr(request.state, "request_id", None)
-    password_cleared = False
     if created or linked:
         try:
             async with db.begin_nested():
@@ -161,28 +160,18 @@ async def google_callback(
                         display_name=display_name_or_local_part(identity.name, email)[:200],
                         status=UserStatus.ACTIVE,
                         email_verified_at=now,
+                        onboarded_at=now,
                         google_subject=identity.subject,
                     )
                     db.add(user)
                 else:
                     user.google_subject = identity.subject
-                    # Nobody proved this inbox before, so whoever set the password may not
-                    # be its owner, and an admin's temporary password can be guessed.
-                    password_cleared = user.email_verified_at is None or user.must_change_password
-                    if password_cleared:
-                        user.password_hash = None
-                        user.must_change_password = False
-                        user.email_verified_at = user.email_verified_at or now
+                    # Google has proved the inbox.
+                    user.email_verified_at = user.email_verified_at or now
                 await db.flush()
         except IntegrityError:
             # Another request created this address or linked this Google account first.
             return await refuse(SIGN_IN_FAILED)
-    if password_cleared:
-        await db.execute(
-            update(AuthSession)
-            .where(AuthSession.user_id == user.id, AuthSession.revoked_at.is_(None))
-            .values(revoked_at=now)
-        )
     if created:
         record_audit(
             db,
@@ -201,7 +190,6 @@ async def google_callback(
             resource_type="user",
             resource_id=user.id,
             request_id=request_id,
-            details={"password_cleared": password_cleared},
         )
 
     # The cookie goes on the redirect itself: FastAPI drops cookies set on the injected
@@ -221,6 +209,6 @@ async def google_callback(
             logger.warning("google sign-in: profile picture not kept", exc_info=True)
     if linked:
         # After the commit in start_session, so the email never describes a rolled-back link.
-        subject, text, html = auth_emails.google_linked(user.email, now, password_cleared)
+        subject, text, html = auth_emails.google_linked(user.email, now)
         background.add_task(sender.send, to=user.email, subject=subject, text=text, html=html)
     return _drop_state_cookie(response, settings)
