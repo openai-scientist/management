@@ -12,7 +12,7 @@ The Platform does not run experiments, host a frontend, or manage organizations.
 
 ## Features
 
-- Accounts: email and password sign-up with an emailed 6-digit code, optional Google sign-in, cookie sessions with CSRF protection, password reset, profile pictures, accounts created by an admin.
+- Accounts: passwordless sign-in with an emailed 6-digit code or link (the first one creates the account), optional Google sign-in, cookie sessions with CSRF protection, profile pictures, accounts created by an admin.
 - Projects: five fixed roles, invitations by email, archive and restore. There is no hard delete.
 - Research inputs: versioned CSV datasets, uploaded or imported through a data connection (PostgreSQL, MySQL, BigQuery, Google Sheets, Google Drive, Prometheus, InfluxDB). Project files, a topic and domains.
 - Runs: one active run per project, staged through engines, with a spending cap, gates for human review and result files.
@@ -42,15 +42,15 @@ task migrate   # on a fresh database
 
 The API runs at `http://localhost:8080`. Swagger UI is at `/docs`, the schema at `/openapi.json`. Liveness and readiness are `/api/v1/health/live` and `/api/v1/health/ready`.
 
-**First Platform Admin.** The local stack creates one from `DEFAULT_ADMIN_EMAIL` and `DEFAULT_ADMIN_PASSWORD` (see `.env.example`) once migrations are applied: run `task migrate`, then `task restart`. Staging and production refuse these two settings.
+**First Platform Admin.** The local stack creates one from `DEFAULT_ADMIN_EMAIL` (see `.env.example`) once migrations are applied: run `task migrate`, then `task restart`. Sign in as that address with an emailed code; without `RESEND_API_KEY` the email, code and link included, is in the API log. Staging and production refuse this setting.
 
-Without them, register an account, verify it with the emailed code (without `RESEND_API_KEY` the code is in the API log), then promote it:
+Without it, sign in once with the address you want, then promote it:
 
 ```bash
 docker compose --env-file .env.local -f docker/docker-compose.dev.yml run --rm api python scripts/bootstrap_admin.py --email admin@example.com
 ```
 
-The script refuses to run when a Platform Admin exists. It rejects an unregistered, unverified or suspended account. The Docker image ships `scripts/`.
+The script refuses to run when a Platform Admin exists. It rejects an address that never signed in, or a suspended account. The Docker image ships `scripts/`.
 
 `task --list` shows all shortcuts: `up`, `down`, `restart`, `status`, `logs`, `migrate`, and the `prod:*` set.
 
@@ -109,7 +109,7 @@ The live flows are in `tests/e2e/test_live_connectors.py`. CI never runs them. K
 ## How the Platform works
 
 ```text
-Register and sign in
+Sign in with an emailed code
   -> create a project               the creator is its Project Manager
   -> invite members by email        role: project_manager, researcher or reviewer; accept within 24 hours
   -> add data (optional)            upload a CSV, or import through a data connection
@@ -173,13 +173,13 @@ Someone who is not a member gets `404` for everything in a project. A member who
 
 ## Authentication
 
-- The login name is the email. A user signs in with a password, with Google, or both.
-- `login` and `verify-email` set an HttpOnly session cookie (`platform_session`; `__Host-platform_session` in the production template) and return a CSRF token. After a reload, `GET /api/v1/auth/me` restores the user and `GET /api/v1/auth/csrf-token` returns the token.
-- Send `credentials: "include"`, an `Origin` listed in `CORS_ALLOWED_ORIGINS`, and `X-CSRF-Token` on every `POST`, `PATCH`, `PUT` and `DELETE`. Exempt are the seven calls made before a session exists: `register`, `verify-email`, `resend-verification`, `login`, `forgot-password`, `verify-reset-password`, `reset-password`. A bad token gets `403 CSRF_INVALID`.
+- The login name is the email. There are no passwords: `POST /api/v1/auth/email/start` emails a 6-digit code and a link to `{APP_URL}/auth/verify#token=...`, and creates the account for an unknown address. It answers the same for every address. Either the code (`email/verify`) or the link (`email/verify-link`, after `email/link-info` shows the masked address) signs in; using one ends the other. Both last `OTP_TTL_MINUTES` (10). Google sign-in works beside it.
+- `user.onboarded` is false until the user sets a name with `PATCH /api/v1/auth/me`; the frontend asks for one first.
+- `email/verify` and `email/verify-link` set an HttpOnly session cookie (`platform_session`; `__Host-platform_session` in the production template) and return a CSRF token. After a reload, `GET /api/v1/auth/me` restores the user and `GET /api/v1/auth/csrf-token` returns the token.
+- Send `credentials: "include"`, an `Origin` listed in `CORS_ALLOWED_ORIGINS`, and `X-CSRF-Token` on every `POST`, `PATCH`, `PUT` and `DELETE`. Exempt are the four calls made before a session exists: `email/start`, `email/verify`, `email/link-info`, `email/verify-link`. A bad token gets `403 CSRF_INVALID`.
 - A session lasts 30 days (`SESSION_ABSOLUTE_DAYS`) and ends after 7 idle days (`SESSION_IDLE_MINUTES`). On `401` with `SESSION_EXPIRED` or `USER_SUSPENDED` the cookie is already cleared.
-- Passwords are 8 to 128 characters, stored as scrypt hashes.
 - **Google sign-in** is off until `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI` and `APP_URL` are all set; its two routes answer `404` until then. The browser navigates to `GET /api/v1/auth/google/start`. It returns to `{APP_URL}/` signed in, or to `{APP_URL}/auth/login?error=CODE` with `GOOGLE_SIGN_IN_FAILED`, `GOOGLE_EMAIL_NOT_VERIFIED` or `USER_SUSPENDED`. Only verified `@gmail.com` and Google Workspace addresses are accepted.
-- **Rate limits** are counted per client address and API process over `AUTH_SESSION_RATE_WINDOW_SECONDS` (60) and answer `429 RATE_LIMITED` with `Retry-After`: `login` and `register` share `AUTH_SESSION_RATE_LIMIT` (10); the one-time-code endpoints share `AUTH_CODE_RATE_LIMIT` (20).
+- **Rate limits** are counted per client address and API process over `AUTH_SESSION_RATE_WINDOW_SECONDS` (60) and answer `429 RATE_LIMITED` with `Retry-After`: `email/start` uses `AUTH_SESSION_RATE_LIMIT` (10); `email/verify`, `email/link-info` and `email/verify-link` share `AUTH_CODE_RATE_LIMIT` (20). Ten wrong codes in a row lock the code for an hour; the link still works.
 
 ## API
 
@@ -205,7 +205,7 @@ Production (`APP_ENV=production`) must set:
 | `APP_ENV` | `production` (the production Compose file sets it) |
 | `DATABASE_URL` | PostgreSQL, `postgresql+asyncpg://...`; the same password as `POSTGRES_PASSWORD` |
 | `SESSION_SIGNING_SECRET` | 32+ characters, not starting with `local-only-` |
-| `CORS_ALLOWED_ORIGINS`, `APP_URL` | HTTPS only |
+| `CORS_ALLOWED_ORIGINS`, `APP_URL` | HTTPS only; `APP_URL` is required, sign-in links point to it |
 | `PUBLIC_BASE_URL` | Address engines and Popper use to reach this API, without `/api/v1` |
 | `RESEND_API_KEY` | Required in staging and production; no account can be verified without it |
 | `POPPER_SERVICE_KEY`, `POPPER_CALLBACK_KEY` | 32+ characters each, when `POPPER_BASE_URL` is set |
@@ -220,7 +220,7 @@ Generate the connection key and keep a copy. Replacing it makes every saved conn
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Production also forces secure cookies, a scrypt cost of at least 15, and refuses `DEFAULT_ADMIN_*` and `CONNECTION_ALLOW_PRIVATE_HOSTS`.
+Production also forces secure cookies and refuses `DEFAULT_ADMIN_EMAIL` and `CONNECTION_ALLOW_PRIVATE_HOSTS`.
 
 ## Deployment and operations
 
